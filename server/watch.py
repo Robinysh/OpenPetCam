@@ -85,6 +85,7 @@ LOUD_PER_HOUR = 6             # at most this many "loud sound" moments per hour 
 FLAP_SWITCHES = 4             # this many day/night switches within FLAP_WINDOW = flapping
 FLAP_WINDOW = 600
 FLAP_LOCK = 7200              # lock to night this long, then back to auto
+AUDIO_LOST = 90                # s without audio samples (mic on, not paused) before the streamer is restarted
 IMAGING_EVERY = 20            # seconds between reads of the camera's day/night state
 BLOCKED_SHARPNESS = 60.0      # Laplacian variance (160x90 gray). Night 1: normal views >= 132, a wall
                               # at close range 14-30 (noisy dark frames up to 176, hence the 10-min rule)
@@ -674,6 +675,7 @@ class Watch:
         self.last_candidate_save = 0.0
         self.events = queue.Queue()
         self.audio = Audio(self.events)
+        self.last_audio_fix = 0.0
         self.clips = Clips()
         self.frames = FrameSource()
         self.source = None
@@ -751,6 +753,20 @@ class Watch:
         con.close()
         cam_action("/x/restart-prudynt.cgi")
         self.stream_down_since = t
+
+    def check_audio_lost(self, privacy, imaging):
+        """Sound gone while video works and the camera says its mic is on: the streamer only brings the mic
+        back after a restart (2026-11-02: after pause/resume the stream carried an empty audio track for
+        20 min until restarted by hand). Restart after AUDIO_LOST s; at most once per 10 min."""
+        t = now()
+        lost = t - self.audio.last_ok
+        if privacy or imaging.get("mic_enabled") == 0 or lost < AUDIO_LOST or t - self.last_audio_fix < 600:
+            return
+        self.last_audio_fix = t
+        con = db()
+        add_event(con, "camera_frozen", {"action": "restart streamer (no sound, mic on)", "down_s": round(lost)})
+        con.close()
+        cam_action("/x/restart-prudynt.cgi")
 
     def on_failure(self):
         self.heal_streamer()
@@ -906,6 +922,7 @@ class Watch:
                 self.imaging = imaging_state()
                 self.check_flapping(con, t)
                 # Paused, but the camera forgot (privacy is not saved across a camera reboot): pause it again.
+                self.check_audio_lost(privacy, self.imaging)
                 if privacy and (self.imaging.get("privacy_enabled") == 0 or self.imaging.get("mic_enabled") == 1):
                     log("privacy: camera is not paused (reboot?), re-applying picture and mic off")
                     camapi.prudynt({"privacy": {"enabled": True}, "audio": {"mic_enabled": False}})
