@@ -17,6 +17,7 @@ import json
 import math
 import os
 import queue
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -49,6 +50,7 @@ HOUSE_FILE = f"{STATE}/housekeeping_day"            # date of the last nightly h
 MODEL = "/opt/petcam/models/yolox_nano.onnx"
 YAMNET_MODEL = "/opt/petcam/models/yamnet.tflite"
 VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_sandy.py
+REPORTS = f"{STATE}/reports"                         # "Something wrong?" reports from the app
 CANDIDATES = f"{STATE}/candidates"                  # frames with dog-like things, for the next bootstrap
 ZONES = f"{STATE}/zones.json"                       # written by the web app
 ZONE_POSE_TOL = (40, 25)                            # pan/tilt steps: camera counts as "at the zone's view"
@@ -62,6 +64,7 @@ PERIOD = 3.0                  # seconds between snapshots (2 s kept the box over
 PRESENT_SCORE = 0.30          # animal score that counts as "the pet is here" (see README for evidence)
 ABSENT_SCORE = 0.15
 LEAVE_AFTER = 180             # seconds without her before "left"
+UNSEEN_AFTER = 30             # seconds without a detection before she counts as out of sight (not resting)
 APPEAR_AFTER = 180            # seconds she must have been gone before "appeared" fires
 FREEZE_AFTER = 90             # seconds of a bit-identical picture before the encoder is restarted
 OFFLINE_AFTER = 180           # seconds of failed snapshots before "camera offline"
@@ -108,7 +111,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS minute(ts INTEGER PRIMARY KEY, n INT, present INT, moving INT,
                                       person INT, motion REAL, noise_db REAL, sounds INT, snap TEXT);
     CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, ts REAL, kind TEXT, detail TEXT,
-                                      clip TEXT, thumb TEXT);
+                                      clip TEXT, thumb TEXT, label TEXT, labelled_by TEXT);
     CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
     """)
     con.close()
@@ -546,6 +549,11 @@ def housekeeping():
     prune_dirs(CANDIDATES, RETAIN["clips_days"])
     prune_dirs(CLIPS, RETAIN["clips_days"])
     prune_clips_by_size(RETAIN["clips_gb"])
+    # Bug reports (frame + 100 s clip each), named YYYYMMDD-HHMMSS: kept 60 days.
+    cutoff = time.strftime("%Y%m%d", time.localtime(now() - 60 * 86400))
+    for n in os.listdir(REPORTS) if os.path.isdir(REPORTS) else []:
+        if n[:8].isdigit() and n[:8] < cutoff:
+            shutil.rmtree(os.path.join(REPORTS, n), ignore_errors=True)
     for n in os.listdir(TIMELAPSE) if os.path.isdir(TIMELAPSE) else []:
         if n[:10] < time.strftime("%Y-%m-%d", time.localtime(now() - RETAIN["timelapse_days"] * 86400)):
             os.remove(f"{TIMELAPSE}/{n}")
@@ -998,6 +1006,15 @@ class Watch:
         if not self.present:
             self.moving_since = None
             return
+        if score < PRESENT_SCORE and t - self.last_seen > UNSEEN_AFTER:
+            # Still "present" only because of the LEAVE_AFTER debounce: not in this frame. Don't call
+            # an empty picture "resting", or the motion of walking out "moving" (2026-11-02 bug: the
+            # app said "resting 5m" over an empty hallway for 3 minutes after she left).
+            self.moving_since = None
+            self.rest_since = None
+            return
+        if score < PRESENT_SCORE:
+            return                       # one missed detection: keep the current rest/move state
         if moving:
             self.moving_since = self.moving_since or t
             # "Woke up / got active": moving for 6 s after resting for 5+ minutes.

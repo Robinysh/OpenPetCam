@@ -58,6 +58,7 @@
   .reticle.go { animation:aim .7s ease-out forwards; }
   @keyframes aim { 0% { opacity:.95; } 70% { opacity:.95; } 100% { opacity:0; } }
   .hint { text-align:center; color:var(--muted); font-size:12px; margin:8px 0 0; }
+  .linkbtn { background:none; border:0; color:var(--muted); font:inherit; text-decoration:underline; padding:6px 4px; min-height:32px; }
 
   /* ---------- controls ---------- */
   .controls { display:grid; grid-template-columns:1fr auto; gap:14px; align-items:center; margin-top:14px; }
@@ -244,7 +245,7 @@
     <div class="the pet-pill" id="the pet-pill"><i></i><span>Looking for {{PET}}…</span></div>
     <div class="health hidden" id="health"></div>
   </div>
-  <p class="hint">Tap the picture to look there · hold the stick to move</p>
+  <p class="hint">Tap the picture to look there · hold the stick to move · <button class="linkbtn" id="report-open" type="button">Something wrong?</button></p>
 
   <div class="controls">
     <div class="side">
@@ -417,6 +418,18 @@
   </div>
 </div>
 
+<div class="sheet-bg hidden" id="report-sheet">
+  <div class="sheet" role="dialog" aria-label="Report a problem">
+    <div class="grab"></div>
+    <h3>Something wrong?</h3>
+    <div class="note" style="margin:0 0 8px">Sends this moment to be debugged: the picture, the last 90 seconds of video, what the app shows and what the camera's watcher was thinking.</div>
+    <div class="note" id="report-shown" style="margin:0 0 8px"></div>
+    <textarea class="field" id="report-note" rows="3" maxlength="2000" placeholder="What looks wrong? e.g. says she's resting but she's not there" style="width:100%;box-sizing:border-box"></textarea>
+    <div class="row"><button class="btn" id="report-cancel" type="button">Cancel</button><button class="btn primary" id="report-send" type="button">Send</button></div>
+    <div class="note" id="report-status"></div>
+  </div>
+</div>
+
 <!-- clip player -->
 <div class="player hidden" id="player">
   <div class="bar"><b id="player-title"></b><button class="btn" id="player-close" type="button">Close</button></div>
@@ -424,8 +437,17 @@
 </div>
 
 <script>
-const PET = {{PET_JS}};
 "use strict";
+const PET = {{PET_JS}};
+// Uncaught errors go to the server (capped there), so phone-only bugs are visible to whoever debugs.
+const clientErrors = [];
+function reportError(where, msg, src, line, col, stack) {
+  const row = { where, msg: String(msg || ""), src: src || "", line: line || "", col: col || "", stack: String(stack || "").slice(0, 2000) };
+  clientErrors.push(Object.assign({ t: Date.now() / 1000 }, row)); if (clientErrors.length > 20) clientErrors.shift();
+  try { fetch("/api/clientlog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(row), keepalive: true }); } catch (e) {}
+}
+window.addEventListener("error", (e) => reportError("error", e.message, e.filename, e.lineno, e.colno, e.error && e.error.stack));
+window.addEventListener("unhandledrejection", (e) => reportError("promise", e.reason && (e.reason.message || e.reason), "", "", "", e.reason && e.reason.stack));
 const $ = (id) => document.getElementById(id);
 // ---- live player: WebRTC (WHEP) straight into our own <video>, so the sound button works on iPhone
 // (a tap inside our page may unmute; an embedded player's video can't be unmuted from outside).
@@ -541,12 +563,43 @@ function sandyText(l) {
   if (!l || l.status === "starting") return [`Looking for ${PET.name}…`, ""];
   if (l.status === "privacy") return ["Camera paused", ""];
   if (l.present) {
+    const unseen = l.last_seen ? Date.now() / 1000 - l.last_seen : 0;
+    if (unseen > 30) return [`${PET.name} · out of sight, seen ${unseen < 90 ? Math.round(unseen) + " s ago" : ago(l.last_seen)}`, ""];
     if (l.moving_since) return [`${PET.name} is moving`, "active"];
     if (l.rest_since) return [`${PET.name} · resting ${fmtDur((Date.now() / 1000 - l.rest_since) / 60)}`, "here"];
     return [`${PET.name} is here`, "here"];
   }
   return [l.last_seen ? `Not in view · seen ${ago(l.last_seen)}` : `${PET.name} isn't in view`, ""];
 }
+// "Something wrong?": freeze what the app shows right now, then send it with a note.
+let reportSnap = null;
+function clientState() {
+  const v = $("live");
+  return {
+    at: Date.now() / 1000, shown_status: $("the pet-pill").textContent, shown_health: $("health").textContent,
+    live_seen_by_app: live, tab: curTab,
+    webrtc: pc ? { connection: pc.connectionState, ice: pc.iceConnectionState } : null,
+    video: v ? { readyState: v.readyState, paused: v.paused, muted: v.muted, time: v.currentTime, w: v.videoWidth, h: v.videoHeight } : null,
+    page: { w: innerWidth, h: innerHeight, dpr: devicePixelRatio, standalone: matchMedia("(display-mode: standalone)").matches, ua: navigator.userAgent },
+    recent_errors: clientErrors.slice(-10),
+  };
+}
+$("report-open").onclick = () => {
+  reportSnap = clientState();
+  $("report-shown").textContent = `App shows: ${reportSnap.shown_status}${reportSnap.shown_health ? " · " + reportSnap.shown_health : ""}`;
+  $("report-status").textContent = ""; $("report-send").disabled = false;
+  $("report-sheet").classList.remove("hidden");
+};
+$("report-cancel").onclick = () => $("report-sheet").classList.add("hidden");
+$("report-send").onclick = async () => {
+  $("report-send").disabled = true; $("report-status").textContent = "Sending…";
+  try {
+    const r = await api("/api/report", { note: $("report-note").value, client: reportSnap || clientState() });
+    $("report-status").textContent = `Sent (${r.id}). Thank you.`; $("report-note").value = "";
+    setTimeout(() => $("report-sheet").classList.add("hidden"), 1500);
+  } catch (e) { $("report-status").textContent = `Couldn't send: ${e.message}`; $("report-send").disabled = false; }
+};
+
 async function pollLive() {
   try { live = await api("/api/live"); } catch (e) { live = null; }
   const [text, cls] = sandyText(live);

@@ -245,7 +245,9 @@ def train():
     manifest = {m["id"]: m for m in load_jsonl(os.path.join(WORK, "manifest.jsonl"))}
     labels = {}
     for r in load_jsonl(os.path.join(WORK, "labels.jsonl")):
-        if r["source"] == "human" or r["id"] not in labels or labels[r["id"]]["source"] != "human":
+        # precedence: human (app 👍/👎) > review (a second look at one crop) > claude (sheet labeller)
+        rank = {"human": 2, "review": 1}
+        if r["id"] not in labels or rank.get(r["source"], 0) >= rank.get(labels[r["id"]]["source"], 0):
             labels[r["id"]] = r
     items = [(manifest[i], 1.0 if r["label"] in ("pet", "the pet") else 0.0) for i, r in labels.items() if i in manifest]
     feats_path = os.path.join(WORK, "features.npz")
@@ -281,11 +283,34 @@ def train():
     zs_th = max(ths, key=lambda t: (prf(y[dev], (zs[dev] >= t).astype(int))["f1"], -abs(t - 0.4)))
     neg_max = float(zs[y == 0].max()) if (y == 0).any() else 0.0
     pos_min = float(zs[y == 1].min()) if (y == 1).any() else 1.0
-    enough = y.sum() >= 40 and (len(y) - y.sum()) >= 20 and len(groups) >= 3
+    # Leave-one-group-out CV: every item scored by a model that never saw its day (or hour).
+    gkey = np.array([key(m) for m, _ in items])
+    oof = np.zeros(len(y))
+    for G in set(gkey):
+        d = gkey != G
+        if len(set(y[d])) < 2:
+            oof[~d] = 0.5
+            continue
+        m_, s_ = X[d].mean(0), X[d].std(0) + 1e-6
+        w_, b_ = fit_logreg((X[d] - m_) / s_, y[d])
+        oof[~d] = 1 / (1 + np.exp(-(((X[~d] - m_) / s_) @ w_ + b_)))
+    cv_th = max(ths, key=lambda t: (prf(y, (oof >= t).astype(int))["f1"], -abs(t - 0.5)))
+    zs_errors = {"toys_accepted": int(((zs >= 0.34) & (y == 0)).sum()), "pets_rejected": int(((zs < 0.34) & (y == 1)).sum())}
+    cv_errors = {"toys_accepted": int(((oof >= cv_th) & (y == 0)).sum()), "pets_rejected": int(((oof < cv_th) & (y == 1)).sum())}
+    # --allow-single-day: for a live failure of the zero-shot filter that can't wait for 3 days of data.
+    # Splits by hour instead of day and accepts 30/15 labels; re-run without it once 3 days exist.
+    single = "--allow-single-day" in sys.argv
+    min_days, min_pos, min_neg = (1, 30, 15) if single else (3, 40, 20)
+    enough = y.sum() >= min_pos and (len(y) - y.sum()) >= min_neg and len(groups) >= min_days and \
+        sum(cv_errors.values()) < sum(zs_errors.values())
     report = {
         "items": len(items), "pet": int(y.sum()), "not_pet": int(len(y) - y.sum()),
         "split": f"by {'day' if len(groups) >= 3 else 'hour'}: dev {int(dev.sum())} / test {int(test.sum())}",
         "verifier_threshold": float(th),
+        "cv": {"by": "day" if len(groups) >= 3 else "hour", "threshold": float(cv_th), "logreg_errors": cv_errors,
+               "zeroshot_0.34_errors": zs_errors,
+               "toy_max": round(float(oof[y == 0].max()), 3) if (y == 0).any() else None,
+               "pet_min": round(float(oof[y == 1].min()), 3) if (y == 1).any() else None},
         "verifier_test": prf(y[test], (prob[test] >= th).astype(int)),
         "yolox_only_current_0.30_test": prf(y[test], (yolo[test] >= 0.30).astype(int)),
         "yolox_only_best_threshold": float(base_th),
@@ -294,14 +319,18 @@ def train():
         "zeroshot_test": prf(y[test], (zs[test] >= zs_th).astype(int)),
         "zeroshot_gap_all_labels": {"not_pet_max": round(neg_max, 3), "pet_min": round(pos_min, 3)},
         "mode_chosen": "logreg" if enough else "zeroshot",
-        "why": "enough labelled data for a held-out test" if enough else
-               "too few labels for a meaningful held-out test (need >=40 pet, >=20 not, >=3 days); using the untrained baseline",
+        "why": (f"cross-validated by {'day' if len(groups) >= 3 else 'hour (--allow-single-day)'}: logreg errors "
+                f"{cv_errors} vs zero-shot {zs_errors}") if enough else
+               "too few labels, or the trained model is not better than zero-shot on held-out data (need >=40 pet, >=20 not, >=3 days or --allow-single-day); using the untrained baseline",
         "trained_at": time.strftime("%Y-%m-%d %H:%M"),
     }
     print(json.dumps(report, indent=1))
     if enough:
+        # Final model on every label; threshold from the out-of-fold (held-out) scores.
+        mu, sd = X.mean(0), X.std(0) + 1e-6
+        w, b = fit_logreg((X - mu) / sd, y)
         out = {"mode": "logreg", "mean": mu.tolist(), "std": sd.tolist(), "w": w.tolist(), "b": float(b),
-               "threshold": float(th), "feature_model": "mobilenetv2-12.onnx", "report": report}
+               "threshold": float(cv_th), "feature_model": "mobilenetv2-12.onnx", "report": report}
     else:
         # midpoint of the gap between the classes when they separate, else the dev-fitted threshold
         zt = round((neg_max + pos_min) / 2, 2) if pos_min > neg_max else float(zs_th)

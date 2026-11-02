@@ -150,6 +150,9 @@ def init_auth_db():
     CREATE TABLE IF NOT EXISTS invites(token_hash TEXT PRIMARY KEY, name TEXT, created REAL, expires REAL,
                                        used_at REAL, created_by TEXT);
     CREATE TABLE IF NOT EXISTS push_subs(endpoint TEXT PRIMARY KEY, device_id TEXT, sub TEXT, prefs TEXT, created REAL);
+    CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, ts REAL, kind TEXT, detail TEXT, clip TEXT, thumb TEXT,
+                                      label TEXT, labelled_by TEXT);
+    CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
     """)
     # Human feedback on moments ("was this the pet?") = ground truth for tuning the detectors.
     cols = [r[1] for r in con.execute("PRAGMA table_info(events)")]
@@ -210,6 +213,9 @@ def push_unsubscribe(device_id):
 
 def push_test(device_id):
     import subprocess
+
+    if not device_id:
+        raise ValueError("Sign in on this device first (Settings) to test its notifications.")
 
     r = subprocess.run(["timeout", "-k", "5", "40", "/opt/petcam/venv/bin/python", "/opt/petcam/alert.py", "--test", device_id or ""],
                        capture_output=True, text=True)
@@ -439,12 +445,15 @@ def start_pose():
     return int(num(p, "pos_0_x", default=xm / 2)), int(num(p, "pos_0_y", default=ym / 2))
 
 
+MOVED_FILE = "/var/lib/petcam/moved_at"
+
+
 def note_camera_moved():
     """Tell petcam-watch the picture is about to shift because WE moved it, not the pet."""
     try:
-        with open("/var/lib/petcam/moved_at", "a"):
+        with open(MOVED_FILE, "a"):
             pass
-        os.utime("/var/lib/petcam/moved_at")
+        os.utime(MOVED_FILE)
     except OSError:
         pass
 
@@ -497,7 +506,7 @@ def _goto_locked(x, y, current):
     if not (0 <= cy <= ym) or not (0 <= cx <= xm):
         # An axis already past its end stop refuses every move on that axis; only homing resets it.
         recalibrate()
-        raise Busy("The camera was past its end stop, so it is recalibrating (about 30 s)")
+        raise Busy("The camera was past its end stop, so it is recalibrating (about 15 s)")
     # Keep tilt off its very ends: with the inverted range check below, a tilt sitting at 0
     # could never be commanded upward again.
     tx = max(0, min(xm, int(round(x))))
@@ -538,12 +547,12 @@ def recalibrate():
     only when it is done; moves are refused until then so they can't overlap the sweep."""
     if time.time() < _homing["until"]:
         return
+    if not _cam["cookie"]:
+        with _cam_lock:
+            cam_login()                 # before blocking moves: a failed login must not block them for 60 s
     _homing["until"] = time.time() + 60
     if _joystick is not None:
         _joystick.forget()
-    if not _cam["cookie"]:
-        with _cam_lock:
-            cam_login()
     cookie = _cam["cookie"]
 
     def run():
@@ -621,7 +630,10 @@ class Joystick:
     a released stick stops within one camera call. The position is tracked locally from our
     own targets and re-read from the camera only when the estimate is stale.
     """
-    STALE = 4.0   # seconds after which the local position estimate is re-read
+    STALE = 120.0  # safety net: re-read the position at least this often
+    # The position is otherwise trusted until something else moves the camera (the watcher's
+    # follow mode, aim/goto, homing): those touch MOVED_FILE or call forget(). Skipping the
+    # re-read saves one ~300 ms camera CGI on the first touch after a pause (profiled 2026-11-02).
 
     def __init__(self):
         self.cv = threading.Condition()
@@ -658,7 +670,11 @@ class Joystick:
                 self.pos = None
 
     def send(self, sx, sy):
-        if self.pos is None or time.time() - self.pos_t > self.STALE:
+        try:
+            moved_elsewhere = os.path.getmtime(MOVED_FILE) > self.pos_t
+        except OSError:
+            moved_elsewhere = False
+        if self.pos is None or moved_elsewhere or time.time() - self.pos_t > self.STALE:
             _, cx, cy = motor_status()
         else:
             cx, cy = self.pos
@@ -971,6 +987,10 @@ def day_report(day=None):
         rows = con.execute("SELECT * FROM minute WHERE ts>=? AND ts<? ORDER BY ts", (start, end)).fetchall()
         events = con.execute("SELECT * FROM events WHERE ts>=? AND ts<? ORDER BY ts DESC LIMIT 200",
                              (start, end)).fetchall()
+        # Totals over the whole day: the feed above is capped at 200, the tiles must not be.
+        kind_counts = dict(con.execute("SELECT kind, count(*) FROM events WHERE ts>=? AND ts<? GROUP BY kind",
+                                       (start, end)).fetchall())
+        visits = con.execute("SELECT ts, detail FROM events WHERE kind='visit' AND ts>=? AND ts<?", (start, end)).fetchall()
     finally:
         con.close()
     buckets = [{"present": 0, "moving": 0, "n": 0, "sounds": 0, "person": 0, "snap": None} for _ in range(144)]
@@ -1009,15 +1029,15 @@ def day_report(day=None):
            "clip": f"/media/clips/{e['clip']}" if e["clip"] else None,
            "thumb": f"/media/clips/{e['thumb']}" if e["thumb"] else None} for e in events]
     dog_kinds = ("barking", "howling", "whining", "growling", "dog_sound")
-    sounds = sum(1 for e in ev if e["kind"] in dog_kinds + ("loud_sound",))
-    barks = sum(1 for e in ev if e["kind"] in dog_kinds)
+    sounds = sum(kind_counts.get(k, 0) for k in dog_kinds + ("loud_sound",))
+    barks = sum(kind_counts.get(k, 0) for k in dog_kinds)
     zones = {}
-    for e in ev:
-        if e["kind"] == "visit":
-            z = zones.setdefault(e["detail"].get("zone", "?"), {"kind": e["detail"].get("zone_kind"), "count": 0, "last": None, "seconds": 0})
-            z["count"] += 1
-            z["seconds"] += e["detail"].get("seconds", 0)
-            z["last"] = max(z["last"] or 0, e["ts"])
+    for ts, detail in visits:
+        d = json.loads(detail or "{}")
+        z = zones.setdefault(d.get("zone", "?"), {"kind": d.get("zone_kind"), "count": 0, "last": None, "seconds": 0})
+        z["count"] += 1
+        z["seconds"] += d.get("seconds", 0)
+        z["last"] = max(z["last"] or 0, ts)
     timelapse = f"/media/timelapse/{day}.mp4" if os.path.exists(f"{STATE_DIR}/timelapse/{day}.mp4") else None
     highlights = f"/media/highlights/{day}.mp4" if os.path.exists(f"{STATE_DIR}/highlights/{day}.mp4") else None
     return {"day": day, "minutes_recorded": len(rows), "visible_min": visible, "active_min": active,
@@ -1189,6 +1209,86 @@ def wellbeing(day=None):
         notes.append("no water-bowl visits seen today")
     out["notes"] = notes
     return out
+
+
+# ---------- bug reports: everything needed to debug a moment, captured when it happens ----------
+
+REPORTS_DIR = "/var/lib/petcam/reports"
+CLIENT_ERRORS = f"{REPORTS_DIR}/client-errors.jsonl"
+_report_last = {}          # device id -> ts of its last report (rate limit)
+_clientlog = {"window": 0.0, "n": 0}
+
+
+def _db_rows(sql, args):
+    con = dbc()
+    try:
+        return [dict(r) for r in con.execute(sql, args)]
+    finally:
+        con.close()
+
+
+def _report_clip(d, t):
+    """Cut the 90 s before the report (+10 s after) from the rolling recording, once it is on disk."""
+    time.sleep(max(0.0, t + 16 - time.time()))
+    start = t - 90
+    iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(start)) + f".{int((start % 1) * 1e6):06d}Z"
+    url = "http://127.0.0.1:9996/get?" + urllib.parse.urlencode({"path": "cam", "start": iso, "duration": 100, "format": "mp4"})
+
+    def call():
+        with urllib.request.urlopen(url, timeout=30) as r:
+            return r.read(60_000_000)
+    try:
+        data = with_deadline(call, 60)
+        with open(f"{d}/clip.mp4", "wb") as f:
+            f.write(data)
+    except Exception as e:  # noqa: BLE001 - the report is still useful without video
+        with open(f"{d}/clip-error.txt", "w") as f:
+            f.write(str(e))
+
+
+def file_report(device_id, device_name, body):
+    t = time.time()
+    if t - _report_last.get(device_id, 0) < 20:
+        raise Busy("You just sent one. Try again in a few seconds.")
+    _report_last[device_id] = t
+    rid = time.strftime("%Y%m%d-%H%M%S", time.localtime(t))
+    d = f"{REPORTS_DIR}/{rid}"
+    os.makedirs(d, exist_ok=True)
+    client = body.get("client") if isinstance(body.get("client"), dict) else {}
+    client_json = json.dumps(client)[:20_000]
+    rep = {
+        "id": rid, "ts": t, "local_time": time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(t)),
+        "by": device_name, "note": str(body.get("note") or "")[:2000],
+        "client": json.loads(client_json) if len(client_json) < 20_000 else {"truncated": client_json},
+        "live": read_live(), "settings": get_settings(), "zones": list_zones(),
+        "obs_15min": _db_rows("select * from obs where ts > ? order by ts", (t - 900,)),
+        "events_3h": _db_rows("select id, ts, kind, detail, label from events where ts > ? order by ts", (t - 10800,)),
+    }
+    try:
+        with open(f"{d}/frame.jpg", "wb") as f:
+            f.write(live_frame())
+    except Exception as e:  # noqa: BLE001
+        rep["frame_error"] = str(e)
+    with open(f"{d}/report.json", "w") as f:
+        json.dump(rep, f, indent=1, default=str)
+    threading.Thread(target=_report_clip, args=(d, t), daemon=True).start()
+    return {"id": rid}
+
+
+def log_client_error(body, ua):
+    """Uncaught errors from the page (iPhone-only bugs are otherwise invisible). Capped: 30/min, 1 MB."""
+    now = time.time()
+    if now - _clientlog["window"] > 60:
+        _clientlog.update(window=now, n=0)
+    _clientlog["n"] += 1
+    if _clientlog["n"] > 30:
+        return
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    if os.path.exists(CLIENT_ERRORS) and os.path.getsize(CLIENT_ERRORS) > 1_000_000:
+        os.replace(CLIENT_ERRORS, CLIENT_ERRORS + ".1")
+    row = {"ts": now, "ua": (ua or "")[:200]} | {k: str(body.get(k, ""))[:2000] for k in ("msg", "src", "line", "col", "stack", "where")}
+    with open(CLIENT_ERRORS, "a") as f:
+        f.write(json.dumps(row) + "\n")
 
 
 def snap_at(ts):
@@ -1426,7 +1526,11 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, AssertionError):
             return self.send_json(400, {"error": "bad json"})
         me = (self.device() or {}).get("id")
+        if path == "/api/clientlog":
+            log_client_error(body, self.headers.get("User-Agent"))
+            return self.send_json(200, {"ok": True})
         routes = {
+            "/api/report": lambda: file_report(me or "legacy", (self.device() or {}).get("name", "Someone"), body),
             "/api/aim": lambda: aim(body.get("fx", 0), body.get("fy", 0)),
             "/api/nudge": lambda: nudge(body.get("vx", 0), body.get("vy", 0)),
             "/api/goto": lambda: goto(*start_pose()) if body.get("to") == "start" else goto(float(body["x"]), float(body["y"])),

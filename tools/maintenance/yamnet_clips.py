@@ -8,7 +8,7 @@ import numpy as np
 from ai_edge_litert.interpreter import Interpreter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-M = os.path.join(HERE, "..", "models")
+M = os.path.join(HERE, "..", "..", "models")
 names = [r["display_name"] for r in csv.DictReader(open(f"{M}/yamnet_class_map.csv"))]
 DOG = {69: "Dog", 70: "Bark", 71: "Yip", 72: "Howl", 73: "Bow-wow", 74: "Growling", 75: "Whimper"}
 it = Interpreter(model_path=f"{M}/yamnet.tflite", num_threads=1)
