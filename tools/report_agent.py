@@ -248,10 +248,10 @@ def gates(wt):
     if bad or "120000" in kinds:                                # 120000 = a symlink
         return False, f"the change touches files the agent may not ship: {bad or 'a symlink'}"
     # Only tests that run on this computer: the others import the live install (/opt/petcam) and run in tools/qa.py.
-    checks = [["python3", "tests/server/tracker_test.py"], ["python3", "tests/server/events_test.py"],
-              ["python3", "tests/server/presence_test.py"], ["python3", "tests/server/stall_test.py"],
-              ["bash", "-c", "python3 -m py_compile server/*.py tools/*.py"],
-              ["bash", "-c", "python3 -m pyflakes server tools 2>/dev/null | grep -E 'undefined name|unable to detect' && exit 1 || exit 0"],
+    checks = [[sys.executable, "tests/server/tracker_test.py"], [sys.executable, "tests/server/events_test.py"],
+              [sys.executable, "tests/server/presence_test.py"], [sys.executable, "tests/server/stall_test.py"],
+              ["bash", "-c", f"{sys.executable} -m py_compile server/*.py tools/*.py"],
+              ["bash", "-c", f"{sys.executable} -m pyflakes server tools 2>/dev/null | grep -E 'undefined name|unable to detect' && exit 1 || exit 0"],
               ["bash", "-c", "git add -A && tools/check_public.sh"]]
     for c in checks:
         r = run(c, cwd=wt, timeout=600)
