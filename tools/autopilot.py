@@ -169,7 +169,12 @@ def gather():
     day = ssh("sudo -u petcam TZ=$(grep ^TZ= /etc/petcam/site.env | cut -d= -f2) /opt/petcam/venv/bin/python -c \""
               "import sys,json; sys.path.insert(0,'/opt/petcam'); import app; "
               "print(json.dumps({'wellbeing': app.wellbeing(None), 'diary': app.diary()[:3]}, default=str))\"").stdout
-    return {"status": st, "reports": reports, "page_errors": errs[-3000:], "today": day[-6000:]}
+    try:
+        import usage as usage_report
+        use = usage_report.report(7)
+    except Exception as e:  # noqa: BLE001
+        use = {"error": repr(e)}
+    return {"status": st, "reports": reports, "page_errors": errs[-3000:], "today": day[-6000:], "usage": use}
 
 
 def checkin(train_result, clip_review=None):
@@ -187,6 +192,7 @@ Decide whether the owner needs to know or do anything. Things that matter: a ser
 offline or the view blocked, low disk or memory, low CPU burst capacity, NEW bug reports, repeated page errors,
 the detector deployed or rolled back, the detector missing the pet at night (training.deployed.errors_night_ir),
 yesterday's clip review finding false or wrong events (clip_review.problems: name the pattern, e.g. toys as the pet),
+usage friction (usage.friction: slow video start, joystick overshoot, slow or failing actions: say what to change),
 zero time with the pet in view all day while sounds show the dog is home. Things that do not matter: routine
 numbers. Reply with ONLY a JSON object: {{"needs_owner": true|false, "headline": "<= 70 chars", "detail":
 "<= 240 chars, plain words, what happened and what (if anything) to do", "for_claude_code": "notes for the

@@ -1,7 +1,7 @@
-# Open-source pet-cam research: gaps versus the pet cam
+# Open-source pet-cam research: gaps versus OpenPetCam
 
 Researched 2026-11-02. Scope: open-source projects relevant to a self-hosted pet camera, compared with
-the pet cam (Thingino/prudynt on a Cinnado D1 T23N, MediaMTX + Python on a Lightsail nano with a ~5% CPU
+OpenPetCam (Thingino/prudynt on a Cinnado D1 T23N, MediaMTX + Python on a Lightsail nano with a ~5% CPU
 baseline). Each claim cites the page or file it came from. **(unverified)** marks anything I could not
 confirm from a primary source. **(measured)** marks numbers I measured myself in this session. Star
 counts come from the GitHub API on 2026-11-02.
@@ -17,7 +17,7 @@ counts come from the GitHub API on 2026-11-02.
   changed. Threshold 0.55 is provisional until the app's 👍/👎 labels are in.
 - **Gaps 2, 3, 4 done (2026-11-02):** push-to-talk (camera-side `play` via the command runner, not the
   RTSP backchannel), zones bound to camera poses, wellbeing vs her own 14-day median. Gap 5 (live
-  two-way talk) dropped at the owner's request. Gap 7 partly done: a toy-vs-the pet verifier (see README).
+  two-way talk) dropped at the owner's request. Gap 7 partly done: a toy-vs-the dog verifier (see README).
 
 ## TL;DR
 
@@ -57,7 +57,7 @@ counts come from the GitHub API on 2026-11-02.
 | Doggy Cam | https://github.com/danshagen/Doggy_Cam_Computer_Vision | MIT | 2 / 2022-02-04 | Pi + webcam motion "calm vs stressed" classifier with a paper and an evaluation harness | Hand-labelled reference + `evaluate_algorithm.py` loop for tuning an activity metric |
 | Cat Prey Analyzer | https://github.com/niciBume/Cat_Prey_Analyzer | MIT | 168 / 2025-08-03 | Cascade of CNNs for prey detection at a cat flap | Cascade pattern: cheap stage gates the expensive one (you already do this with motion → YOLOX) |
 | DogFaceNet | https://github.com/GuillaumeMougeot/DogFaceNet | MIT | 164 / 2026-04-29 | Dog face verification (triplet loss, ResNet) | Dataset on Zenodo/HF. Code needs TF 1.12, so it is not deployable as-is |
-| wildlife-tools / MegaDescriptor | https://github.com/WildlifeDatasets/wildlife-tools, https://huggingface.co/BVRA/MegaDescriptor-T-224 | MIT (tools); **CC-BY-NC-4.0** (model, OK for personal use) | 81 / 2026-10-18 | Animal re-identification toolkit; MegaDescriptor-T is 28.3M params at 224×224 | Embedding + kNN gallery idea for "is it the pet". Too heavy to run continuously (see gaps) |
+| wildlife-tools / MegaDescriptor | https://github.com/WildlifeDatasets/wildlife-tools, https://huggingface.co/BVRA/MegaDescriptor-T-224 | MIT (tools); **CC-BY-NC-4.0** (model, OK for personal use) | 81 / 2026-10-18 | Animal re-identification toolkit; MegaDescriptor-T is 28.3M params at 224×224 | Embedding + kNN gallery idea for "is it the dog". Too heavy to run continuously (see gaps) |
 
 Not studied in depth: Scrypted (https://github.com/koush/scrypted, 6034 stars, licence NOASSERTION per
 the GitHub API), Viseron (https://github.com/roflcoopter/viseron, MIT; its docs host failed TLS when
@@ -154,21 +154,21 @@ https://github.com/themactep/thingino-firmware/tree/master/package/prudynt-t/fil
   box, inertia default 3 frames, optional `loitering_time`, per-zone object filter
   (https://docs.frigate.video/configuration/zones). **Pan/tilt caveat:** zones are in image
   coordinates, so they hold only at a saved view. Store each zone with its view (pan, tilt), and
-  evaluate it only when the camera is at that view (or with Follow the pet off).
+  evaluate it only when the camera is at that view (or with Follow the dog off).
 - **Activity and sleep.** Doggy Cam scores calm vs stressed from motion, and evaluates it against
   hand-labelled reference video (https://github.com/danshagen/Doggy_Cam_Computer_Vision). You already
   have per-minute "moving/resting". The cheap additions are derived metrics: longest uninterrupted rest
   bout, number of settle-downs, restlessness at night (state changes per hour, 22:00–06:00), and
   pacing (box-centre path length per minute while "moving"). All are SQL over your existing per-minute
   table, with zero inference.
-- **Identity ("is it the pet").** DogFaceNet needs aligned dog faces and TF 1.12. MegaDescriptor-T is
+- **Identity ("is it the dog").** DogFaceNet needs aligned dog faces and TF 1.12. MegaDescriptor-T is
   28.3M params (Swin-T), CC-BY-NC-4.0. Its timm/torch stack will not fit 512 MB alongside everything
   else, and an ONNX export is untested **(unverified)**. For a single-dog home, the realistic cheap
   version is: (1) COCO class (dog vs cat/person) from YOLOX, which you have; (2) a colour/size
-  signature of the dog crop (HSV histogram + box area at a given view) against a gallery of the pet
+  signature of the dog crop (HSV histogram + box area at a given view) against a gallery of the dog
   crops. That is my suggestion, not taken from a project.
 
-## 3. Gap table (ranked by value for "feel comfortable about the pet at home" ÷ cost)
+## 3. Gap table (ranked by value for "feel comfortable about the dog at home" ÷ cost)
 
 CPU is expressed as a percentage of one vCPU, averaged; the box's budget is ≈5%. Effort: S ≈ ½ day,
 M ≈ 1–2 days, L ≈ a week+.
@@ -176,12 +176,12 @@ M ≈ 1–2 days, L ≈ a week+.
 | # | Gap | Who shows how | CPU / RAM on this box | Effort | Value | Notes |
 |---|---|---|---|---|---|---|
 | 1 | **ML bark classification** (bark / whine / howl / growl vs door, TV, IR click) | Frigate audio pipeline; Doggy Detector (incident grouping); jatacid (dog classes 70–75) | ≈0.0–0.1% avg (runs only on loud episodes, ~3–5 ms per 1 s window, estimate); +40 MB RSS, +39 MB disk | S | High: fewer false "barking" pushes, and whining/howling (a distress sign) becomes visible | Model file 4.1 MB, Apache-2.0 |
-| 2 | **Talk to the pet, push-to-talk clip** (record in browser, play on camera speaker) | prudynt `docs/audio.md` FIFO `PLAY`; Thingino `play`; PetCam's talk-to-pet UX | ~0 continuous; one ffmpeg remux/transcode of a few seconds per press (<1 CPU-second) | S–M | High (comfort for you, and reassurance for her, though some dogs get confused by a voice with no person) | No backchannel and no new daemon. Latency of seconds |
+| 2 | **Talk to the dog, push-to-talk clip** (record in browser, play on camera speaker) | prudynt `docs/audio.md` FIFO `PLAY`; Thingino `play`; PetCam's talk-to-pet UX | ~0 continuous; one ffmpeg remux/transcode of a few seconds per press (<1 CPU-second) | S–M | High (comfort for you, and reassurance for her, though some dogs get confused by a voice with no person) | No backchannel and no new daemon. Latency of seconds |
 | 3 | **Zones: bowl / water / bed visits** | Monitora Pet (dwell, cooldown, snapshot); Frigate zones (bottom-centre, inertia, loitering) | ~0 (point-in-polygon on boxes you already compute) | S–M | High: "drank water at 14:10", "hasn't eaten since morning" | Bind zones to saved views because of pan/tilt |
 | 4 | **Wellbeing metrics from existing data** (rest bouts, night restlessness, pacing, anomaly vs her 14-day baseline in the daily summary) | Doggy Cam (motion → calm/stressed + evaluation loop); bark-detector (hourly/daily vocal summary) | ~0 (nightly SQL) | S | Medium–high: turns logs into "normal day / unusual day" | Needs no new sensing |
 | 5 | **Live two-way talk** (full duplex) | go2rtc → prudynt ONVIF backchannel, Opus passthrough | go2rtc ~0% idle, packet forwarding while talking; RAM ~15–30 MB **(unverified)**; a second RTSP session to the camera while talking | M | Medium (nice, but #2 covers most of the value) | MediaMTX can't do it. Run go2rtc only as the talk path, or move live view to it. Watch for streamer freezes, which your watchdog already handles |
 | 6 | **Opus mic audio confirmed end to end** | prudynt `docs/webrtc.md` "AAC does not cross WebRTC" | 0 | S | Medium **if** the camera is really on AAC (then live view has no sound) | Check with `DESCRIBE`; the config comment suggests Opus already |
-| 7 | **"Is it the pet" (other dog / person)** | YOLOX COCO classes (have); MegaDescriptor / DogFaceNet (too heavy) | Colour signature ≈0; MegaDescriptor on a new-arrival event only: ~0.3–1 s CPU per call and >100 MB RAM **(estimate, unverified)** | M (colour signature) / L (embeddings) | Low–medium for a single-dog flat; person detection matters more (YOLOX already has `person`) | Push "person seen while you're out" is cheap: same detector |
+| 7 | **"Is it the dog" (other dog / person)** | YOLOX COCO classes (have); MegaDescriptor / DogFaceNet (too heavy) | Colour signature ≈0; MegaDescriptor on a new-arrival event only: ~0.3–1 s CPU per call and >100 MB RAM **(estimate, unverified)** | M (colour signature) / L (embeddings) | Low–medium for a single-dog flat; person detection matters more (YOLOX already has `person`) | Push "person seen while you're out" is cheap: same detector |
 | 8 | **Treat dispenser** | ha-furbo (treat toss via the Furbo bridge); PetCam (ESP32 servo over HTTP) | 0 server | L (hardware) | Medium | Needs an ESP32 + servo/auger feeder on Wi-Fi, reached over WireGuard or LAN. No subscription cost |
 | 9 | HomeKit | Scrypted / go2rtc HomeKit **(not studied)** | go2rtc/Scrypted RAM | M | Low (you already have web push) | Skip |
 
@@ -222,7 +222,7 @@ M ≈ 1–2 days, L ≈ a week+.
   ssh cam 'play -v 80 /tmp/t.wav'` over WireGuard, behind a hard timeout. The `play url=http://…` route
   would avoid scp but is unverified.
 - **Guards:** rate-limit per device; refuse in privacy mode; log each use as an event so the timeline
-  shows "you spoke". Add a 2 s chime first (`playonspeaker` pattern) so the pet isn't startled. Watch
+  shows "you spoke". Add a 2 s chime first (`playonspeaker` pattern) so the dog isn't startled. Watch
   the encoder: your README notes prudynt changes can freeze it. Speaker playback via the FIFO did not
   touch the encoder in prudynt's design, but test it.
 - **Later:** if you want live talk, add go2rtc with
@@ -234,7 +234,7 @@ M ≈ 1–2 days, L ≈ a week+.
 - **Data:** `zones` table with `(id, name, view_id, polygon[normalised 0–1], dwell_s, cooldown_s)`.
   Draw the zones in the existing saved-views UI over a still snapshot.
 - **Logic, per detection:** if the camera is at `view_id` (pan/tilt within a few steps) and Follow is
-  not moving it, test the **bottom-centre** of the pet's box against the polygon (ray casting). Require
+  not moving it, test the **bottom-centre** of the dog's box against the polygon (ray casting). Require
   presence for ≥ `dwell_s` (bowl ≈ 5–10 s; at a 3 s cadence that is 2–4 consecutive hits, the same
   idea as Frigate's `inertia: 3`), then emit `zone_visit(name, start, end)`. Allow one missed detection
   inside a visit (Monitora Pet's tolerance), and apply a cooldown (≈5 min) before counting a new visit.

@@ -90,7 +90,7 @@ w.events.put(("sound", {"kind": "loud sound", "yamnet": {"top": "Speech", "dog":
 w.events.put(("sound", {"kind": "dog sound", "yamnet": {"dog": 0.95}}, t + 5))
 w.drain_events(con, b"")
 assert kinds() == ["dog_sound"], kinds()
-print("owner talking: their voice dropped, the pet barking back kept")
+print("owner talking: their voice dropped, the dog barking back kept")
 
 # 6. The loud-sound cap counts the database, so a restart can't reset it.
 clear()

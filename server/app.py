@@ -140,6 +140,8 @@ def init_auth_db():
     CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, ts REAL, kind TEXT, detail TEXT, clip TEXT, thumb TEXT,
                                       label TEXT, labelled_by TEXT);
     CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
+    CREATE TABLE IF NOT EXISTS usage(ts REAL, device TEXT, kind TEXT, name TEXT, ms REAL, ok INT, detail TEXT);
+    CREATE INDEX IF NOT EXISTS usage_ts ON usage(ts);
     """)
     # Human feedback on moments ("was this the pet?") = ground truth for tuning the detectors.
     cols = [r[1] for r in con.execute("PRAGMA table_info(events)")]
@@ -147,6 +149,69 @@ def init_auth_db():
         con.execute("ALTER TABLE events ADD COLUMN label TEXT")
         con.execute("ALTER TABLE events ADD COLUMN labelled_by TEXT")
     con.close()
+
+
+# ---------- usage telemetry: how the app is really used, so agents can improve it (tools/usage.py) ----------
+# Local only (the 512 MB box can't host an OpenTelemetry + Grafana stack, and this data stays at home).
+# kind "api": every /api call, timed, by device. kind "ui": events the server can't see, sent by the page.
+USAGE_SKIP = {"/api/live", "/api/live/stream", "/api/usage", "/api/clientlog"}
+USAGE_DAYS = 90
+_usage_q = None
+
+
+def usage(device, kind, name, ms=None, ok=True, detail=None, ts=None):
+    global _usage_q
+    import queue
+    if _usage_q is None:
+        _usage_q = queue.Queue(maxsize=5000)
+        threading.Thread(target=_usage_writer, daemon=True).start()
+    try:
+        _usage_q.put_nowait((ts or time.time(), device or "", kind, str(name)[:60], None if ms is None else round(float(ms), 1),
+                             int(bool(ok)), json.dumps(detail, separators=(",", ":"))[:600] if detail else None))
+    except queue.Full:
+        pass
+
+
+def _usage_writer():
+    """Batched inserts every 2 s: a slow disk never delays a request."""
+    import queue
+    while True:
+        rows = [_usage_q.get()]
+        time.sleep(2)
+        while True:
+            try:
+                rows.append(_usage_q.get_nowait())
+            except queue.Empty:
+                break
+        try:
+            con = dbc()
+            con.executemany("INSERT INTO usage VALUES(?,?,?,?,?,?,?)", rows)
+            con.execute("DELETE FROM usage WHERE ts < ?", (time.time() - USAGE_DAYS * 86400,))
+            con.close()
+        except Exception as e:  # noqa: BLE001 - telemetry must never break the app
+            print("usage write failed:", e, flush=True)
+
+
+UI_EVENT_OK = set("abcdefghijklmnopqrstuvwxyz_.0123456789")
+
+
+def record_ui_events(device, body):
+    """POST /api/usage {events: [{t, name, ms?, detail?}]} from the page. Capped and validated."""
+    now = time.time()
+    evs = body.get("events") if isinstance(body.get("events"), list) else []
+    n = 0
+    for e in evs[:100]:
+        if not isinstance(e, dict):
+            continue
+        name = str(e.get("name", ""))[:40]
+        if not name or not set(name) <= UI_EVENT_OK:
+            continue
+        t = e.get("t") if isinstance(e.get("t"), (int, float)) and abs(e["t"] - now) < 3600 else now
+        ms = e.get("ms") if isinstance(e.get("ms"), (int, float)) else None
+        detail = e.get("detail") if isinstance(e.get("detail"), dict) else None
+        usage(device, "ui", name, ms, True, detail, t)
+        n += 1
+    return {"ok": True, "n": n}
 
 
 def label_event(event_id, label, device_id):
@@ -389,7 +454,7 @@ _params = {"t": 0, "v": None}
 
 
 def motor_params():
-    if _params["v"] is None or time.time() - _params["t"] > 600:
+    if _params["v"] is None or time.time() - _params["t"] > 3600:   # fixed motor config: hourly is plenty
         _params["v"] = cam_get("/x/json-motor-params.cgi")
         _params["t"] = time.time()
     return _params["v"]
@@ -1412,6 +1477,14 @@ class Handler(BaseHTTPRequestHandler):
         self._auth = None
         super().handle_one_request()
 
+    def parse_request(self):
+        # Start the response-time clock once the request line and headers have arrived: on a
+        # keep-alive connection handle_one_request first WAITS for the next request, and timing
+        # from there counted the idle gap between touches as response time (4.2 s for a nudge).
+        ok = super().parse_request()
+        self._t0 = time.perf_counter()
+        return ok
+
     def device(self):
         if self._auth is None:
             self._auth = {"device": device_from_cookie(self.headers.get("Cookie"), self.client_ip())}
@@ -1424,6 +1497,11 @@ class Handler(BaseHTTPRequestHandler):
         return bool(self.device()) or self.legacy()
 
     def send(self, code, body=b"", ctype="text/plain; charset=utf-8", headers=None):
+        path = self.path.split("?")[0]
+        if path.startswith("/api/") and path not in USAGE_SKIP:
+            dev = ((self._auth or {}).get("device") or {}).get("id") if isinstance(self._auth, dict) else None
+            usage(dev, "api", f"{self.command} {path}", (time.perf_counter() - getattr(self, "_t0", time.perf_counter())) * 1000,
+                  code < 400, {"status": code} if code >= 400 else None)
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -1613,6 +1691,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, AssertionError):
             return self.send_json(400, {"error": "bad json"})
         me = (self.device() or {}).get("id")
+        if path == "/api/usage":
+            return self.send_json(200, record_ui_events(me, body))
         if path == "/api/clientlog":
             log_client_error(body, self.headers.get("User-Agent"))
             return self.send_json(200, {"ok": True})
@@ -1648,6 +1728,7 @@ def ensure_cam_ssh():
     channel works. Idempotent; failures just leave the CGI path in use."""
     try:
         _camsh.run("true")
+        motor_params()
         return
     except Exception:  # noqa: BLE001
         pass
@@ -1660,6 +1741,10 @@ def ensure_cam_ssh():
         _camsh.down_until = 0
         _camsh.run("true")
         print("camera ssh: fast channel ready", flush=True)
+        try:
+            motor_params()       # warm the caches the app reads on every open (/api/state was ~1 s cold)
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as e:  # noqa: BLE001
         print(f"camera ssh: not available, using the web CGIs ({e})", flush=True)
 

@@ -1,6 +1,6 @@
 """Following the pet: track, chase, search. Used by petcam-watch when "Follow" is on.
 
-Why (2026-11-02 10:04): the pet walked through the frame and lay down by the door, out of view. The
+Why (2026-11-02 10:04): the dog walked through the frame and lay down by the door, out of view. The
 old follow only re-centred on a pet it could see near the edge (two detections in a row, at most
 every 10 s), so a quick walk-through left the camera staring at an empty room for 15 minutes until
 the owner turned it by hand. This keeps the pet in view in three ways:
@@ -31,17 +31,22 @@ SEARCH_AFTER = 45.0     # out of sight this long (after having been followed) ->
 SEARCH_EVERY = 600.0    # at most one unprompted search per 10 min
 SOUND_SEARCH_EVERY = 180.0  # a dog sound while she is not visible may search every 3 min
 USER_PAUSE = 180.0      # a move by a person pauses following/searching this long
-MAX_STOPS = 8
 SETTLE = 0.9            # seconds after a move before a frame is trusted (motion blur, stream latency)
+ROW_STEP = 0.55         # the second search row is this many frame heights toward the floor
+LOOK_FRAMES = 3         # frames judged when stopped (one frame can miss her)
+SCAN_POLL = 0.2         # check a new frame this often while panning (the stream delivers 5 fps)
 
 
 class Tracker:
-    def __init__(self, cam, find_pet, clock, log=print, sleep=None):
-        """cam: position() -> (x, y); goto(x, y); aim(fx, fy); wait_idle(); limits() -> (xmax, ymax);
+    def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None):
+        """cam: position() -> (x, y); home() -> (x, y); goto(x, y) (returns at once); aim(fx, fy); wait_idle(); busy(); stop();
+                 limits() -> (xmax, ymax);
                  frame_steps() -> (pan steps per frame width, tilt steps per frame height);
                  presets() -> [{"x":..,"y":..}]; moved_at() -> mtime of the 'camera moved' mark.
-           find_pet(after_t) -> box [x0, y0, x1, y1] of the verified pet in a frame newer than after_t, or None."""
+           find_pet(after_t) -> box [x0, y0, x1, y1] of the verified pet in a frame newer than after_t, or None.
+           find_now(since) -> the same for the newest frame if it arrived after `since`, without waiting."""
         self.cam, self.find_pet, self.clock, self.log = cam, find_pet, clock, log
+        self.find_now = find_now or (lambda since: None)   # newest frame since `since`, no waiting
         self.sleep = sleep or (lambda s: None)
         self.hist = collections.deque()
         self.last_seen_t = clock()     # starting up counts as "just lost": an unseen pet still gets searched for
@@ -172,47 +177,116 @@ class Tracker:
         return None
 
     # ---- search ---------------------------------------------------------------------------
-    def stops(self, x0, y0):
-        """Saved views first (where people expect her), then a grid across the pan range at the
-        current tilt, nearest to the side she was last heading first."""
-        xm, ym = self.cam.limits()
-        fw, _ = self.cam.frame_steps()
-        pts = [(p["x"], p["y"]) for p in self.cam.presets()]
-        n = max(2, int(math.ceil(xm / (fw * 0.85))) + 1)
-        grid = [(round(i * xm / (n - 1)), y0) for i in range(n)]
-        lean = -1 if (self.last_seen_c and self.last_seen_c[0] > 0) else 1   # +fx (right) means x down
-        grid.sort(key=lambda p: (abs(p[0] - x0) + (0 if (p[0] - x0) * lean >= 0 else fw * 0.5)))
-        out = []
-        for p in pts + grid:
-            if all(abs(p[0] - q[0]) > fw * 0.4 or abs(p[1] - q[1]) > fw * 0.25 for q in out + [(x0, y0)]):
-                out.append(p)
-        return out[:MAX_STOPS]
+    def rows(self, y0):
+        """Tilts to sweep, around the camera's HOME tilt, not wherever it happens to point: level, a step
+        up (sofa, bed) and a step down (floor). Live test 2026-11-02: left tilted down at 300, rows taken
+        from there both looked lower still and missed the dog on the rug above. Nearest row to y0 first."""
+        _, ym = self.cam.limits()
+        _, fh = self.cam.frame_steps()
+        lo, hi = 40, ym - 40                                 # the app's tilt margin
+        try:
+            home = self.cam.home()[1]
+        except Exception:  # noqa: BLE001
+            home = ym / 2
+        rows = []
+        for y in (home, home + ROW_STEP * fh, home - ROW_STEP * fh):
+            y = round(max(lo, min(hi, y)))
+            if all(abs(y - r) > fh * 0.3 for r in rows):
+                rows.append(y)
+        return sorted(rows, key=lambda r: abs(r - y0))
+
+    def look(self, frames=LOOK_FRAMES):
+        """Judge a few fresh frames after the camera settled: one frame can miss a curled-up dog."""
+        for _ in range(frames):
+            box = self.find_pet(self.clock())
+            if box is not None:
+                return box
+        return None
+
+    def _found(self, box, t0, where, reason):
+        cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
+        if max(abs(cx), abs(cy)) > 0.15:
+            self._move(self.cam.aim, cx * 0.9, cy * 0.8)
+        self.last_seen_t, self.last_seen_c = self.clock(), (0.0, 0.0)
+        return f"search ({reason}): found her {where} in {self.clock() - t0:.0f} s"
+
+    def _scan_to(self, b, y, t0, reason):
+        """Pan (slowly) to (b, y), checking every frame on the way. Returns the result text if found."""
+        x_now, y_now = self.cam.position()
+        if abs(x_now - b) < 5 and abs(y_now - y) < 5:
+            return None
+        self._move(self.cam.goto, b, y)              # returns at once; the motor keeps going
+        seen_t = self.clock()
+        while self.cam.busy():
+            if self.user_paused():
+                self.cam.stop()
+                return f"search ({reason}): stopped, a person moved the camera"
+            box = self.find_now(seen_t)
+            seen_t = self.clock()
+            if box is not None:
+                self.cam.stop()
+                self.cam.wait_idle()
+                self.sleep(SETTLE)
+                confirm = self.look()
+                if confirm is not None:
+                    x, _ = self.cam.position()
+                    return self._found(confirm, t0, f"while panning, near ({x}, {y})", reason)
+                self._move(self.cam.goto, b, y)      # glimpse not confirmed: carry on
+            self.sleep(SCAN_POLL)
+        self.own_move_t = self.last_move = self.clock()
+        self.sleep(SETTLE)
+        box = self.look()
+        if box is not None:
+            return self._found(box, t0, f"at ({b}, {y})", reason)
+        return None
 
     def search(self, reason):
+        """Saved views first (stop and look), then a zigzag over two tilt rows. Along each row the
+        camera pans slowly (quiet speed) and EVERY frame is checked while it moves, instead of only
+        stopping and looking: a stop-and-look sweep could pass her between stops, or judge one bad
+        frame. A sighting mid-pan stops the motor, waits for the picture to catch up (the stream lags
+        ~0.7 s, so she is now behind the centre) and confirms on fresh frames before aiming."""
         t0 = self.clock()
         self.last_search = t0
         self.searching = True
         try:
             x0, y0 = self.cam.position()
-            visited = 0
-            for (x, y) in self.stops(x0, y0):
+            xm, _ = self.cam.limits()
+            fw, _ = self.cam.frame_steps()
+            for p in self.cam.presets():
                 if self.user_paused():
                     return f"search ({reason}): stopped, a person moved the camera"
-                self._move(self.cam.goto, x, y)
-                # goto returns once the camera ACCEPTS the move; a long pan takes seconds. Judging a
-                # frame before the motor stops credited the pet (seen mid-pan) to the wrong stop (live test
-                # 2026-11-02: "found" at a blank wall). Wait for the motor, then let the picture settle.
+                if abs(p["x"] - x0) < fw * 0.4 and abs(p["y"] - y0) < fw * 0.25:
+                    continue
+                self._move(self.cam.goto, p["x"], p["y"])
                 self.cam.wait_idle()
                 self.sleep(SETTLE)
-                visited += 1
-                box = self.find_pet(self.clock())
+                box = self.look()
                 if box is not None:
-                    cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
-                    if max(abs(cx), abs(cy)) > 0.15:
-                        self._move(self.cam.aim, cx * 0.9, cy * 0.8)
-                    self.last_seen_t, self.last_seen_c = self.clock(), (0.0, 0.0)
-                    return f"search ({reason}): found her at stop {visited} ({x}, {y}) in {self.clock() - t0:.0f} s"
+                    return self._found(box, t0, f"at the saved view ({p['x']}, {p['y']})", reason)
+            # Look here first, then scan this row toward the side she was last heading, then the rest of it,
+            # then the second row back the other way: no long blind move before scanning starts.
+            box = self.look()
+            if box is not None:
+                return self._found(box, t0, "where the camera already was", reason)
+            heading_right = bool(self.last_seen_c and self.last_seen_c[0] > 0)   # +fx (right) = lower x
+            end_a, end_b = (0, xm) if heading_right else (xm, 0)
+            plan, end = [], end_a                             # zigzag: alternate direction row by row
+            for n, ry in enumerate(self.rows(y0)):
+                if n == 0:
+                    plan += [(end_a, ry), (end_b, ry)]
+                    end = end_b
+                else:
+                    other = end_a if end == end_b else end_b
+                    plan += [(end, ry), (other, ry)]
+                    end = other
+            for (tx, ty) in plan:
+                if self.user_paused():
+                    return f"search ({reason}): stopped, a person moved the camera"
+                res = self._scan_to(tx, ty, t0, reason)
+                if res:
+                    return res
             self._move(self.cam.goto, x0, y0)
-            return f"search ({reason}): not found at {visited} stops, back to ({x0}, {y0})"
+            return f"search ({reason}): not found on {len(self.rows(y0))} rows, back to ({x0}, {y0})"
         finally:
             self.searching = False

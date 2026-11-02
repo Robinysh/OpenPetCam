@@ -446,6 +446,28 @@ function reportError(where, msg, src, line, col, stack) {
   try { fetch("/api/clientlog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(row), keepalive: true }); } catch (e) {}
 }
 window.addEventListener("error", (e) => reportError("error", e.message, e.filename, e.lineno, e.colno, e.error && e.error.stack));
+// Usage events the server can't see (tabs, joystick gestures, video start time, stalls). Batched, local
+// to this camera's server, read by tools/usage.py so agents can see how the app is really used.
+const usageBuf = [], usageSession = Math.random().toString(36).slice(2, 8);
+let sessionT0 = Date.now();
+function track(name, detail, ms) {
+  usageBuf.push({ t: Date.now() / 1000, name, ms, detail: Object.assign({ s: usageSession }, detail || {}) });
+  if (usageBuf.length >= 40) flushUsage();
+}
+function flushUsage() {
+  if (!usageBuf.length) return;
+  const body = JSON.stringify({ events: usageBuf.splice(0) });
+  try {
+    if (navigator.sendBeacon && navigator.sendBeacon("/api/usage", new Blob([body], { type: "application/json" }))) return;
+  } catch (e) {}
+  fetch("/api/usage", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {});
+}
+setInterval(flushUsage, 15000);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { track("session_end", { secs: Math.round((Date.now() - sessionT0) / 1000) }); flushUsage(); }
+  else { sessionT0 = Date.now(); track("session_start", { resumed: true }); }
+});
+track("session_start", { standalone: matchMedia("(display-mode: standalone)").matches, w: innerWidth });
 window.addEventListener("unhandledrejection", (e) => reportError("promise", e.reason && (e.reason.message || e.reason), "", "", "", e.reason && e.reason.stack));
 const $ = (id) => document.getElementById(id);
 // ---- live player: WebRTC (WHEP) straight into our own <video>, so the sound button works on iPhone
@@ -462,14 +484,17 @@ function stopLive() {
   if (pc) { try { pc.close(); } catch (e) {} pc = null; }
   if (whepUrl) { fetch(whepUrl, { method: "DELETE" }).catch(() => {}); whepUrl = null; }
 }
+let liveT0 = 0, liveFirst = false;
 async function startLive() {
   liveWanted = true; clearTimeout(retryTimer); stopLive();
+  liveT0 = Date.now(); liveFirst = false;
   $("conn").textContent = "Connecting…"; $("conn").classList.remove("hidden");
   const conn = new RTCPeerConnection();
   pc = conn;
   conn.addTransceiver("video", { direction: "recvonly" });
   conn.addTransceiver("audio", { direction: "recvonly" });
   conn.ontrack = (ev) => { const v = $("live"); if (v.srcObject !== ev.streams[0]) { v.srcObject = ev.streams[0]; v.play().catch(() => {}); } };
+  $("live").onplaying = () => { if (!liveFirst && liveT0) { liveFirst = true; track("live_first_frame", {}, Date.now() - liveT0); } };
   conn.onconnectionstatechange = () => {
     if (conn !== pc) return;
     if (conn.connectionState === "connected") $("conn").classList.add("hidden");
@@ -488,7 +513,7 @@ async function startLive() {
     if (conn === pc) retryLive();
   }
 }
-function retryLive() { clearTimeout(retryTimer); if (liveWanted) retryTimer = setTimeout(startLive, 2500); }
+function retryLive() { clearTimeout(retryTimer); if (liveWanted) { track("live_reconnect"); retryTimer = setTimeout(startLive, 2500); } }
 function pauseLive() { liveWanted = false; clearTimeout(retryTimer); stopLive(); }
 // A picture that stops advancing for 8 s (sleepy phone, network change) gets a fresh connection.
 setInterval(() => {
@@ -496,13 +521,14 @@ setInterval(() => {
   if (!liveWanted || document.hidden || !pc || pc.connectionState !== "connected") { stallSince = 0; return; }
   if (v.currentTime !== lastT) { lastT = v.currentTime; stallSince = 0; return; }
   stallSince = stallSince || Date.now();
-  if (Date.now() - stallSince > 8000) { stallSince = 0; startLive(); }
+  if (Date.now() - stallSince > 8000) { stallSince = 0; track("live_stall"); startLive(); }
 }, 2000);
 function showSound(on) {
   $("sound-btn").setAttribute("aria-pressed", on); $("snd-on").classList.toggle("hidden", !on); $("snd-off").classList.toggle("hidden", on);
   $("snd-label").textContent = on ? "Sound on" : "Sound"; $("sound-btn").setAttribute("aria-label", on ? "Turn sound off" : "Turn sound on");
 }
 $("sound-btn").onclick = () => {
+  track("sound", { on: $("live").muted });
   const v = $("live"); v.muted = !v.muted; v.play().catch(() => {}); showSound(!v.muted);
 };
 let cam = null, live = null, today = null, dayOffset = 0, curTab = "live";
@@ -533,6 +559,7 @@ function ago(ts) {
 
 // ======================= tabs =======================
 function showTab(tab) {
+  if (tab !== curTab) track("tab", { tab });
   curTab = tab;
   for (const t of ["live", "today", "diary"]) $(`tab-${t}`).classList.toggle("hidden", t !== tab);
   document.querySelectorAll(".tabbar button").forEach((b) => b.toggleAttribute("aria-current", b.dataset.tab === tab));
@@ -584,6 +611,7 @@ function clientState() {
   };
 }
 $("report-open").onclick = () => {
+  track("sheet", { name: "report" });
   reportSnap = clientState();
   $("report-shown").textContent = `App shows: ${reportSnap.shown_status}${reportSnap.shown_health ? " · " + reportSnap.shown_health : ""}`;
   $("report-status").textContent = ""; $("report-send").disabled = false;
@@ -701,20 +729,36 @@ function stickMove(e) {
   // Snap to the main axis when one dominates: keeps moves straight, as most people intend.
   if (Math.abs(v.x) > 2.2 * Math.abs(v.y)) v.y = 0; else if (Math.abs(v.y) > 2.2 * Math.abs(v.x)) v.x = 0;
   vec = v; hotArrows(v);
+  if (gest) gest.peak = Math.max(gest.peak, Math.hypot(v.x, v.y));
 }
 async function tick() {
   if (!vec || inflight) return;          // never queue: a late request is worse than a skipped one
   inflight = true;
+  if (gest) { gest.ticks++; gest.sx += vec.x; gest.sy += vec.y; }
   try { await api("/api/nudge", { vx: vec.x, vy: vec.y }); $("move-note").textContent = ""; }
   catch (e) { $("move-note").textContent = e.message; }
   finally { inflight = false; }
 }
+let gest = null;
 stick.addEventListener("pointerdown", (e) => {
+  gest = { t0: Date.now(), ticks: 0, sx: 0, sy: 0, peak: 0 };
   stick.setPointerCapture(e.pointerId); stick.classList.add("on");
   stickMove(e); tick(); timer = setInterval(tick, 160);
 });
 stick.addEventListener("pointermove", (e) => { if (stick.classList.contains("on")) stickMove(e); });
-function stickEnd() { stick.classList.remove("on"); vec = null; clearInterval(timer); setKnob(0, 0); hotArrows(null); }
+let lastGest = null;
+function stickEnd() {
+  stick.classList.remove("on"); vec = null; clearInterval(timer); setKnob(0, 0); hotArrows(null);
+  if (gest) {
+    const dir = Math.abs(gest.sx) >= Math.abs(gest.sy) ? (gest.sx > 0 ? "right" : "left") : (gest.sy > 0 ? "up" : "down");
+    // a gesture in the opposite direction within 3 s of the last one = overshoot, corrected
+    const opp = { left: "right", right: "left", up: "down", down: "up" };
+    const reversal = !!(lastGest && Date.now() - lastGest.end < 3000 && opp[lastGest.dir] === dir);
+    const d = { ticks: gest.ticks, dir, peak: Math.round(gest.peak * 100) / 100, reversal };
+    if (gest.ticks) { track("joystick", d, Date.now() - gest.t0); lastGest = { dir, end: Date.now() }; }
+    gest = null;
+  }
+}
 stick.addEventListener("pointerup", stickEnd);
 stick.addEventListener("pointercancel", stickEnd);
 document.addEventListener("keydown", (e) => {
@@ -1097,7 +1141,7 @@ async function loadDevices() {
     box.appendChild(row);
   }
 }
-$("open-settings").onclick = () => { $("settings").classList.remove("hidden"); loadDevices(); loadPush(); };
+$("open-settings").onclick = () => { track("sheet", { name: "settings" }); $("settings").classList.remove("hidden"); loadDevices(); loadPush(); };
 $("close-settings").onclick = () => $("settings").classList.add("hidden");
 $("settings").addEventListener("click", (e) => { if (e.target === $("settings")) $("settings").classList.add("hidden"); });
 $("invite-go").onclick = async () => {

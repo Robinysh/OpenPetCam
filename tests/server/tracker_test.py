@@ -13,26 +13,57 @@ FW, FH, XM, YM = 733.0, 424.0, 3700, 1000
 
 
 class World:
-    def __init__(self, X=1850, pet=1850):
-        self.X, self.Y, self.pet, self.t, self.moved = X, 500, pet, 0.0, -1e9
-        self.moves = []
+    """A room on a pan/tilt mount. goto() pans over time at the quiet speed (like the real motor);
+    aim() is the small tracking move, treated as instant. Frames seen while panning lag 0.7 s."""
+    SPEED, LAG = 250.0, 0.7
+
+    def __init__(self, X=1850, pet=1850, pet_y=500, Y=500):
+        self.X, self.Y, self.tx, self.pet, self.pet_y, self.t, self.moved = float(X), float(Y), float(X), pet, pet_y, 0.0, -1e9
+        self.moves, self.hist = [], [(0.0, float(X), float(Y))]
+
+    def advance(self, dt):
+        step = self.SPEED * dt
+        self.X = self.tx if abs(self.tx - self.X) <= step else self.X + step * (1 if self.tx > self.X else -1)
+        self.t += dt
+        self.hist.append((self.t, self.X, self.Y))
+        self.hist = self.hist[-400:]
+
+    def sleep(self, s):
+        for _ in range(max(1, int(round(s / 0.1)))):
+            self.advance(0.1)
 
     # camera API used by the tracker
-    def position(self): return self.X, self.Y
+    def position(self): return round(self.X), round(self.Y)
     def limits(self): return XM, YM
     def frame_steps(self): return FW, FH
     def presets(self): return []
+    def home(self): return 1850, 500
     def moved_at(self): return self.moved
-    def wait_idle(self): return self.X, self.Y
+    def busy(self): return self.X != self.tx
+    def stop(self): self.tx = self.X
+    def wait_idle(self):
+        while self.busy():
+            self.advance(0.1)
+        return self.position()
     def goto(self, x, y):
-        self.X, self.Y = max(0, min(XM, x)), y; self.moved = self.t; self.moves.append(("goto", round(self.X)))
+        self.tx, self.Y = float(max(0, min(XM, x))), float(y); self.moved = self.t; self.moves.append(("goto", round(self.tx)))
     def aim(self, fx, fy):
-        self.X = max(0, min(XM, self.X - fx * FW)); self.moved = self.t; self.moves.append(("aim", round(self.X)))
+        self.X = self.tx = max(0, min(XM, self.X - fx * FW)); self.Y = self.Y - fy * FH; self.moved = self.t
+        self.moves.append(("aim", round(self.X)))
+
+    def box_at(self, X, Y):
+        f, g = (X - self.pet) / FW, (Y - self.pet_y) / FH
+        return [0.5 + f - 0.08, 0.5 + g - 0.1, 0.5 + f + 0.08, 0.5 + g + 0.1] if abs(f) < 0.45 and abs(g) < 0.45 else None
 
     def fx(self): return (self.X - self.pet) / FW
-    def box(self):
-        f = self.fx()
-        return [0.5 + f - 0.08, 0.40, 0.5 + f + 0.08, 0.60] if abs(f) < 0.45 else None
+    def box(self): return self.box_at(self.X, self.Y)
+    def find_pet(self, after):              # a settled look: waits for a fresh frame
+        self.sleep(0.4)
+        return self.box()
+    def find_now(self, since):              # mid-pan: the newest frame shows where the camera was LAG ago
+        past = [h for h in self.hist if h[0] <= self.t - self.LAG]
+        _, X, Y = past[-1] if past else self.hist[0]
+        return self.box_at(X, Y)
 
 
 def run(world, tr, seconds, pet_speed=0.0, sound_at=None, dt=1.0):
@@ -40,8 +71,8 @@ def run(world, tr, seconds, pet_speed=0.0, sound_at=None, dt=1.0):
     The frame reader reports motion where she is whenever she moves inside (or at the edge of) the frame."""
     log = []
     for _ in range(int(seconds / dt)):
-        world.t += dt
         f_before = world.fx()
+        world.advance(dt)
         world.pet += pet_speed * dt
         b = world.box()
         motion = None
@@ -56,7 +87,7 @@ def run(world, tr, seconds, pet_speed=0.0, sound_at=None, dt=1.0):
 
 
 def tracker_for(w):
-    tr = T.Tracker(w, lambda after: w.box(), clock=lambda: w.t, log=lambda m: None)
+    tr = T.Tracker(w, w.find_pet, clock=lambda: w.t, log=lambda m: None, sleep=w.sleep, find_now=w.find_now)
     tr.last_seen_t = w.t
     return tr
 
@@ -115,4 +146,25 @@ log = run(w, tr, 60)
 c = [a for _, a in log if "centre" in a]
 assert len(c) == 1 and abs(w.fx()) < 0.1, (log, w.fx())
 print("resting at the edge:", c[0])
+# 8. Lying on the floor below the view (owner, 2026-11-02: searches never tilted). The second row finds her.
+w = World(X=1850, Y=600, pet=1850 + 733, pet_y=600 - 0.6 * 424); tr = tracker_for(w)
+log = run(w, tr, 120)
+s8 = [a for _, a in log if a.startswith("search")]
+assert s8 and "found her" in s8[0] and w.box() is not None, (s8, w.position())
+print("on the floor below the view:", s8[0])
+
+# 10. Live test 2026-11-02: camera left tilted down (300), the dog higher up on the rug. Rows around HOME find her.
+w = World(X=3300, Y=300, pet=2600, pet_y=500 + 0.5 * 424); tr = tracker_for(w)
+log = run(w, tr, 150)
+s10 = [a for _, a in log if a.startswith("search")]
+assert s10 and "found her" in s10[0] and w.box() is not None, (s10, w.position())
+print("camera left tilted down, she is higher up:", s10[0])
+
+# 9. Only visible part-way along a pan, with the 0.7 s detection lag: seen while panning, stopped,
+#    confirmed on a fresh frame and centred (the lag leaves her behind the centre after the stop).
+w = World(X=200, pet=2200); tr = tracker_for(w)
+log = run(w, tr, 120)
+s9 = [a for _, a in log if a.startswith("search")]
+assert s9 and "found her" in s9[0] and w.box() is not None and abs(w.fx()) < 0.2, (s9, round(w.fx(), 2))
+print("passed mid-pan despite the lag:", s9[0])
 print("tracker ok")

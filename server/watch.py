@@ -222,6 +222,9 @@ class CamAdapter:
     position = staticmethod(lambda: camapi.position())
     goto = staticmethod(lambda x, y: camapi.goto(x, y, camapi.QUIET_SPEED))      # automatic moves: slow and quiet
     wait_idle = staticmethod(lambda: camapi.wait_idle(timeout=30.0))            # a quiet full pan takes ~15 s
+    busy = staticmethod(lambda: camapi.motor_status()[0] != "0")
+    home = staticmethod(lambda: camapi.start_pose())
+    stop = staticmethod(lambda: camapi.motor_cmd("s"))
     aim = staticmethod(lambda fx, fy: camapi.aim(fx, fy, camapi.QUIET_SPEED))
     limits = staticmethod(lambda: camapi.limits())
     frame_steps = staticmethod(lambda: (camapi.PAN_STEPS_PER_FRAME, camapi.TILT_STEPS_PER_FRAME))
@@ -308,7 +311,7 @@ class Verifier:
             return dog
         p = float(1 / (1 + np.exp(-(((z - self.mu) / self.sd) @ self.w + self.b))))
         # The trained model knows the places it has seen; in a new spot or light it can reject the pet
-        # (2026-11-02 13:59: 0.11 for the pet on the rug). A confident "this is a dog" vouches for her too.
+        # (2026-11-02 13:59: 0.11 for the dog on the rug). A confident "this is a dog" vouches for her too.
         # The bar sits above the worst toy seen (octopus, 0.43 live), so toys still can't pass.
         backup = self.cfg.get("zeroshot_backup")
         if backup is not None and dog >= backup:
@@ -667,7 +670,8 @@ class Watch:
         self.dog_sound_pending = False
         self.cam_moves = collections.deque(maxlen=20)
         self.move_box0 = None
-        self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep)
+        self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep,
+                               find_now=self.find_pet_now)
         self.prev_small = None
         self.prev_box = None
         self.last_found = []
@@ -1074,6 +1078,9 @@ class Watch:
                 img = Image.open(io.BytesIO(snapshot("ch1"))).convert("RGB")
             except Exception:  # noqa: BLE001
                 return None
+        return self.verified_box(img)
+
+    def verified_box(self, img):
         found = [f for f in self.det.detect(img, min_score=0.10) if f["label"] != "person"]
         best = None
         for f in sorted(found, key=lambda f: -f["score"])[:3]:
@@ -1081,6 +1088,15 @@ class Watch:
             if p >= (self.verifier.threshold if self.verifier else PRESENT_SCORE) and (best is None or p > best[0]):
                 best = (p, f["box"])
         return best[1] if best else None
+
+    def find_pet_now(self, since):
+        """For the tracker's scan while panning: the newest frame if it arrived after `since`, no waiting."""
+        with self.frames.lock:
+            fresh = self.frames.frame is not None and self.frames.t > since
+        if not fresh:
+            return None
+        img = self.frames.latest()
+        return self.verified_box(img) if img is not None else None
 
     def privacy_on(self):
         try:
@@ -1195,7 +1211,7 @@ class Watch:
             except queue.Empty:
                 return
             if kind == "sound":
-                detail["sandy_visible"] = self.present
+                detail["pet_visible"] = self.present
                 detail["pet_in_frame"] = bool(self.last_seen) and ts - self.last_seen < 5
                 name = detail.pop("kind").replace(" ", "_")
                 y = detail.get("yamnet") or {}

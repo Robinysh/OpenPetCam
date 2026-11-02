@@ -4,7 +4,7 @@ A private, self-hosted pet camera that knows your pet. Flash a cheap Wi-Fi pan/t
 open firmware ([Thingino](https://thingino.com)), point it at a $5/month server you own, and get
 a phone app with live video, your pet's day, and alerts. Video never goes through a vendor's cloud.
 
-Built for one dog (the pet) and then generalized: everything specific to a home lives in one
+Built for one dog (the dog) and then generalized: everything specific to a home lives in one
 git-ignored config file.
 
 ## What you get
