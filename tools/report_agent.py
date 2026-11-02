@@ -131,7 +131,7 @@ def crops(d):
         fd = os.path.join(d, "clipframes")
         os.makedirs(fd, exist_ok=True)
         run(["ffmpeg", "-v", "error", "-y", "-i", clip, "-vf", "fps=0.1,scale=640:360", os.path.join(fd, "%02d.jpg")], timeout=180)
-        frames += [(f"clip+{(int(os.path.basename(p)[:2]) - 1) * 10}s", p) for p in sorted(glob.glob(os.path.join(fd, "*.jpg")))]
+        frames += [(f"clip+{(int(os.path.basename(p)[:2]) - 1) * 10}s", p) for p in sorted(glob.glob(os.path.join(fd, "[0-9][0-9].jpg")))]
     out = []
     for name, path in frames:
         if not os.path.exists(path):
@@ -192,7 +192,7 @@ def run_agent(rid, d, wt, rep):
     note = (rep.get("note") or "").replace('"', "'")
     prompt = PROMPT.format(pet=PET, d=d, reports=OUT, note=note,
                            shown=((rep.get("client") or {}).get("shown_status") or "").replace('"', "'"))
-    cmd = ["timeout", "-k", "10", str(AGENT_TIMEOUT), "claude", "-p", prompt, "--add-dir", d, "--add-dir", OUT,
+    cmd = ["timeout", "-k", "10", str(AGENT_TIMEOUT), "claude", "-p", prompt, "--add-dir", d, "--add-dir", OUT, "--add-dir", os.path.join(ROOT, "models"),
            "--allowedTools", "Read", "Grep", "Glob", "Edit", "Write", "Bash(python3:*)", "Bash(ffmpeg:*)", "Bash(ffprobe:*)",
            "Bash(git diff:*)", "Bash(git status:*)", "Bash(ls:*)", "--output-format", "json"]
     r = run(cmd, cwd=wt, timeout=AGENT_TIMEOUT + 60)
@@ -235,8 +235,18 @@ def apply_labels(rid, d, res):
 
 # ---------------------------------------------------------------- fix -> gated deploy
 
+ALLOWED = ("server/", "tools/", "tests/", "docs/", "README.md")
+NEVER = ("tools/report_agent.py", "tools/check_public.sh", "deploy.sh", "server/install.sh", "server/set-secrets.sh")
+
+
 def gates(wt):
     """Every check a change must pass before it may ship. Returns (ok, text)."""
+    git("add", "-A", cwd=wt)
+    changed = git("diff", "--cached", "--name-only", cwd=wt).split()
+    kinds = git("diff", "--cached", "--summary", cwd=wt)
+    bad = [f for f in changed if not f.startswith(ALLOWED) or f in NEVER]
+    if bad or "120000" in kinds:                                # 120000 = a symlink
+        return False, f"the change touches files the agent may not ship: {bad or 'a symlink'}"
     # Only tests that run on this computer: the others import the live install (/opt/petcam) and run in tools/qa.py.
     checks = [["python3", "tests/server/tracker_test.py"], ["python3", "tests/server/events_test.py"],
               ["python3", "tests/server/presence_test.py"], ["python3", "tests/server/stall_test.py"],
@@ -256,6 +266,14 @@ def healthy(t_deploy):
     r = ssh("systemctl is-active petcam-watch petcam-app mediamtx caddy | sort -u; "
             "echo hb $(( $(date +%s) - $(stat -c %Y /var/lib/petcam/heartbeat) )); "
             f"journalctl -u petcam-watch -u petcam-app --since @{int(t_deploy)} --no-pager | grep -c Traceback")
+    try:
+        v = json.load(open(os.path.join(ROOT, "models", "verifier.json")))
+        want = f"verifier: {v['mode']} threshold {v['threshold']}"
+    except (OSError, ValueError, KeyError):
+        return False, "models/verifier.json missing or unreadable"
+    vl = ssh(f"journalctl -u petcam-watch --since @{int(t_deploy)} --no-pager | grep 'verifier:' | tail -1").stdout
+    if want not in vl or v["mode"] != "logreg":
+        return False, f"watcher loaded '{vl.strip()[-60:]}', expected the trained '{want}'"
     lines = r.stdout.split()
     ok = r.returncode == 0 and lines[:1] == ["active"] and "hb" in lines and int(lines[lines.index("hb") + 1]) < 30 \
         and lines[-1] == "0"
@@ -301,9 +319,8 @@ def handle(rid, st):
         run(["git", "branch", "-D", branch], cwd=ROOT)
     os.makedirs(WT_DIR, exist_ok=True)
     git("worktree", "add", "-q", "-b", branch, wt, "HEAD")
-    for keep in ("models", "config"):                       # git-ignored but needed by tests and tools
-        if os.path.exists(os.path.join(ROOT, keep)) and not os.path.exists(os.path.join(wt, keep)):
-            os.symlink(os.path.join(ROOT, keep), os.path.join(wt, keep))
+    # No links into the worktree: on 2026-11-02 a 'models' link got committed with a fix and, merged, replaced the real
+    # models folder (the deploy then shipped the untrained default verifier). The agent reads models via --add-dir.
     res = run_agent(rid, d, wt, rep)
     n_labels = apply_labels(rid, d, res)
     status, detail, commit = "no_change", "", None

@@ -25,6 +25,8 @@ EDGE = 0.20             # re-aim when the predicted centre is this far from the 
 MOVE_EVERY = 2.5        # seconds between tracking moves
 CENTRE_RESTING = 0.36   # a resting pet this far off-centre (partly cut off) for RESTING_WAIT s gets centred once
 RESTING_WAIT = 20.0
+CENTRE_RESTING_ON = False   # owner, 2026-11-02: no automatic moves while she rests until the motor noise is measured
+                            # (tools/qa.py --hardware noise); re-enable from the measurement, not by guess
 CHASE_WINDOW = (1.0, 8.0)   # chase if she was last seen this many seconds ago...
 CHASE_EDGE = 0.20       # ...off-centre toward an edge (or heading out of the frame), and was moving
 SEARCH_AFTER = 45.0     # out of sight this long (after having been followed) -> search
@@ -33,6 +35,9 @@ SOUND_SEARCH_EVERY = 180.0  # a dog sound while she is not visible may search ev
 GIVE_UP_AFTER = 2       # this many unprompted searches in a row found nothing: stop searching on a timer
                         # until something moves in the picture or a dog sound is heard (2026-11-02: the
                         # camera swept the empty flat every 10 min for an hour while she was out on a walk)
+MOTION_CHASE_QUIET = 180.0  # after a chase set off by motion alone, no new motion chase for this long unless
+                        # she is seen (2026-11-02 16:44-16:48: people moving about while she slept on the rug
+                        # set off 6 motion chases, 18 motor moves in 4 min; the owner wants fewer, quieter moves)
 USER_PAUSE = 180.0      # a move by a person pauses following/searching this long
 SETTLE = 0.9            # seconds after a move before a frame is trusted (motion blur, stream latency)
 ROW_STEP = 0.55         # the second search row is this many frame heights toward the floor
@@ -61,6 +66,7 @@ class Tracker:
         self.chase_dir = None         # (fx, fy) of the last chase; continued while she is still not found
         self.chase_steps = 0
         self.chased_for = None      # last_seen_t of the loss we already chased
+        self.motion_chase_t = -1e9    # when motion alone last started a chase (cleared when she is seen)
         self.last_search = -1e9
         self.failed_searches = 0      # unprompted searches in a row that found nothing
         self.offcentre_since = None
@@ -110,6 +116,7 @@ class Tracker:
             self.hist.popleft()
         recent = t - self.last_seen_t < 3.0
         self.chase_dir, self.chase_steps = None, 0
+        self.motion_chase_t = -1e9
         self.failed_searches = 0
         self.last_moving = bool(moving)
         self.last_seen_t, self.last_seen_c = t, (cx, cy)
@@ -131,7 +138,7 @@ class Tracker:
             return f"track: aim ({fx:+.2f}, {fy:+.2f}), speed {speed:.2f}/s"
         # Lying down but cut off at the side of the picture: centre her once, but only if she is mostly
         # out of the picture. A motor next to a sleeping dog startles her (owner, 2026-11-02).
-        if not moving and max(abs(cx), abs(cy)) > CENTRE_RESTING:
+        if CENTRE_RESTING_ON and not moving and max(abs(cx), abs(cy)) > CENTRE_RESTING:
             self.offcentre_since = self.offcentre_since or t
             if t - self.offcentre_since >= RESTING_WAIT:
                 self.offcentre_since = None
@@ -155,8 +162,9 @@ class Tracker:
         # saw where the picture changed. Motion near an edge, just now, with no pet in view: look there.
         if motion and t - motion[0] < 3.0 and motion[0] > self.own_move_t + 2.0 and motion[0] != self.chased_for:
             mx, my = motion[1], motion[2]
-            if max(abs(mx), abs(my) * 1.2) > 0.3 and t - self.last_move > MOVE_EVERY:
-                self.chased_for, self.chase_steps = motion[0], 0
+            if max(abs(mx), abs(my) * 1.2) > 0.3 and t - self.last_move > MOVE_EVERY and \
+                    t - self.motion_chase_t >= MOTION_CHASE_QUIET:
+                self.chased_for, self.chase_steps, self.motion_chase_t = motion[0], 0, t
                 fx, fy = (math.copysign(0.75, mx), 0.0) if abs(mx) >= abs(my) * 1.2 else (0.0, math.copysign(0.6, my))
                 return self._chase(fx, fy, f"motion at the edge ({mx:+.2f}, {my:+.2f}) and no pet in view")
         # chase: she just walked out at an edge
