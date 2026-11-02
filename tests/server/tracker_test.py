@@ -181,4 +181,25 @@ for _ in range(700):
     log += [a for a in [tr.step(w.box(), moving=False, motion=(w.t - 0.2, 0.1, 0.0))] if a]
 assert any("found her" in a for a in log), log
 print(f"out on a walk: {len(s11)} searches in an hour, then searched again on movement")
+
+# 12. Report 2026-11-02 16:51: the dog asleep out of view, people moving about at the edges of the picture.
+#     Every bit of edge motion started a chase (+2 continuations): 18 motor moves in 4 min. After one
+#     motion-only chase, no new one for MOTION_CHASE_QUIET unless she is seen.
+w = World(X=1850, pet=99999); tr = tracker_for(w)
+tr.failed_searches = T.GIVE_UP_AFTER; tr.last_search = w.t       # timed searches already given up
+edges = [(-0.19 - 0.2, 0.26), (0.39, -0.2), (-0.31, 0.03), (-0.36, 0.32), (-0.37, -0.28), (-0.30, 0.19)]
+log = []
+for i in range(240):
+    w.advance(1.0)
+    m = edges[(i // 15) % len(edges)] if i % 15 == 0 else None    # a person crosses an edge every 15 s
+    a = tr.step(w.box(), moving=False, motion=(w.t - 0.2, m[0], m[1]) if m else None)
+    if a:
+        log.append((round(w.t), a))
+chases = [a for _, a in log if a.startswith("chase")]
+starts = [a for a in chases if "motion at the edge" in a]
+assert len(starts) <= 2 and len(chases) <= 6, (len(starts), len(chases), chases)
+# ...but once she is seen, motion may start a chase again right away
+w.pet = w.X; tr.step(w.box(), moving=False); w.pet = 99999; w.advance(3.0)
+assert (tr.step(None, moving=False, motion=(w.t - 0.2, 0.45, 0.0)) or "").startswith("chase: motion"), "chase not re-armed"
+print(f"people moving about while she sleeps out of view: {len(chases)} chase moves in 4 min")
 print("tracker ok")
