@@ -38,9 +38,11 @@ from siteconf import HOST, KEY, PET, SITE, SSH  # noqa: E402
 
 LABELS = ("pet", "toy", "other_animal", "person", "nothing")
 SHEET_N = 40
-# A crop the zero-shot "any dog breed" score is this sure about is accepted even if the trained model
-# (which only knows places it has seen) says no. Above the worst toy seen live (octopus 0.43).
-ZEROSHOT_BACKUP = 0.5
+# Optional: accept a crop the zero-shot "any dog breed" score is this sure about even if the trained model
+# says no. OFF (None) since 2026-11-02 15:00: the black octopus toy scored 0.03-0.72 zero-shot as the
+# afternoon sun moved across it, so a 0.5 backup let it through for over an hour (and kept "the dog" home
+# while she was out on a walk). The trained model scored it 0.00 in every frame.
+ZEROSHOT_BACKUP = None
 PROMPT_VERSION = "v2"   # v1 used the label "pet"; read as "pet"
 
 sys.path.insert(0, os.path.join(ROOT, "server"))
@@ -311,7 +313,7 @@ def train():
         json.dump({"threshold": float(cv_th), "by": "day" if len(groups) >= 3 else "hour",
                    "items": {m["id"]: [round(float(p), 4), int(t), m["day"]] for (m, t), p in zip(items, oof)}}, f)
     zs_errors = {"toys_accepted": int(((zs >= 0.34) & (y == 0)).sum()), "pets_rejected": int(((zs < 0.34) & (y == 1)).sum())}
-    acc = (oof >= cv_th) | (zs >= ZEROSHOT_BACKUP)       # what the watcher does: trained model OR confident zero-shot
+    acc = (oof >= cv_th) | ((zs >= ZEROSHOT_BACKUP) if ZEROSHOT_BACKUP is not None else False)   # what the watcher does
     cv_errors = {"toys_accepted": int((acc & (y == 0)).sum()), "pets_rejected": int((~acc & (y == 1)).sum())}
     # --allow-single-day: for a live failure of the zero-shot filter that can't wait for 3 days of data.
     # Splits by hour instead of day and accepts 30/15 labels; re-run without it once 3 days exist.

@@ -30,6 +30,9 @@ CHASE_EDGE = 0.20       # ...off-centre toward an edge (or heading out of the fr
 SEARCH_AFTER = 45.0     # out of sight this long (after having been followed) -> search
 SEARCH_EVERY = 600.0    # at most one unprompted search per 10 min
 SOUND_SEARCH_EVERY = 180.0  # a dog sound while she is not visible may search every 3 min
+GIVE_UP_AFTER = 2       # this many unprompted searches in a row found nothing: stop searching on a timer
+                        # until something moves in the picture or a dog sound is heard (2026-11-02: the
+                        # camera swept the empty flat every 10 min for an hour while she was out on a walk)
 USER_PAUSE = 180.0      # a move by a person pauses following/searching this long
 SETTLE = 0.9            # seconds after a move before a frame is trusted (motion blur, stream latency)
 ROW_STEP = 0.55         # the second search row is this many frame heights toward the floor
@@ -59,6 +62,7 @@ class Tracker:
         self.chase_steps = 0
         self.chased_for = None      # last_seen_t of the loss we already chased
         self.last_search = -1e9
+        self.failed_searches = 0      # unprompted searches in a row that found nothing
         self.offcentre_since = None
         self.searching = False
         self.was_paused = False
@@ -106,6 +110,7 @@ class Tracker:
             self.hist.popleft()
         recent = t - self.last_seen_t < 3.0
         self.chase_dir, self.chase_steps = None, 0
+        self.failed_searches = 0
         self.last_moving = bool(moving)
         self.last_seen_t, self.last_seen_c = t, (cx, cy)
         if len(self.hist) >= 2 and self.hist[-1][0] - self.hist[0][0] >= 0.8:
@@ -169,11 +174,22 @@ class Tracker:
                 else:
                     fx, fy = 0.0, math.copysign(0.6, ey)
                 return self._chase(fx, fy, f"she left the frame heading ({ex:+.2f}, {ey:+.2f})")
-        due = (gone > SEARCH_AFTER and t - self.last_search > SEARCH_EVERY) or \
+        # After GIVE_UP_AFTER empty sweeps she is probably not home: a timer alone no longer moves the
+        # camera. Something moving in the picture since the last sweep (not our own move) re-arms it.
+        stirred = bool(motion) and motion[0] > max(self.last_search, self.own_move_t) + 2.0
+        timer_ok = self.failed_searches < GIVE_UP_AFTER or stirred
+        due = (gone > SEARCH_AFTER and t - self.last_search > SEARCH_EVERY and timer_ok) or \
               (sound and t - self.last_search > SOUND_SEARCH_EVERY)
         if due:
-            return self.search(reason="dog sound while out of sight" if sound and gone <= SEARCH_AFTER else
-                               f"out of sight {gone:.0f} s")
+            res = self.search(reason="dog sound while out of sight" if sound and gone <= SEARCH_AFTER else
+                              f"out of sight {gone:.0f} s")
+            if "not found" in res:
+                self.failed_searches += 1
+                if self.failed_searches == GIVE_UP_AFTER:
+                    res += f"; {GIVE_UP_AFTER} empty searches, waiting for movement or a sound before the next"
+            elif "found her" in res:
+                self.failed_searches = 0
+            return res
         return None
 
     # ---- search ---------------------------------------------------------------------------

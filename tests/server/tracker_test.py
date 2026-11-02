@@ -167,4 +167,18 @@ log = run(w, tr, 120)
 s9 = [a for _, a in log if a.startswith("search")]
 assert s9 and "found her" in s9[0] and w.box() is not None and abs(w.fx()) < 0.2, (s9, round(w.fx(), 2))
 print("passed mid-pan despite the lag:", s9[0])
+
+# 11. Out on a walk (2026-11-02 14:50-15:40): two empty searches, then no more timed sweeps for an hour;
+#     something moving in the picture re-arms the search.
+w = World(X=1200, pet=99999); tr = tracker_for(w)
+log = run(w, tr, 3600)
+s11 = [a for _, a in log if a.startswith("search")]
+assert len(s11) == 2 and "waiting for movement" in s11[1], s11
+w.pet = 1200 + 733                                   # back home, walks in at the edge of the picture
+log = []
+for _ in range(700):
+    w.advance(1.0)
+    log += [a for a in [tr.step(w.box(), moving=False, motion=(w.t - 0.2, 0.1, 0.0))] if a]
+assert any("found her" in a for a in log), log
+print(f"out on a walk: {len(s11)} searches in an hour, then searched again on movement")
 print("tracker ok")

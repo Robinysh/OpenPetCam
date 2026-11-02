@@ -97,3 +97,23 @@ On the report frames: rug 0.11 -> 0.97, door 0.98 -> 1.00, octopus 0.00 -> 0.00.
 Owner's report 13:26 ("box includes her toy"): YOLOX-nano draws one box over a curled-up dog and the
 rope toy touching her. YOLOX-tiny (3.5x slower) draws the same box and calls her a cat, so it is not
 worth it. Presence and identity were right; only the outline is wide.
+
+### Zero-shot backup removed (2026-11-02, afternoon)
+
+The backup above failed within hours. While the dog was out on a walk (14:28 to 15:45), the sun moved across the
+black octopus toy and its zero-shot "any dog breed" score swung between 0.03 and 0.72. That is above the 0.5 bar,
+so the app showed "the dog, seen 54 s ago", called it resting, and the search "found her while panning". The
+trained model scored the toy 0.00 in every one of those frames. One earlier sample (0.43) had been taken as
+the toy's worst case; it was not.
+
+Re-scoring every saved candidate frame with the detector and verifier as deployed:
+
+| frames | accepted as the dog, with backup | accepted, trained model only |
+|---|---|---|
+| 118 from the walk (she was out) | 23 | **0** |
+| 26 at home, 13:55 to 14:27 (she was there) | 24 | 24 |
+
+Also checked: the trained model must not be used to re-check an arbitrary spot in the picture (for example,
+"is she still where she was?"). On 2,000 fixed crops from random frames it accepted about 40% of them,
+including empty rug crops taken while she was out. It only learned to tell the dog from the toy among what the
+detector proposes.

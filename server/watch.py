@@ -310,9 +310,8 @@ class Verifier:
         if self.cfg["mode"] != "logreg":
             return dog
         p = float(1 / (1 + np.exp(-(((z - self.mu) / self.sd) @ self.w + self.b))))
-        # The trained model knows the places it has seen; in a new spot or light it can reject the pet
-        # (2026-11-02 13:59: 0.11 for the dog on the rug). A confident "this is a dog" vouches for her too.
-        # The bar sits above the worst toy seen (octopus, 0.43 live), so toys still can't pass.
+        # Optional zero-shot backup ("a confident 'this is a dog' vouches for her"). Off by default: on
+        # 2026-11-02 the octopus toy reached 0.72 zero-shot in afternoon sun and passed for an hour.
         backup = self.cfg.get("zeroshot_backup")
         if backup is not None and dog >= backup:
             p = max(p, self.threshold)
@@ -855,7 +854,9 @@ class Watch:
             if self.prev_box is not None and not moved_recently:
                 c0 = ((self.prev_box[0] + self.prev_box[2]) / 2, (self.prev_box[1] + self.prev_box[3]) / 2)
                 c1 = ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
-                moving = math.hypot(c1[0] - c0[0], c1[1] - c0[1]) > 0.025
+                # Relative to her size: the detector's box on a dog lying still jitters by ~0.03 between
+                # runs (2026-11-02 14:00: "the dog is moving" while she slept and the owner walked past).
+                moving = math.hypot(c1[0] - c0[0], c1[1] - c0[1]) > max(0.025, 0.15 * math.hypot(b[2] - b[0], b[3] - b[1]))
             if not moving and diff is not None:
                 # Pixel change inside her box: catches stretching, scratching, head lifts.
                 x0, y0, x1, y1 = int(b[0] * 160), int(b[1] * 90), int(math.ceil(b[2] * 160)), int(math.ceil(b[3] * 90))
