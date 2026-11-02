@@ -35,6 +35,7 @@ sys.path.insert(0, "/opt/petcam")
 import app as camapi  # noqa: E402  - camera session login + motor/status helpers
 import petconf  # noqa: E402
 from detector import Detector  # noqa: E402
+from tracker import Tracker  # noqa: E402
 
 STATE = petconf.STATE
 DB = f"{STATE}/petcam.db"
@@ -65,6 +66,10 @@ DOG_SOUND_KINDS = set(petconf.DOG_SOUND_KINDS)
 SUB_URL = "rtsp://127.0.0.1:8554/sub"   # the camera's 640x360 stream, relayed by MediaMTX
 FRAME_FPS = 5                 # decoded frames per second for motion (the detector runs far less often)
 STREAM_STALL = 90             # seconds of no live frames (while snapshots work) before the streamer is restarted
+CAM_MOVE_GRACE = 10.0         # s around a camera move in which entering/leaving the picture is not an event
+EPISODE_GAP = 60.0            # dog sounds closer than this are one barking episode (one event)
+TALKING = f"{STATE}/talking"      # "start until": the app is playing the owner's voice on the speaker
+STREAM_LATENCY = 0.7          # a frame arrives up to this long after the camera captured it (profiled ≤ 0.7 s)
 MIN_CYCLE = 1.0               # at most one full cycle (detector, DB row) per second, even while she moves
 PERIOD = 3.0                  # seconds between snapshots (2 s kept the box over its CPU baseline)
 PRESENT_SCORE = 0.30          # animal score that counts as "the pet is here" (see README for evidence)
@@ -85,8 +90,6 @@ BLOCKED_SHARPNESS = 60.0      # Laplacian variance (160x90 gray). Night 1: norma
                               # at close range 14-30 (noisy dark frames up to 176, hence the 10-min rule)
 BLOCKED_WINDOW = 600          # judge "view blocked" over this many seconds
 BLOCKED_FRACTION = 0.8
-FOLLOW_EDGE = 0.22            # follow: re-centre when her box centre is this far from the middle (of 0.5)
-FOLLOW_EVERY = 10             # follow: at most one camera move per this many seconds
 MOTION_DETECT = 1.6           # mean pixel change (0-255, 160x90 gray) that triggers a detector run; IR grain alone is 0.5-1.1
 RETAIN = {"snaps_days": 14, "clips_days": 30, "clips_gb": 4.0, "obs_days": 30, "timelapse_days": 365, "highlights_days": 90}
 
@@ -161,6 +164,7 @@ class FrameSource:
         self.url = url
         self.frame, self.t = None, 0.0
         self.prev_small = None
+        self.motion_c = None        # (t, fx, fy): where in the picture the last real motion was (-0.5..0.5)
         self.wake = threading.Event()
         self.lock = threading.Lock()
 
@@ -186,6 +190,9 @@ class FrameSource:
                         d = np.abs(small - self.prev_small)
                         d[:9, :] = 0                                         # the clock overlay
                         if float(d.mean()) > MOTION_DETECT and not camera_moved_at_recently():
+                            ys, xs = np.nonzero(d > 25)
+                            if len(xs) > 30:      # where it moved: lets follow chase a pet seen once or not at all
+                                self.motion_c = (now(), float(xs.mean()) / 160 - 0.5, float(ys.mean()) / 90 - 0.5)
                             self.wake.set()
                     self.prev_small = small
                     with self.lock:
@@ -208,6 +215,18 @@ def camera_moved_at_recently(window=4.0):
         return now() - os.path.getmtime(MOVED) < window
     except OSError:
         return False
+
+
+class CamAdapter:
+    """What the tracker needs from the camera, backed by the app's camera code."""
+    position = staticmethod(lambda: camapi.position())
+    goto = staticmethod(lambda x, y: camapi.goto(x, y, camapi.QUIET_SPEED))      # automatic moves: slow and quiet
+    wait_idle = staticmethod(lambda: camapi.wait_idle(timeout=30.0))            # a quiet full pan takes ~15 s
+    aim = staticmethod(lambda fx, fy: camapi.aim(fx, fy, camapi.QUIET_SPEED))
+    limits = staticmethod(lambda: camapi.limits())
+    frame_steps = staticmethod(lambda: (camapi.PAN_STEPS_PER_FRAME, camapi.TILT_STEPS_PER_FRAME))
+    presets = staticmethod(lambda: camapi.load_presets())
+    moved_at = staticmethod(lambda: os.path.getmtime(MOVED))
 
 
 def cam_action(path):
@@ -637,11 +656,14 @@ class Watch:
         self.clips = Clips()
         self.frames = FrameSource()
         self.source = None
+        self.dog_sound_pending = False
+        self.cam_moves = collections.deque(maxlen=20)
+        self.move_box0 = None
+        self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep)
         self.prev_small = None
         self.prev_box = None
         self.last_found = []
         self.last_detect = 0.0
-        self.recent_sounds = []
         self.sharp_samples = []       # (t, sharpness below threshold?)
         self.view_blocked = False
         self.mode_changes = []        # (ts, mode) when the camera's day/night mode changed
@@ -826,13 +848,25 @@ class Watch:
                 # Pixel change inside her box: catches stretching, scratching, head lifts.
                 x0, y0, x1, y1 = int(b[0] * 160), int(b[1] * 90), int(math.ceil(b[2] * 160)), int(math.ceil(b[3] * 90))
                 if x1 > x0 and y1 > y0:
-                    moving = float(diff[y0:y1, x0:x1].mean()) > 4.0
+                    # minus the frame-wide change, so an exposure / white-balance jump isn't her moving
+                    moving = float(diff[y0:y1, x0:x1].mean()) - float(diff.mean()) > 4.0
             self.prev_box = b
         else:
             self.prev_box = None
 
-        self.update_pet(con, t, score, moving, jpg)
-        self.maybe_follow(t, best, score, moving)
+        self.update_pet(con, t, score, moving, jpg, best["box"] if best else None)
+        if self.setting("follow", False) and not privacy:
+            try:
+                act = self.tracker.step(best["box"] if best and score >= PRESENT_SCORE else None, moving,
+                                        sound=self.dog_sound_pending and not self.present,
+                                        motion=self.frames.motion_c if person < 0.5 else None)   # a person leaving is not her
+                if act:
+                    log("follow:", act)
+                    if act.startswith("search"):
+                        add_event(con, "search", {"result": act})
+            except Exception as e:  # noqa: BLE001 - following must never stop the watcher
+                log("follow failed:", e)
+        self.dog_sound_pending = False
         try:
             self.check_zones(con, t, best if score >= PRESENT_SCORE else None, jpg)
         except Exception as e:  # noqa: BLE001 - zones must never stop the watcher
@@ -1015,26 +1049,30 @@ class Watch:
         except (OSError, ValueError):
             return default
 
-    def maybe_follow(self, t, best, score, moving):
-        """Auto-tracking (off by default): when the pet is moving and two detections in a row put her
-        near the edge, re-centre on her. Rate-limited so the camera never jitters."""
-        if not self.setting("follow", False) or not best or score < PRESENT_SCORE or not moving:
-            self.follow_hits = 0
-            return
-        b = best["box"]
-        fx, fy = (b[0] + b[2]) / 2 - 0.5, (b[1] + b[3]) / 2 - 0.5
-        if max(abs(fx), abs(fy) * 0.8) < FOLLOW_EDGE:
-            self.follow_hits = 0
-            return
-        self.follow_hits = getattr(self, "follow_hits", 0) + 1
-        if self.follow_hits < 2 or t - getattr(self, "last_follow", 0) < FOLLOW_EVERY:
-            return
-        self.last_follow, self.follow_hits = t, 0
-        try:
-            camapi.aim(fx * 0.8, fy * 0.6)          # undershoot: she keeps moving, avoid overshoot
-            log(f"follow: re-centred on the pet ({fx:+.2f}, {fy:+.2f})")
-        except Exception as e:  # noqa: BLE001
-            log("follow failed:", e)
+    def find_pet(self, after_t, wait=2.5):
+        """For the tracker's search: the verified pet box in a frame that arrived after after_t
+        (the camera has settled), or None."""
+        deadline = now() + wait
+        img = None
+        while now() < deadline:
+            with self.frames.lock:
+                fresh = self.frames.frame is not None and self.frames.t > after_t + STREAM_LATENCY
+            if fresh:
+                img = self.frames.latest()
+                break
+            time.sleep(0.1)
+        if img is None:
+            try:
+                img = Image.open(io.BytesIO(snapshot("ch1"))).convert("RGB")
+            except Exception:  # noqa: BLE001
+                return None
+        found = [f for f in self.det.detect(img, min_score=0.10) if f["label"] != "person"]
+        best = None
+        for f in sorted(found, key=lambda f: -f["score"])[:3]:
+            p = self.verifier.prob(img, f["box"]) if self.verifier else f["score"]
+            if p >= (self.verifier.threshold if self.verifier else PRESENT_SCORE) and (best is None or p > best[0]):
+                best = (p, f["box"])
+        return best[1] if best else None
 
     def privacy_on(self):
         try:
@@ -1073,14 +1111,28 @@ class Watch:
         self.same_since = None
         return True
 
-    def update_pet(self, con, t, score, moving, jpg):
+    def camera_moved_near(self, t, before=2.0, after=CAM_MOVE_GRACE):
+        """Did a person or the tracker move the camera around time t? Then a pet entering or leaving
+        the picture is the camera's doing (2026-11-02 10:19: 'appeared' when the owner turned the
+        camera onto her sleeping), not hers."""
+        try:
+            m = os.path.getmtime(MOVED)
+        except OSError:
+            return False
+        if not self.cam_moves or self.cam_moves[-1] != m:
+            self.cam_moves.append(m)
+        return any(t - before <= x <= t + after for x in self.cam_moves)
+
+    def update_pet(self, con, t, score, moving, jpg, box=None):
         if score >= PRESENT_SCORE:
             if not self.present:
                 gone = t - self.gone_since if self.gone_since else 1e9
                 self.present = True
                 self.present_since = t
                 self.rest_since = t
-                if gone >= APPEAR_AFTER:
+                if gone >= APPEAR_AFTER and self.camera_moved_near(t, before=CAM_MOVE_GRACE, after=0):
+                    log("appeared: not an event, the camera was just moved onto her")
+                elif gone >= APPEAR_AFTER:
                     thumb = self.save_thumb(jpg, t, "appeared")
                     eid = add_event(con, "appeared", {"away_s": round(gone)}, thumb, t)
                     self.clips.want(eid, t)
@@ -1090,7 +1142,10 @@ class Watch:
             self.present = False
             self.gone_since = self.last_seen
             stayed = round(self.last_seen - self.present_since) if self.present_since else None
-            add_event(con, "left", {"stayed_s": stayed}, None, self.last_seen)
+            if self.camera_moved_near(self.last_seen):
+                log("left: not an event, the camera was moved away from her")
+            else:
+                add_event(con, "left", {"stayed_s": stayed}, None, self.last_seen)
 
         if not self.present:
             self.moving_since = None
@@ -1105,9 +1160,16 @@ class Watch:
         if score < PRESENT_SCORE:
             return                       # one missed detection: keep the current rest/move state
         if moving:
-            self.moving_since = self.moving_since or t
-            # "Woke up / got active": moving for 6 s after resting for 5+ minutes.
-            if self.rest_since and t - self.moving_since >= 6 and self.moving_since - self.rest_since >= 300:
+            if not self.moving_since:
+                self.moving_since, self.move_box0 = t, box
+            # "Woke up / got active": moving for 6 s after resting for 5+ minutes, AND her box shifted or
+            # changed shape (standing up). A head turn or an exposure jump alone is not "active"
+            # (2026-11-02 10:33: fired while she stayed lying down).
+            b0 = self.move_box0
+            shifted = box is None or b0 is None or \
+                math.hypot((box[0] + box[2] - b0[0] - b0[2]) / 2, (box[1] + box[3] - b0[1] - b0[3]) / 2) > 0.06 or \
+                abs((box[2] - box[0]) * (box[3] - box[1]) / max(1e-6, (b0[2] - b0[0]) * (b0[3] - b0[1])) - 1) > 0.3
+            if self.rest_since and t - self.moving_since >= 6 and self.moving_since - self.rest_since >= 300 and shifted:
                 thumb = self.save_thumb(jpg, t, "active")
                 eid = add_event(con, "active", {"rested_s": round(self.moving_since - self.rest_since)}, thumb, self.moving_since)
                 self.clips.want(eid, self.moving_since)
@@ -1126,17 +1188,46 @@ class Watch:
                 return
             if kind == "sound":
                 detail["sandy_visible"] = self.present
+                detail["pet_in_frame"] = bool(self.last_seen) and ts - self.last_seen < 5
                 name = detail.pop("kind").replace(" ", "_")
+                y = detail.get("yamnet") or {}
+                if name not in DOG_SOUND_KINDS:
+                    y.pop("dog_label", None)         # "Growling" at dog 0.08 read as a growl
+                    y.pop("dog_kind", None)
+                if name == "loud_sound" and self.owner_talking(ts):
+                    log("sound: dropped, it is the owner talking through the speaker")
+                    continue
                 if name == "loud_sound":
-                    recent = [x for x in self.recent_sounds if ts - x < 3600]
-                    self.recent_sounds = recent
-                    if len(recent) >= LOUD_PER_HOUR:
+                    # The cap counts the database, not memory: today's restarts reset it (14 in 28 min).
+                    n = con.execute("SELECT count(*) FROM events WHERE kind='loud_sound' AND ts > ?", (ts - 3600,)).fetchone()[0]
+                    if n >= LOUD_PER_HOUR:
                         continue
-                    self.recent_sounds.append(ts)
+                if name in DOG_SOUND_KINDS:
+                    # One barking episode = one event: later barks within EPISODE_GAP extend it.
+                    prev = con.execute("SELECT id, detail FROM events WHERE kind IN (%s) AND ts > ? ORDER BY ts DESC LIMIT 1"
+                                       % ",".join("?" * len(DOG_SOUND_KINDS)), (*DOG_SOUND_KINDS, ts - EPISODE_GAP)).fetchone()
+                    if prev:
+                        d = json.loads(prev[1] or "{}")
+                        d["episode_barks"] = d.get("episode_barks", 1) + 1
+                        d["episode_last"] = round(ts, 1)
+                        d["peak_db"] = max(d.get("peak_db", -99), detail.get("peak_db", -99))
+                        con.execute("UPDATE events SET detail=? WHERE id=?", (json.dumps(d), prev[0]))
+                        self.dog_sound_pending = True
+                        continue
                 thumb = self.save_thumb(jpg, ts, "sound")
                 eid = add_event(con, name, detail, thumb, ts)
                 if name in DOG_SOUND_KINDS:
                     self.clips.want(eid, ts)
+                    self.dog_sound_pending = True           # follow: may look for her if she isn't in view
+
+    def owner_talking(self, ts):
+        """True while the app plays the owner's voice on the camera speaker (app.talk writes the window)."""
+        try:
+            with open(TALKING) as f:
+                start, until = (float(x) for x in f.read().split())
+        except (OSError, ValueError):
+            return False
+        return start - 1 <= ts <= until
 
     def save_thumb(self, jpg, t, kind):
         day = time.strftime("%Y-%m-%d", time.localtime(t))

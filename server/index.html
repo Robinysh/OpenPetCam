@@ -556,7 +556,7 @@ const KIND = {
   camera_offline: ["Camera offline", "⚠️"], camera_back: ["Camera back online", "✅"],
   view_blocked: ["Camera can't see the room (blocked or facing a wall)", "🙈"], view_clear: ["Camera view is clear again", "👁"],
   daynight_flapping: ["Day/night kept switching, locked to night for 2 h", "🌙"],
-  you_spoke: [`You spoke to ${PET.name}`, "🗣"], visit: ["Zone visit", "📍"], daynight_auto: ["Back to automatic day/night", "🌗"],
+  you_spoke: [`You spoke to ${PET.name}`, "🗣"], visit: ["Zone visit", "📍"], search: [`Looked for ${PET.name}`, "🔎"], daynight_auto: ["Back to automatic day/night", "🌗"],
 };
 function petText(l) {
   if (!l || l.status === "starting") return [`Looking for ${PET.name}…`, ""];
@@ -950,7 +950,8 @@ function renderDay() {
     const [label, icon] = KIND[e.kind] || [e.kind, "•"];
     const b = document.createElement("button"); b.className = "ev"; b.type = "button";
     const extra = e.detail && e.detail.rested_s ? ` · after ${fmtDur(e.detail.rested_s / 60)} rest` :
-      e.detail && e.detail.away_s && e.detail.away_s < 86400 ? ` · away ${fmtDur(e.detail.away_s / 60)}` : "";
+      e.detail && e.detail.away_s && e.detail.away_s < 86400 ? ` · away ${fmtDur(e.detail.away_s / 60)}` :
+      e.detail && e.detail.episode_barks > 1 ? ` · ×${e.detail.episode_barks} over ${fmtDur((e.detail.episode_last - e.ts) / 60)}` : "";
     b.innerHTML = `${e.thumb ? `<img loading="lazy" src="${e.thumb}" alt="">` : `<div class="ph">${icon}</div>`}
       <div><b></b><span>${fmtTime(e.ts)}${extra}</span></div>${e.clip ? `<span class="play">▶ Clip</span>` : ""}`;
     const heard = e.kind === "loud_sound" && e.detail && e.detail.yamnet ? `: ${e.detail.yamnet.top}` : "";

@@ -505,10 +505,15 @@ class CamShell:
 _camsh = CamShell()
 
 
-def motor_cmd(d, x=0, y=0):
-    """A `motors` move: over the fast channel, or the CGI if that is down."""
+QUIET_SPEED = 250   # steps/s for automatic moves (follow, search). Measured with the camera mic 2026-11-02:
+                    # 900 (default) +14.9 dB over the room, 600 +16.7, 400 +16.1, 250 +10.4. People's joystick stays at 900.
+
+
+def motor_cmd(d, x=0, y=0, speed=None):
+    """A `motors` move: over the fast channel, or the CGI if that is down (the CGI can't set a speed)."""
     try:
-        _camsh.run(f"motors -d {d} -x {int(x)} -y {int(y)} >/dev/null")
+        sp = f" -s {int(speed)}" if speed else ""
+        _camsh.run(f"motors -d {d}{sp} -x {int(x)} -y {int(y)} >/dev/null; true")
     except Exception:  # noqa: BLE001
         cam_get("/x/json-motor.cgi", {"d": d, "x": int(x), "y": int(y)})
 
@@ -534,7 +539,7 @@ class Busy(Exception):
     pass
 
 
-def wait_idle(timeout=6.0):
+def wait_idle(timeout=20.0):   # slow (quiet) automatic moves take up to ~15 s
     """Relative moves must start from where the motors actually stopped; a position read
     mid-move (or during homing) sends the next move to the wrong place."""
     if time.time() < _homing["until"]:
@@ -549,16 +554,16 @@ def wait_idle(timeout=6.0):
         time.sleep(0.2)
 
 
-def goto(x, y):
+def goto(x, y, speed=None):
     """Move to reported position (x, y), clamped inside the motor range so no axis can run past
     its end stop. Sent as a relative step from the settled position (see the note above)."""
     if _joystick is not None:
         _joystick.forget()
     with _move_lock:
-        return _goto_locked(x, y, wait_idle())
+        return _goto_locked(x, y, wait_idle(), speed)
 
 
-def _goto_locked(x, y, current):
+def _goto_locked(x, y, current, speed=None):
     xm, ym = limits()
     cx, cy = current
     if not (0 <= cy <= ym) or not (0 <= cx <= xm):
@@ -580,7 +585,7 @@ def _goto_locked(x, y, current):
         dx, dy = tx - cx, (step_y - cy) * TILT_COMMAND_SIGN
         if dx or dy:
             note_camera_moved()
-            motor_cmd("g", dx, dy)
+            motor_cmd("g", dx, dy, speed)
         if step_y == ty:
             break
         time.sleep(0.15)
@@ -588,7 +593,7 @@ def _goto_locked(x, y, current):
     return {"x": tx, "y": ty}
 
 
-def aim(fx, fy):
+def aim(fx, fy, speed=None):
     """Bring the point at (fx, fy) of the frame to the centre. fx/fy are offsets from the
     centre as a fraction of the frame: +fx is right of centre, +fy is below centre."""
     fx, fy = max(-0.75, min(0.75, float(fx))), max(-0.75, min(0.75, float(fy)))
@@ -597,7 +602,7 @@ def aim(fx, fy):
     with _move_lock:
         cx, cy = wait_idle()
         # Right of centre -> turn right -> x down. Below centre -> tilt down -> y down.
-        return _goto_locked(cx - fx * PAN_STEPS_PER_FRAME, cy - fy * TILT_STEPS_PER_FRAME, (cx, cy))
+        return _goto_locked(cx - fx * PAN_STEPS_PER_FRAME, cy - fy * TILT_STEPS_PER_FRAME, (cx, cy), speed)
 
 
 def recalibrate():
@@ -951,6 +956,11 @@ def talk(device_id, device_name, raw, content_type):
         reply = camera_run(f"curl -s -m 20 http://{TALK_BIND[0]}:{TALK_BIND[1]}/{tok}.wav | play -s -f wav -v {vol} 2>&1; echo rc=$?")
         if "Queued" not in reply:
             raise RuntimeError("the camera did not accept the audio")
+        try:   # the watcher drops "loud sound" events while the owner's voice plays (chime ~1 s + the message)
+            with open(f"{STATE_DIR}/talking", "w") as f:
+                f.write(f"{time.time()} {time.time() + dur + 4}")
+        except OSError:
+            pass
         con = dbc()
         con.execute("INSERT INTO events(ts, kind, detail) VALUES(?,?,?)",
                     (time.time(), "you_spoke", json.dumps({"by": device_name, "seconds": round(dur, 1)})))

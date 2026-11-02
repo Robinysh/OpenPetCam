@@ -17,6 +17,11 @@ git-ignored config file.
   crops from your own camera and retrains the verifier for your pet.
 - **Your pet's day.** Timeline, moments feed (comings and goings, barking, whining), clips, a
   nightly highlights reel, a daily timelapse and a two-week diary. Per-minute stats are kept forever.
+- **Follows the pet.**
+  - It tracks where she is heading, and turns after her if she walks out of the picture.
+  - If she has been out of sight for a while, or barks out of sight, it sweeps the room to find her.
+  - Automatic moves run at a quieter motor speed; any move you make pauses following for 3 minutes.
+  - See `server/tracker.py`.
 - **Zones.** Draw the water bowl, food bowl and bed. Visits are counted and bowl visits get a clip.
 - **Wellbeing.** Active minutes, naps, restless nights and water visits, compared with your
   pet's own normal over the last two weeks. A daily summary arrives at 7 pm.
@@ -111,7 +116,8 @@ days. The 👍/👎 answers in the app are the human labels used to check it. Me
 (launchd; a sleeping Mac runs it on wake). Each run does the following:
 1. Pulls the day's new candidate crops and has `claude -p` label them.
 2. Retrains the verifier, and deploys it only if it beats the live model on held-out data and the newest day. If the server doesn't load the new model, it rolls back.
-3. Runs a check-in (health, bug reports, page errors, the pet's day) and pushes to your phone only when you need to know something.
+3. Reviews the day's event clips with `claude -p` (`tools/clipreview.py`), flagging false or wrong events.
+4. Runs a check-in (health, bug reports, page errors, the clip review, the pet's day) and pushes to your phone only when you need to know something.
 
 The server pushes "nightly check-up hasn't run" if the loop is silent for 36 h. Logs and each night's
 facts: `eval/autopilot/`. Remove the schedule with `tools/install_autopilot.sh --remove`.

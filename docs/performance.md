@@ -91,3 +91,17 @@ With A–E together: detection goes from about 4 s to about 1 s, the joystick fr
 Lesson: the stream change stalled the camera's RTSP output while `ch1.jpg` kept updating, which no watchdog
 noticed (the freeze watchdog looks for identical snapshots). The watcher now restarts the streamer after
 90 s without live frames while snapshots work (`check_stream_stall`, `tests/server/stall_test.py`).
+
+## Motor noise (measured with the camera's own mic, 2026-11-02)
+
+| `motors -s` speed (steps/s) | 300-step move | Sound over the room | Strongest tone |
+|---|---|---|---|
+| 900 (Thingino default) | 0.50 s | +14.9 dB | 900 Hz (the step rate) |
+| 600 | 0.68 s | +16.7 dB | 898 Hz |
+| 400 | 1.22 s | +16.1 dB | 1199 Hz |
+| 250 | 1.52 s | **+10.4 dB** | 1249 Hz |
+
+Only 250 is clearly quieter. Automatic moves (follow, chase, search) use it (`app.QUIET_SPEED`); the
+joystick stays at 900 so it feels instant. The mic sits on the camera body, so these numbers overstate
+what the pet hears through the air; the comparison between speeds is what counts. `/etc/thingino.json`
+has `accel_pan`/`accel_tilt` = 0 (no ramp); whether the legacy motor driver honours a ramp is untested.

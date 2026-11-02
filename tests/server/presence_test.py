@@ -16,6 +16,9 @@ import watch  # noqa: E402
 w = watch.Watch.__new__(watch.Watch)
 w.present, w.present_since, w.rest_since, w.moving_since = False, None, None, None
 w.last_seen, w.gone_since = 0.0, None
+import collections
+w.cam_moves, w.move_box0 = collections.deque(maxlen=20), None
+watch.MOVED = "/nonexistent/moved_at"   # no camera moves in this replay
 events = []
 watch.add_event = lambda con, kind, detail, thumb, ts: events.append((kind, ts)) or len(events)
 w.save_thumb = lambda *a: None
