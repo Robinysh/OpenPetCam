@@ -221,4 +221,22 @@ assert not tr.user_paused(), "paused by a mark older than the process"
 w.advance(5.0); w.moved = w.t
 assert (tr.step(None, moving=False) or "").startswith("paused"), "a real person's move no longer pauses"
 print("restart mid-search: an earlier process's move is not taken for a person")
+
+# 14. Report 2026-11-02 18:31:13: after a restart the watcher ran on camera snapshots (no live stream)
+#     for 3.5 min. Its timer search panned 3 rows with no frames to judge, passed the dog on the rug by
+#     the TV, and reported "not found". Without the stream, a timer search waits instead of sweeping blind,
+#     then runs (and finds her) once the stream is back.
+w = World(X=3700, pet=3700 - 2 * 733)
+stream = {"up": False}
+tr = T.Tracker(w, w.find_pet, clock=lambda: w.t, log=lambda m: None, sleep=w.sleep, find_now=w.find_now,
+               can_scan=lambda: stream["up"])
+tr.last_seen_t = w.t
+log = run(w, tr, 120)
+assert not [a for _, a in log if a.startswith("search")] and not w.moves, ("swept blind on snapshots", log, w.moves)
+assert tr.failed_searches == 0
+stream["up"] = True
+log = run(w, tr, 60)
+s = [a for _, a in log if a.startswith("search")]
+assert s and "found her" in s[0] and w.box() is not None, (log, w.moves)
+print("no live stream: waits instead of a blind sweep; with the stream back:", s[0])
 print("tracker ok")

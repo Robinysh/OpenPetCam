@@ -46,16 +46,19 @@ SCAN_POLL = 0.2         # check a new frame this often while panning (the stream
 
 
 class Tracker:
-    def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None):
+    def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None, can_scan=None):
         """cam: position() -> (x, y); home() -> (x, y); goto(x, y) (returns at once); aim(fx, fy); wait_idle(); busy(); stop();
                  limits() -> (xmax, ymax);
                  frame_steps() -> (pan steps per frame width, tilt steps per frame height);
                  presets() -> [{"x":..,"y":..}]; moved_at() -> mtime of the 'camera moved' mark.
            find_pet(after_t) -> box [x0, y0, x1, y1] of the verified pet in a frame newer than after_t, or None.
-           find_now(since) -> the same for the newest frame if it arrived after `since`, without waiting."""
+           find_now(since) -> the same for the newest frame if it arrived after `since`, without waiting.
+           can_scan() -> False while frames come from slow snapshots instead of the live stream: a pan
+           then sees almost nothing, so a timer search waits for the stream instead of sweeping blind."""
         self.cam, self.find_pet, self.clock, self.log = cam, find_pet, clock, log
         self.find_now = find_now or (lambda since: None)   # newest frame since `since`, no waiting
         self.sleep = sleep or (lambda s: None)
+        self.can_scan = can_scan or (lambda: True)
         self.hist = collections.deque()
         self.last_seen_t = clock()     # starting up counts as "just lost": an unseen pet still gets searched for
         self.last_seen_c = None
@@ -192,6 +195,11 @@ class Tracker:
         timer_ok = self.failed_searches < GIVE_UP_AFTER or stirred
         due = (gone > SEARCH_AFTER and t - self.last_search > SEARCH_EVERY and timer_ok) or \
               (sound and t - self.last_search > SOUND_SEARCH_EVERY)
+        # Report 2026-11-02 18:31: after a restart the watcher ran 3.5 min on camera snapshots; the search
+        # panned all 3 rows with no frames to check, "found nothing" past her on the rug by the TV, and
+        # counted as an empty search. Sweeping blind is only motor noise: wait for the live stream.
+        if due and not self.can_scan():
+            return None
         if due:
             res = self.search(reason="dog sound while out of sight" if sound and gone <= SEARCH_AFTER else
                               f"out of sight {gone:.0f} s")

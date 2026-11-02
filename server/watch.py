@@ -681,7 +681,7 @@ class Watch:
         self.cam_moves = collections.deque(maxlen=20)
         self.move_box0 = None
         self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep,
-                               find_now=self.find_pet_now)
+                               find_now=self.find_pet_now, can_scan=lambda: self.source == "stream")
         self.prev_small = None
         self.prev_box = None
         self.last_found = []
