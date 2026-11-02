@@ -266,6 +266,14 @@ def imaging_state():
 
 # ---------------------------------------------------------------- audio
 
+def privacy_flag():
+    try:
+        with open(PRIVACY) as f:
+            return f.read().strip() == "1"
+    except OSError:
+        return False
+
+
 class Verifier:
     """Second stage: is this candidate really the pet? YOLOX calls her black plush toy a dog
     (2026-11-02: 42 of 51 morning candidates at >= 0.30 were the toy). Crops are described by
@@ -388,6 +396,9 @@ class Audio(threading.Thread):
 
     def run(self):
         while True:
+            if privacy_flag():
+                time.sleep(5)              # paused: not even subscribed to the (now silent) audio
+                continue
             try:
                 self.listen()
             except Exception as e:  # noqa: BLE001
@@ -414,7 +425,7 @@ class Audio(threading.Thread):
         try:
             while True:
                 raw = p.stdout.read(self.BLOCK * 2)
-                if len(raw) < self.BLOCK * 2:
+                if len(raw) < self.BLOCK * 2 or privacy_flag():
                     return
                 self.last_ok = now()
                 pcm = np.frombuffer(raw, dtype=np.int16)
@@ -894,6 +905,10 @@ class Watch:
             try:
                 self.imaging = imaging_state()
                 self.check_flapping(con, t)
+                # Paused, but the camera forgot (privacy is not saved across a camera reboot): pause it again.
+                if privacy and (self.imaging.get("privacy_enabled") == 0 or self.imaging.get("mic_enabled") == 1):
+                    log("privacy: camera is not paused (reboot?), re-applying picture and mic off")
+                    camapi.prudynt({"privacy": {"enabled": True}, "audio": {"mic_enabled": False}})
             except Exception as e:  # noqa: BLE001
                 log("imaging:", e)
             self.last_imaging = t

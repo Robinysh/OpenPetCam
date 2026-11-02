@@ -913,14 +913,25 @@ def prudynt(body):
 
 
 def set_privacy(on):
-    """Black out the picture (Thingino privacy mode). The watcher reads the flag file and stops
-    detecting while it is on. Tested 2026-11-01: toggling it does not hang the encoder."""
+    """Pause: black out the picture AND switch the camera's microphone off, so nothing of the home leaves
+    the camera (owner, 2026-11-02: "in privacy the mic is working, it shouldn't"). The watcher reads the
+    flag file, stops detecting and listening, and re-applies the pause if the camera forgets it (reboot).
+    Measured 2026-11-02: mic off silences the stream at once with video unaffected; mic back on only
+    returns audio after a streamer restart (~15 s of video), so resume restarts it."""
     on = bool(on)
-    r = prudynt({"privacy": {"enabled": on}})
+    r = prudynt({"privacy": {"enabled": on}, "audio": {"mic_enabled": not on}})
     state = bool((r.get("privacy") or {}).get("enabled", on))
+    mic = bool((r.get("audio") or {}).get("mic_enabled", not on))
     with open(f"{STATE_DIR}/privacy", "w") as f:
         f.write("1" if state else "0")
-    return {"privacy": state}
+    if not state:
+        def restart():
+            try:
+                cam_get("/x/restart-prudynt.cgi")
+            except Exception as e:  # noqa: BLE001 - the CGI answers with non-JSON; the restart still happens
+                print("privacy resume: streamer restart:", type(e).__name__, flush=True)
+        threading.Thread(target=restart, daemon=True).start()
+    return {"privacy": state, "mic": mic}
 
 
 # ---------- small settings shared with the watcher ----------
