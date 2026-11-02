@@ -265,7 +265,7 @@ def healthy(t_deploy):
     time.sleep(60)
     r = ssh("systemctl is-active petcam-watch petcam-app mediamtx caddy | sort -u; "
             "echo hb $(( $(date +%s) - $(stat -c %Y /var/lib/petcam/heartbeat) )); "
-            f"journalctl -u petcam-watch -u petcam-app --since @{int(t_deploy)} --no-pager | grep -c Traceback")
+            f"journalctl -u petcam-watch -u petcam-app --since @{int(t_deploy)} --no-pager | grep -c Traceback; true")   # grep -c exits 1 on 0
     try:
         v = json.load(open(os.path.join(ROOT, "models", "verifier.json")))
         want = f"verifier: {v['mode']} threshold {v['threshold']}"
@@ -275,7 +275,7 @@ def healthy(t_deploy):
     if want not in vl or v["mode"] != "logreg":
         return False, f"watcher loaded '{vl.strip()[-60:]}', expected the trained '{want}'"
     lines = r.stdout.split()
-    ok = r.returncode == 0 and lines[:1] == ["active"] and "hb" in lines and int(lines[lines.index("hb") + 1]) < 30 \
+    ok = len(lines) >= 4 and lines[:1] == ["active"] and "hb" in lines and int(lines[lines.index("hb") + 1]) < 30 \
         and lines[-1] == "0"
     return ok, r.stdout.strip().replace("\n", " ")
 
