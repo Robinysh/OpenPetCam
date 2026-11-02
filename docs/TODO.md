@@ -4,7 +4,7 @@ Worked top to bottom. Each item moves to Done with the commit that shipped it.
 
 1. ~~**Live and Today redesign (prototype)**~~ done, canvas v22: Live is camera-first: full-bleed video that keeps the dog framed, what she is doing laid over it, joystick below. Today is visual: photo mosaic, day split, scrubbable timeline, moments as photos. (2 Nov)
 2. **Report agent:** every "Something wrong?" report is handled as continuous feedback, as the owner's agent: labels from the owner's words, diagnosis, a gated fix and deploy, and a reply in the app and on the phone. A report unanswered for 6 h pages. (2 Nov)
-3. **Exhaustive QA** (taken by the session foresyn-18, from the draft suite; 2 Nov 18:56) of the setup, software and hardware: check every assumption, test every behaviour. The checks
+3. **Exhaustive QA** of the setup, software and hardware: check every assumption, test every behaviour. The checks
    become a repeatable suite (tools/qa.py) that the loop re-runs nightly, so a regression is caught without the owner. (2 Nov)
 4. **Self-improving loop.** The owner's prompts are signals the system should catch itself. North star: the owner
    always knows what the dog is doing and can see her. Nightly: measure it (detector errors against owner labels,
