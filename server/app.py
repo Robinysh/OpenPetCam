@@ -925,12 +925,14 @@ def set_privacy(on):
     with open(f"{STATE_DIR}/privacy", "w") as f:
         f.write("1" if state else "0")
     if not state:
-        def restart():
-            try:
-                cam_get("/x/restart-prudynt.cgi")
-            except Exception as e:  # noqa: BLE001 - the CGI answers with non-JSON; the restart still happens
-                print("privacy resume: streamer restart:", type(e).__name__, flush=True)
-        threading.Thread(target=restart, daemon=True).start()
+        # Before answering, not in a background thread: a thread died with a short-lived caller on 2026-11-02
+        # and the mic stayed silent. The CGI answers with non-JSON after it has restarted the streamer.
+        try:
+            cam_get("/x/restart-prudynt.cgi")
+        except ValueError:
+            pass
+        except Exception as e:  # noqa: BLE001 - the watcher's audio self-heal retries within 2 min
+            print("privacy resume: streamer restart failed:", type(e).__name__, e, flush=True)
     return {"privacy": state, "mic": mic}
 
 

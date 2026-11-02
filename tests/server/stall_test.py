@@ -30,3 +30,19 @@ for _ in range(120):                      # after 10 min: tries again
     clock[0] += 3; w.check_stream_stall()
 assert len(actions) == 2, actions
 print("stall watchdog ok:", [round(t - 1000) for t, _ in actions], events[0])
+
+# Sound lost while the mic is on (2026-11-02 18:30: after pause/resume the audio track stayed empty for 20 min).
+actions.clear()
+w.audio = type("A", (), {"last_ok": clock[0]})()
+w.last_audio_fix = 0.0
+for _ in range(20):                       # 60 s without sound: nothing yet
+    clock[0] += 3; w.check_audio_lost(False, {"mic_enabled": 1})
+assert not actions, actions
+for _ in range(12):                       # past 90 s: one restart
+    clock[0] += 3; w.check_audio_lost(False, {"mic_enabled": 1})
+assert len(actions) == 1, actions
+actions.clear(); w.last_audio_fix = 0.0
+for _ in range(60):                       # paused, or the mic switched off on purpose: never restarts
+    clock[0] += 3; w.check_audio_lost(True, {"mic_enabled": 0}); w.check_audio_lost(False, {"mic_enabled": 0})
+assert not actions, actions
+print("sound watchdog ok: restarts the streamer after 90 s of silence with the mic on, never while paused")
