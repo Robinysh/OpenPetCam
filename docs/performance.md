@@ -74,3 +74,20 @@ is already C++.
 | E | Free the camera's CPU: turn off prudynt's own motion detection (unused), check the Opus encoder settings, lower the substream fps | every camera call and snapshot gets faster; fewer frame drops | camera config change; measure the load before and after |
 
 With A–E together: detection goes from about 4 s to about 1 s, the joystick from about 1 s to about 0.5 s, and opening the live view from up to 4 s to up to 1 s.
+
+## Done 2026-11-02: measured after the changes
+
+| What | Before | After |
+|---|---|---|
+| Camera motor status | 300 ms (CGI) | **53 ms** (persistent SSH shell, `CamShell` in app.py; the CGI is the fallback) |
+| Camera move command | 280–430 ms | **about 60 ms** |
+| First joystick touch after a pause | position read + move ≈ 0.6 s | move only ≈ 0.06 s on the server |
+| Status reaching the phone | polled every 2 s | **pushed** (server-sent events); arrives 0.1 s after the watcher writes it, through Caddy unbuffered |
+| Picture change → watcher has noticed and published | 3 s period + 1 s stale snapshot + 0.3 s fetch | **0.6–1.1 s** (substream decoded at 5 fps; motion wakes the loop; at most one cycle per second) |
+| Keyframe interval (time to open live view, recovery after loss) | 4 s | **1 s** |
+| Camera CPU idle | 0% (prudynt 71–78%) | **15–25%** (prudynt 46–67%): its own motion detection off, substream 15 fps CBR 1 Mbit/s → 5 fps VBR 300 kbit/s |
+| Server CPU | watcher 2.0% + MediaMTX 2.2% of a core | watcher about 4% + MediaMTX 2.6% (decoding the substream) |
+
+Lesson: the stream change stalled the camera's RTSP output while `ch1.jpg` kept updating, which no watchdog
+noticed (the freeze watchdog looks for identical snapshots). The watcher now restarts the streamer after
+90 s without live frames while snapshots work (`check_stream_stall`, `tests/server/stall_test.py`).

@@ -3,14 +3,15 @@ detector + verifier (fixes minutes where the old logic counted a toy as the pet)
 import os, sqlite3, sys, time
 sys.path.insert(0, "/opt/petcam")
 from PIL import Image
-import watch
+import app  # noqa: E402
+import watch  # noqa: E402
 from detector import Detector
 
 day = sys.argv[1]
 v, det = watch.Verifier(), Detector(watch.MODEL)
 con = sqlite3.connect(watch.DB)
-start = time.mktime(time.strptime(day, "%Y-%m-%d"))
-rows = con.execute("SELECT ts, n, present, moving, snap FROM minute WHERE ts >= ? AND ts < ? ORDER BY ts", (start, start + 90000)).fetchall()
+_, start, end = app.day_bounds(day)           # local midnight to midnight (DST days are 23 or 25 h)
+rows = con.execute("SELECT ts, n, present, moving, snap FROM minute WHERE ts >= ? AND ts < ? ORDER BY ts", (start, end)).fetchall()
 changed = was = now_ = 0
 for ts, n, present, moving, snap in rows:
     path = f"{watch.SNAPS}/{snap}" if snap else None

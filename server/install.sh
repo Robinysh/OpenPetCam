@@ -98,6 +98,10 @@ install -m 750 -o root -g root $SRC/set-secrets.sh /opt/petcam/set-secrets.sh
 if [ ! -f /etc/petcam/camera.env ]; then
   echo "MTX_PATHS_CAM_SOURCE=rtsp://thingino:thingino@$CAMERA_WG_IP:554/ch0" > /etc/petcam/camera.env
 fi
+# The substream path for petcam-watch: same login, /ch1 (added to installs made before it existed).
+if ! grep -q '^MTX_PATHS_SUB_SOURCE=' /etc/petcam/camera.env; then
+  sed -n 's#^MTX_PATHS_CAM_SOURCE=\(.*\)/ch0$#MTX_PATHS_SUB_SOURCE=\1/ch1#p' /etc/petcam/camera.env >> /etc/petcam/camera.env
+fi
 chown root:mediamtx /etc/petcam/camera.env && chmod 640 /etc/petcam/camera.env
 # mediamtx must traverse /etc/petcam to read its env file (systemd reads it as root, so this is belt and braces).
 
@@ -106,6 +110,10 @@ if [ ! -f /etc/petcam/app.env ]; then
   printf 'APP_SECRET=%s\nCAM_WEB_USER=root\n' "$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" > /etc/petcam/app.env
 fi
 chown root:petcam /etc/petcam/app.env && chmod 640 /etc/petcam/app.env
+
+# SSH key for the fast camera channel (app.py CamShell); the app authorises it on the camera itself.
+install -d -m 700 -o petcam -g petcam /var/lib/petcam/ssh   # only this folder: Caddy serves media from /var/lib/petcam
+[ -f /var/lib/petcam/ssh/id_ed25519 ] || sudo -u petcam ssh-keygen -q -t ed25519 -N '' -C petcam-server -f /var/lib/petcam/ssh/id_ed25519
 
 # Web push (VAPID) keys, generated once on the server.
 /opt/petcam/venv/bin/python $SRC/gen_vapid.py /etc/petcam

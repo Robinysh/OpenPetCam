@@ -1,26 +1,40 @@
-"""Read or change the camera's prudynt stream settings via its local API (port 8080)."""
-import sys, json, time, urllib.request
+"""Read or change the camera's prudynt stream settings. Runs on the server (uses the app's camera session).
+
+  streamcfg.py show
+  streamcfg.py set stream0 gop=25 max_gop=25          any prudynt keys, values parsed as JSON when possible
+  streamcfg.py save                                    persist on the camera (save_config)
+
+Stream changes can stall the encoder; the watcher restarts it (freeze / stream-stall watchdogs).
+Check `journalctl -u mediamtx` afterwards, not only the live view (docs/camera-thingino.md).
+Current reference settings (2026-11-02): stream0 25 fps VBR 1600 kbit/s gop=max_gop=25 (keyframe
+every 1 s, so live view opens fast); stream1 5 fps VBR 300 kbit/s gop 5 / max_gop 10; motion off.
+"""
+import json
+import sys
+
 sys.path.insert(0, "/opt/petcam")
-import app
+import app  # noqa: E402
 
-app.cam_login()
-key = json.loads(urllib.request.urlopen(urllib.request.Request("http://10.77.0.2/x/api-key.cgi", headers={"Cookie": app._cam["cookie"]}), timeout=10).read())["api_key"]
-
-
-def cfg(body):
-    req = urllib.request.Request("http://10.77.0.2:8080/api/v1/config", data=json.dumps(body, separators=(",", ":")).encode(),
-                                 headers={"Content-Type": "application/json", "X-API-Key": key}, method="POST")
-    return json.loads(urllib.request.urlopen(req, timeout=15).read())
+SHOW = {"stream0": dict.fromkeys(("mode", "bitrate", "fps", "gop", "max_gop")),
+        "stream1": dict.fromkeys(("enabled", "mode", "bitrate", "fps", "gop", "max_gop")),
+        "motion": {"enabled": None}, "audio": {"mic_format": None}, "privacy": {"enabled": None}}
 
 
-FIELDS = {"stream0": {"mode": None, "bitrate": None, "fps": None, "gop": None, "max_gop": None}}
-cmd = sys.argv[1]
+def value(v):
+    try:
+        return json.loads(v)
+    except ValueError:
+        return v
+
+
+cmd = sys.argv[1] if len(sys.argv) > 1 else "show"
 if cmd == "show":
-    print(json.dumps(cfg(FIELDS)))
+    print(json.dumps(app.prudynt(SHOW), indent=1))
 elif cmd == "set":
-    mode, bitrate, fps = sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
-    print("set ->", json.dumps(cfg({"stream0": {"mode": mode, "bitrate": bitrate, "fps": fps, "gop": fps * 2, "max_gop": fps * 4}})))
-    time.sleep(4)
-    print("now ->", json.dumps(cfg(FIELDS)))
+    section, pairs = sys.argv[2], sys.argv[3:]
+    body = {section: {k: value(v) for k, v in (p.split("=", 1) for p in pairs)}}
+    print("set ->", json.dumps(app.prudynt(body)))
 elif cmd == "save":
-    print("save ->", json.dumps(cfg({"action": {"save_config": None}})))
+    print("save ->", json.dumps(app.prudynt({"action": {"save_config": None}})))
+else:
+    sys.exit(__doc__)

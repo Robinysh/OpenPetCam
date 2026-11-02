@@ -25,7 +25,7 @@ t = 1000.0
 def step(score, moving, n):
     global t
     for _ in range(n):
-        w.update_sandy(None, t, score, moving, b"")
+        w.update_pet(None, t, score, moving, b"")
         t += 3
 
 step(1.0, False, 100)            # 5 min resting in view

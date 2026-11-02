@@ -1,0 +1,32 @@
+"""Stream-stall watchdog with a simulated outage: live video gone, snapshots fine (2026-11-02 10:28).
+  python3 tests/server/stall_test.py"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "server"))
+sys.path.insert(0, "/opt/petcam")
+import watch  # noqa: E402
+
+clock = [1000.0]
+watch.now = lambda: clock[0]
+actions, events = [], []
+watch.cam_action = lambda path: actions.append((clock[0], path)) or True
+watch.add_event = lambda con, kind, detail=None, thumb=None, ts=None: events.append((kind, detail))
+watch.db = lambda: type("C", (), {"close": lambda self: None})()
+
+w = watch.Watch.__new__(watch.Watch)
+w.last_fix, w.stream_down_since = 0.0, 1000.0
+for _ in range(20):                       # 60 s down: nothing yet
+    clock[0] += 3; w.check_stream_stall()
+assert not actions, actions
+for _ in range(12):                       # past 90 s: one restart
+    clock[0] += 3; w.check_stream_stall()
+assert len(actions) == 1 and actions[0][1] == "/x/restart-prudynt.cgi", actions
+for _ in range(100):                      # still down for 5 more min: rate limit holds
+    clock[0] += 3; w.check_stream_stall()
+assert len(actions) == 1, actions
+for _ in range(120):                      # after 10 min: tries again
+    clock[0] += 3; w.check_stream_stall()
+assert len(actions) == 2, actions
+print("stall watchdog ok:", [round(t - 1000) for t, _ in actions], events[0])

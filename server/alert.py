@@ -33,6 +33,8 @@ BARK_EVERY = 30 * 60          # at most one barking alert per 30 minutes
 DISTRESS_EVERY = 10 * 60      # whining / howling / growling: at most one alert per 10 minutes
 SUMMARY_HOUR = 19             # daily summary at 7 pm local
 WATCH_STALE = 120             # watcher heartbeat older than this = watcher down / camera unreachable
+AUTOPILOT_HEARTBEAT = f"{STATE}/autopilot_ok"  # touched by tools/autopilot.py on the owner's computer
+AUTOPILOT_STALE = 36 * 3600   # nightly job: alert after a day and a half without one
 RECORDING_STALE = 180         # newest recording segment older than this = video relay stuck
 
 
@@ -164,7 +166,14 @@ def check():
     incident(st, "video", not relay or rec is None or rec > RECORDING_STALE,
              (f"{APP}: video stopped", "Live video and recording are not running."),
              (f"{APP} video is back", "Live video and recording are running again"))
-    # 3. New events from the watcher. Some are stamped earlier than they are written ("left" uses
+    # 3. The nightly self-improvement loop (runs on the owner's computer). Only once it has ever run.
+    ap = age(AUTOPILOT_HEARTBEAT)
+    if ap is not None:
+        incident(st, "autopilot", ap > AUTOPILOT_STALE,
+                 (f"{APP}: nightly check-up hasn't run", "The computer that retrains the pet detector hasn't checked in "
+                  "for a day and a half. Is it asleep or off? Everything else keeps working."),
+                 (f"{APP}: nightly check-up is back", "It ran again"))
+    # 4. New events from the watcher. Some are stamped earlier than they are written ("left" uses
     #    the last sighting, sounds their start), and SQLite reuses ids after deletes, so neither
     #    an id nor a time watermark is safe: re-read the last 30 min, skip (id, ts) already handled.
     con = db()
@@ -202,7 +211,6 @@ def check():
         elif e["kind"] == "left":
             send(f"{PET} left the view", f"Last seen at {when}", kind="comings", tag="comings")
     st["seen_events"] = sorted(seen, key=lambda k: k[1])[-300:]
-    st.pop("last_event_id", None)
     daily_summary(st)
     st["last_run"] = time.time()
     save_state(st)
@@ -241,6 +249,10 @@ if __name__ == "__main__":
         if not n:
             print("no subscribed device received it")
             sys.exit(1)
+        print(f"sent to {n} device(s)")
+    elif len(sys.argv) >= 4 and sys.argv[1] == "--notify":
+        # Used by tools/autopilot.py: "--notify TITLE BODY [kind]"; kind defaults to camera.
+        n = send(sys.argv[2][:80], sys.argv[3][:300], kind=sys.argv[4] if len(sys.argv) > 4 else "camera", tag="autopilot")
         print(f"sent to {n} device(s)")
     else:
         check()

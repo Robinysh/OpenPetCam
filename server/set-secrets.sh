@@ -22,7 +22,8 @@ if [ "${YN:-n}" = y ] || [ "${YN:-n}" = Y ]; then
   read -rp "  RTSP username: " RU
   read -rsp "  RTSP password: " RP; echo
   ENC=$(U="$RU" P="$RP" python3 -c 'import os,urllib.parse as q;print(q.quote(os.environ["U"],safe="")+":"+q.quote(os.environ["P"],safe=""))')
-  printf 'MTX_PATHS_CAM_SOURCE=rtsp://%s@%s:554/ch0\n' "$ENC" "$CAMERA_WG_IP" > "$CAM"
+  printf 'MTX_PATHS_CAM_SOURCE=rtsp://%s@%s:554/ch0\nMTX_PATHS_SUB_SOURCE=rtsp://%s@%s:554/ch1\n' \
+    "$ENC" "$CAMERA_WG_IP" "$ENC" "$CAMERA_WG_IP" > "$CAM"
   chown root:mediamtx "$CAM"; chmod 640 "$CAM"
 fi
 

@@ -14,10 +14,7 @@ rtspTransports: [tcp]
 rtmp: no
 srt: no
 
-hls: yes
-hlsAddress: 127.0.0.1:8888
-hlsVariant: lowLatency
-hlsAlwaysRemux: no
+hls: no            # the app uses WebRTC (WHEP) only
 
 webrtc: yes
 webrtcAddress: 127.0.0.1:8889
@@ -53,3 +50,10 @@ paths:
     recordPartDuration: 1s
     recordSegmentDuration: 10m   # each segment boundary drops ~0.4 s of Opus audio ("too late"); fewer boundaries
     recordDeleteAfter: 1h
+  # The camera's 640x360 substream, for petcam-watch (decoded there at 5 fps). Not recorded.
+  # Source URL (with the RTSP login) from MTX_PATHS_SUB_SOURCE in /etc/petcam/camera.env.
+  sub:
+    source: rtsp://placeholder/ch1
+    rtspTransport: tcp
+    sourceOnDemand: no
+    record: no

@@ -8,7 +8,7 @@ labels = {  # hand labels, written before running any model
     f"{D}/thingino.jpg": 0, f"{D}/fresh.jpg": 0, f"{D}/frames/now.jpg": 0, f"{D}/frames/sweep_1400.jpg": 0,
     f"{D}/frames/sweep_900.jpg": 0, f"{D}/frames/sweep_2500.jpg": 0, f"{D}/cam.jpg": 0,
 }
-for model in ("yolox_nano", "yolox_tiny"):
+for model in ("yolox_nano",):
     det = Detector(f"{D}/models/{model}.onnx")
     print(f"== {model}")
     for path, y in labels.items():

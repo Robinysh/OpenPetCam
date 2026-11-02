@@ -13,8 +13,8 @@
 <title>{{APP_NAME}}</title>
 <style>
   :root { color-scheme: dark; --bg:#0b0b0c; --card:#151517; --card2:#1c1c1f; --line:#2a2a2e; --text:#f2f2f3; --muted:#9a9aa2;
-          --dim:#5d5d64; --accent:#ffd60a; --accent-soft:rgba(255,214,10,.22); --live:#ff3b30; --ok:#30d158;
-          --viz-active:#c98500; --viz-rest:#8a5c00; --glass:rgba(20,20,22,.58); --glass-line:rgba(255,255,255,.14); --tabbar:64px; }
+          --dim:#5d5d64; --accent:#ffd60a; --live:#ff3b30; --ok:#30d158;
+          --viz-active:#c98500; --viz-rest:#8a5c00; --glass-line:rgba(255,255,255,.14); --tabbar:64px; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body { background:var(--bg); }
   body { margin:0; color:var(--text); font:15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -31,7 +31,7 @@
 
   /* ---------- live video ---------- */
   .stage { position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:18px; overflow:hidden; border:1px solid var(--line); margin-top:6px; }
-  .stage iframe, .stage video { position:absolute; inset:0; width:100%; height:100%; border:0; background:#000; object-fit:contain; }
+  .stage video { position:absolute; inset:0; width:100%; height:100%; border:0; background:#000; object-fit:contain; }
   #touch { position:absolute; inset:0; z-index:2; touch-action:manipulation; }
   .sound { position:absolute; right:10px; bottom:10px; z-index:4; display:flex; align-items:center; gap:6px; min-height:36px;
            padding:6px 12px; border-radius:999px; border:0; background:rgba(0,0,0,.58); color:#fff; font-size:13px; font-weight:650; cursor:pointer; }
@@ -42,11 +42,11 @@
   .badge { position:absolute; top:10px; right:10px; z-index:3; display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px;
            background:rgba(0,0,0,.55); font-size:12px; font-weight:700; letter-spacing:.04em; pointer-events:none; }
   .badge i { width:8px; height:8px; border-radius:50%; background:var(--live); }
-  .the pet-pill { position:absolute; left:10px; bottom:10px; z-index:3; display:flex; align-items:center; gap:7px; padding:6px 12px;
+  .pet-pill { position:absolute; left:10px; bottom:10px; z-index:3; display:flex; align-items:center; gap:7px; padding:6px 12px;
                 border-radius:999px; background:rgba(0,0,0,.58); font-size:13px; font-weight:650; pointer-events:none; }
-  .the pet-pill i { width:9px; height:9px; border-radius:50%; background:var(--dim); }
-  .the pet-pill.here i { background:var(--accent); }
-  .the pet-pill.active i { background:var(--ok); box-shadow:0 0 0 3px rgba(48,209,88,.25); }
+  .pet-pill i { width:9px; height:9px; border-radius:50%; background:var(--dim); }
+  .pet-pill.here i { background:var(--accent); }
+  .pet-pill.active i { background:var(--ok); box-shadow:0 0 0 3px rgba(48,209,88,.25); }
   .health { position:absolute; right:10px; top:40px; z-index:3; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:650;
             background:rgba(255,59,48,.85); pointer-events:none; }
   .box { position:absolute; z-index:2; border:2px solid rgba(255,214,10,.75); border-radius:10px; pointer-events:none;
@@ -125,7 +125,6 @@
   .timeline i.act { background:var(--viz-active); }
   .timeline i.snd { box-shadow:inset 0 2px 0 var(--live); }
   .timeline .now { position:absolute; top:6px; bottom:16px; width:2px; background:var(--live); border-radius:1px; }
-  .timeline .cur { position:absolute; top:2px; bottom:14px; width:2px; background:#fff; border-radius:1px; }
   .tl-labels { position:absolute; left:8px; right:8px; bottom:2px; display:flex; justify-content:space-between; color:var(--dim); font-size:10px; }
   .peek { margin-top:10px; background:var(--card); border:1px solid var(--line); border-radius:18px; overflow:hidden; }
   .peek .media { position:relative; aspect-ratio:16/9; background:#000; }
@@ -195,7 +194,7 @@
     body.tab-live header, body.tab-live .hint, body.tab-live .section { display:none; }
     body.tab-live .stage { position:fixed; inset:0; aspect-ratio:auto; border:0; border-radius:0; margin:0; }
     body.tab-live .badge { top:calc(env(safe-area-inset-top) + 12px); right:calc(env(safe-area-inset-right) + 12px); }
-    body.tab-live .the pet-pill { left:calc(env(safe-area-inset-left) + 12px); bottom:calc(env(safe-area-inset-bottom) + 12px); }
+    body.tab-live .pet-pill { left:calc(env(safe-area-inset-left) + 12px); bottom:calc(env(safe-area-inset-bottom) + 12px); }
     body.tab-live .sound { right:auto; left:calc(env(safe-area-inset-left) + 12px); bottom:calc(env(safe-area-inset-bottom) + 56px); }
     body.tab-live .side { display:flex; position:fixed; z-index:6; left:calc(env(safe-area-inset-left) + 12px);
                           bottom:calc(env(safe-area-inset-bottom) + 100px); width:auto; }
@@ -239,10 +238,10 @@
     </button>
     <div class="conn hidden" id="conn">Connecting…</div>
     <div id="touch" aria-label="Tap the picture to point the camera there"></div>
-    <div class="box" id="the pet-box"><span>{{PET}}</span></div>
+    <div class="box" id="pet-box"><span>{{PET}}</span></div>
     <div class="reticle" id="reticle"></div>
     <div class="badge"><i></i><span>LIVE</span></div>
-    <div class="the pet-pill" id="the pet-pill"><i></i><span>Looking for {{PET}}…</span></div>
+    <div class="pet-pill" id="pet-pill"><i></i><span>Looking for {{PET}}…</span></div>
     <div class="health hidden" id="health"></div>
   </div>
   <p class="hint">Tap the picture to look there · hold the stick to move · <button class="linkbtn" id="report-open" type="button">Something wrong?</button></p>
@@ -364,7 +363,7 @@
     </div>
     <div class="section">
       <h2>Notifications</h2>
-      <div id="push-box">
+      <div>
         <button class="btn primary" id="push-on" type="button" style="width:100%">Turn on alerts on this device</button>
         <div class="row hidden" id="push-prefs" style="flex-wrap:wrap">
           <button class="btn toggle" data-pref="camera" type="button" aria-pressed="true">Camera problems</button>
@@ -424,7 +423,7 @@
     <h3>Something wrong?</h3>
     <div class="note" style="margin:0 0 8px">Sends this moment to be debugged: the picture, the last 90 seconds of video, what the app shows and what the camera's watcher was thinking.</div>
     <div class="note" id="report-shown" style="margin:0 0 8px"></div>
-    <textarea class="field" id="report-note" rows="3" maxlength="2000" placeholder="What looks wrong? e.g. says she's resting but she's not there" style="width:100%;box-sizing:border-box"></textarea>
+    <textarea class="field" id="report-note" rows="3" maxlength="2000" placeholder="What looks wrong? e.g. says {{PET}} is resting but the room is empty" style="width:100%;box-sizing:border-box"></textarea>
     <div class="row"><button class="btn" id="report-cancel" type="button">Cancel</button><button class="btn primary" id="report-send" type="button">Send</button></div>
     <div class="note" id="report-status"></div>
   </div>
@@ -540,8 +539,8 @@ function showTab(tab) {
   document.querySelectorAll(".tabbar button[aria-current]").forEach((b) => b.setAttribute("aria-current", "page"));
   document.body.className = `tab-${tab}`;
   // Only stream video while the live tab is open: saves the phone's battery and the server's CPU.
-  if (tab === "live") { if (!liveWanted) startLive(); }
-  else { pauseLive(); $("live").muted = true; showSound(false); }
+  if (tab === "live") { if (!liveWanted) startLive(); startLiveStream(); }
+  else { pauseLive(); stopLiveStream(); $("live").muted = true; showSound(false); }
   if (tab === "today") loadDay();
   if (tab === "diary") loadDiary();
   store("petcam.tab", tab);
@@ -559,7 +558,7 @@ const KIND = {
   daynight_flapping: ["Day/night kept switching, locked to night for 2 h", "🌙"],
   you_spoke: [`You spoke to ${PET.name}`, "🗣"], visit: ["Zone visit", "📍"], daynight_auto: ["Back to automatic day/night", "🌗"],
 };
-function sandyText(l) {
+function petText(l) {
   if (!l || l.status === "starting") return [`Looking for ${PET.name}…`, ""];
   if (l.status === "privacy") return ["Camera paused", ""];
   if (l.present) {
@@ -576,7 +575,7 @@ let reportSnap = null;
 function clientState() {
   const v = $("live");
   return {
-    at: Date.now() / 1000, shown_status: $("the pet-pill").textContent, shown_health: $("health").textContent,
+    at: Date.now() / 1000, shown_status: $("pet-pill").textContent, shown_health: $("health").textContent,
     live_seen_by_app: live, tab: curTab,
     webrtc: pc ? { connection: pc.connectionState, ice: pc.iceConnectionState } : null,
     video: v ? { readyState: v.readyState, paused: v.paused, muted: v.muted, time: v.currentTime, w: v.videoWidth, h: v.videoHeight } : null,
@@ -600,11 +599,26 @@ $("report-send").onclick = async () => {
   } catch (e) { $("report-status").textContent = `Couldn't send: ${e.message}`; $("report-send").disabled = false; }
 };
 
+// Live status is pushed (server-sent events); polling every 2 s is only the fallback.
+let liveES = null, esFails = 0, esLastMsg = 0;
+function startLiveStream() {
+  if (liveES || esFails >= 3 || !window.EventSource) return;
+  liveES = new EventSource("/api/live/stream");
+  liveES.onmessage = (ev) => { esFails = 0; esLastMsg = Date.now(); try { renderLive(JSON.parse(ev.data)); } catch (e) {} };
+  liveES.onerror = () => { if (liveES && liveES.readyState === EventSource.CLOSED) { liveES = null; esFails++; } };
+}
+function stopLiveStream() { if (liveES) { liveES.close(); liveES = null; } }
+const streaming = () => liveES && Date.now() - esLastMsg < 8000;
 async function pollLive() {
-  try { live = await api("/api/live"); } catch (e) { live = null; }
-  const [text, cls] = sandyText(live);
-  const pill = $("the pet-pill");
-  pill.className = `the pet-pill ${cls}`;
+  let l;
+  try { l = await api("/api/live"); } catch (e) { l = null; }
+  renderLive(l);
+}
+function renderLive(l) {
+  live = l;
+  const [text, cls] = petText(live);
+  const pill = $("pet-pill");
+  pill.className = `pet-pill ${cls}`;
   pill.querySelector("span").textContent = text;
   const bad = !live ? "Server unreachable" : live.status === "frozen" ? "Picture frozen, fixing…" :
     live.status === "offline" ? "Camera offline" : live.status === "watcher_down" ? "Watcher not running" :
@@ -647,7 +661,7 @@ function videoRect() {
   return { x: (s.width - w) / 2, y: (s.height - h) / 2, w, h, s };
 }
 function drawBox(b) {
-  const el = $("the pet-box");
+  const el = $("pet-box");
   if (!b) { el.classList.remove("on"); return; }
   const v = videoRect();
   Object.assign(el.style, { left: `${v.x + b[0] * v.w}px`, top: `${v.y + b[1] * v.h}px`, width: `${(b[2] - b[0]) * v.w}px`, height: `${(b[3] - b[1]) * v.h}px` });
@@ -894,7 +908,7 @@ function renderDay() {
   $("t-nap").textContent = t ? fmtDur(t.longest_rest_min) : "—";
   $("t-sounds").textContent = t ? `${t.barks}` : "—";
   if (dayOffset === 0) {
-    const [text] = sandyText(live);
+    const [text] = petText(live);
     $("hero-big").textContent = text;
     $("hero-sub").textContent = t && t.first_seen ? `First seen ${fmtTime(t.first_seen)} · ${t.minutes_recorded} min watched` : "Watching since the camera came online";
     $("hero-img").src = `/media/snaps/${dayString(0)}/${new Date(Date.now() - 60000).toTimeString().slice(0, 5).replace(":", "-")}.jpg`;
@@ -1151,13 +1165,13 @@ $("push-off").onclick = async () => {
 $("hero-img").onerror = () => { $("hero-img").onerror = null; $("hero-img").src = "/icon.png"; };
 pollLive(); refreshCam(); loadZones();
 if (curTab === "live") startLive();
-setInterval(() => { if (!document.hidden && curTab === "live") pollLive(); }, 2000);
+setInterval(() => { if (!document.hidden && curTab === "live") { startLiveStream(); if (!streaming()) pollLive(); } }, 2000);
 setInterval(() => { if (!document.hidden && curTab === "today") { pollLive().then(() => { if (dayOffset === 0) loadDay(); }); } }, 30000);
 setInterval(() => { if (!document.hidden && curTab === "live") refreshCam(); }, 15000);
 window.addEventListener("resize", () => drawBox(live && live.present && live.box ? live.box : null));
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { pauseLive(); return; }                 // no streaming from a locked phone
-  if (curTab === "live") { pollLive(); startLive(); }
+  if (document.hidden) { pauseLive(); stopLiveStream(); return; }   // no streaming from a locked phone
+  if (curTab === "live") { esFails = 0; pollLive(); startLive(); startLiveStream(); }
 });
 const saved = recall("petcam.tab"); if (saved && saved !== "live") showTab(saved);
 </script>

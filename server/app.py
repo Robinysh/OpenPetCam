@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""petcam web app: password login, pan/tilt proxy, last-hour recording list.
+"""petcam web app: login and devices, camera control, the pet's day, live status stream, talk, reports.
 
 Standard library only. Listens on 127.0.0.1:8080 behind Caddy, which also asks
 GET /auth before serving any video. Secrets come from /etc/petcam/app.env:
@@ -23,26 +23,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import petconf
 
+STATE_DIR = petconf.STATE
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SESSION_DAYS = 30
 COOKIE = "petcam_session"
 
 
-def load_env(path="/etc/petcam/app.env"):
-    env = {}
-    try:
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip()
-    except FileNotFoundError:
-        pass
-    return env
-
-
-ENV = load_env()
+ENV = petconf.load_env("/etc/petcam/app.env", unquote=False)   # secrets: values taken verbatim
 SECRET = ENV.get("APP_SECRET", "").encode()
 CAM_HOST = ENV.get("CAM_HOST") or petconf.CAM_HOST
 
@@ -105,8 +93,7 @@ FAILS_LOCK = threading.Lock()
 
 def login_locked(ip):
     with FAILS_LOCK:
-        count, until = FAILS.get(ip, [0, 0])
-        return until > time.time()
+        return FAILS.get(ip, [0, 0])[1] > time.time()
 
 
 def note_failure(ip):
@@ -127,7 +114,7 @@ def note_success(ip):
 # in an HttpOnly Secure cookie that lasts 400 days and is refreshed on every visit. Any device
 # can be revoked from the app. New people join with a single-use invite link (24 h).
 
-DB_PATH = "/var/lib/petcam/petcam.db"
+DB_PATH = f"{STATE_DIR}/petcam.db"
 DEVICE_COOKIE = "petcam_device"
 DEVICE_DAYS = 400   # browsers cap cookie lifetime at 400 days; refreshed on each visit
 
@@ -445,7 +432,7 @@ def start_pose():
     return int(num(p, "pos_0_x", default=xm / 2)), int(num(p, "pos_0_y", default=ym / 2))
 
 
-MOVED_FILE = "/var/lib/petcam/moved_at"
+MOVED_FILE = f"{STATE_DIR}/moved_at"
 
 
 def note_camera_moved():
@@ -458,8 +445,79 @@ def note_camera_moved():
         pass
 
 
+# ---------- fast camera channel: one long-lived SSH shell instead of a CGI per call ----------
+# Each Thingino CGI forks a shell, runs auth.sh and several helpers on a saturated single-core CPU:
+# ~300 ms per motor call. `motors` itself takes ~80 ms. One persistent dropbear session runs it
+# directly. Any failure falls back to the CGI, so this is purely an optimisation (profiled 2026-11-02).
+CAM_SSH_KEY = f"{STATE_DIR}/ssh/id_ed25519"   # made by install.sh; authorised on the camera by ensure_cam_ssh()
+
+
+class CamShell:
+    MARK = "__petcam_done__"
+
+    def __init__(self):
+        self.p = None
+        self.lock = threading.Lock()
+        self.down_until = 0.0
+
+    def _start(self):
+        import subprocess
+        self.p = subprocess.Popen(
+            ["ssh", "-T", "-i", CAM_SSH_KEY, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+             "-o", f"UserKnownHostsFile={os.path.dirname(CAM_SSH_KEY)}/known_hosts", "-o", "ConnectTimeout=5",
+             "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", f"root@{CAM_HOST}", "sh"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+
+    def run(self, cmd, timeout=5.0):
+        """Run one shell command on the camera; returns stdout. Raises on any failure."""
+        if time.time() < self.down_until or not os.path.exists(CAM_SSH_KEY):
+            raise OSError("camera ssh unavailable")
+        with self.lock:
+            try:
+                if self.p is None or self.p.poll() is not None:
+                    self._start()
+                self.p.stdin.write(f"{cmd} 2>/dev/null; echo {self.MARK}$?\n")
+                self.p.stdin.flush()
+                out, box = [], {}
+
+                def read():
+                    for line in self.p.stdout:
+                        if line.startswith(self.MARK):
+                            box["rc"] = int(line[len(self.MARK):].strip() or 1)
+                            return
+                        out.append(line)
+                t = threading.Thread(target=read, daemon=True)
+                t.start()
+                t.join(timeout)
+                if "rc" not in box:
+                    raise TimeoutError(f"camera ssh: no answer to {cmd.split()[0]}")
+                if box["rc"] != 0:
+                    raise OSError(f"camera ssh: {cmd.split()[0]} exited {box['rc']}")
+                return "".join(out)
+            except Exception:
+                if self.p is not None:
+                    self.p.kill()
+                self.p = None
+                self.down_until = time.time() + 30          # use the CGI for a while
+                raise
+
+
+_camsh = CamShell()
+
+
+def motor_cmd(d, x=0, y=0):
+    """A `motors` move: over the fast channel, or the CGI if that is down."""
+    try:
+        _camsh.run(f"motors -d {d} -x {int(x)} -y {int(y)} >/dev/null")
+    except Exception:  # noqa: BLE001
+        cam_get("/x/json-motor.cgi", {"d": d, "x": int(x), "y": int(y)})
+
+
 def motor_status():
-    m = cam_get("/x/json-motor.cgi", {"d": "j"}).get("message") or {}
+    try:
+        m = json.loads(_camsh.run("motors -j"))
+    except Exception:  # noqa: BLE001
+        m = cam_get("/x/json-motor.cgi", {"d": "j"}).get("message") or {}
     return str(m.get("status")), int(float(m["xpos"])), int(float(m["ypos"]))
 
 
@@ -522,7 +580,7 @@ def _goto_locked(x, y, current):
         dx, dy = tx - cx, (step_y - cy) * TILT_COMMAND_SIGN
         if dx or dy:
             note_camera_moved()
-            cam_get("/x/json-motor.cgi", {"d": "g", "x": dx, "y": dy})
+            motor_cmd("g", dx, dy)
         if step_y == ty:
             break
         time.sleep(0.15)
@@ -573,7 +631,7 @@ def recalibrate():
 
 # ---------- saved spots ----------
 
-PRESETS_FILE = "/var/lib/petcam/presets.json"
+PRESETS_FILE = f"{STATE_DIR}/presets.json"
 _presets_lock = threading.Lock()
 
 
@@ -689,7 +747,7 @@ class Joystick:
         dx, dy = tx - cx, (ty - cy) * TILT_COMMAND_SIGN
         if dx or dy:
             note_camera_moved()
-            cam_get("/x/json-motor.cgi", {"d": "g", "x": dx, "y": dy})
+            motor_cmd("g", dx, dy)
         self.pos, self.pos_t = (tx, ty), time.time()
 
     def forget(self):
@@ -828,7 +886,7 @@ def set_settings(body):
 # WireGuard tunnel and plays it with Thingino's `play` (prudynt audio-out FIFO). Verified
 # 2026-11-02: a server-made chime was heard back by the camera's own mic.
 
-TALK_DIR = "/var/lib/petcam/talk"
+TALK_DIR = f"{STATE_DIR}/talk"
 TALK_BIND = (petconf.SERVER_WG_IP, 8099)            # tunnel address only: the camera is the only client
 _talk_last = {}
 
@@ -945,7 +1003,6 @@ def serve_talk_files():
 
 # ---------- the pet: live status, days, diary ----------
 
-STATE_DIR = "/var/lib/petcam"
 
 
 def read_live():
@@ -961,6 +1018,15 @@ def read_live():
     if live.get("watch_age") is not None and live["watch_age"] > 20:
         live["status"] = "watcher_down"
     return live
+
+
+_streams = {"n": 0}
+STREAM_MAX = 8          # concurrent live streams (each is one server thread)
+STREAM_LIFETIME = 600   # seconds; EventSource reconnects by itself
+
+
+def live_payload():
+    return read_live() | {"settings": get_settings()}
 
 
 def day_bounds(day):
@@ -1028,7 +1094,7 @@ def day_report(day=None):
            "label": e["label"] if "label" in e.keys() else None,
            "clip": f"/media/clips/{e['clip']}" if e["clip"] else None,
            "thumb": f"/media/clips/{e['thumb']}" if e["thumb"] else None} for e in events]
-    dog_kinds = ("barking", "howling", "whining", "growling", "dog_sound")
+    dog_kinds = petconf.DOG_SOUND_KINDS
     sounds = sum(kind_counts.get(k, 0) for k in dog_kinds + ("loud_sound",))
     barks = sum(kind_counts.get(k, 0) for k in dog_kinds)
     zones = {}
@@ -1066,7 +1132,7 @@ def diary(limit=60):
 
 # ---------- zones (bowl / water / bed), drawn over a live frame ----------
 
-ZONES_FILE = "/var/lib/petcam/zones.json"
+ZONES_FILE = f"{STATE_DIR}/zones.json"
 ZONE_DWELL = {"water": 6, "food": 6, "bed": 60, "other": 10}
 
 
@@ -1213,7 +1279,7 @@ def wellbeing(day=None):
 
 # ---------- bug reports: everything needed to debug a moment, captured when it happens ----------
 
-REPORTS_DIR = "/var/lib/petcam/reports"
+REPORTS_DIR = f"{STATE_DIR}/reports"
 CLIENT_ERRORS = f"{REPORTS_DIR}/client-errors.jsonl"
 _report_last = {}          # device id -> ts of its last report (rate limit)
 _clientlog = {"window": 0.0, "n": 0}
@@ -1302,21 +1368,6 @@ def snap_at(ts):
     return {"snap": None, "asked": time.strftime("%H:%M", t)}
 
 
-def recordings():
-    def call():
-        with urllib.request.urlopen("http://127.0.0.1:9996/list?path=cam", timeout=5) as r:
-            return json.loads(r.read(1_000_000) or b"[]")
-
-    try:
-        return with_deadline(call, 8)
-    except urllib.error.HTTPError as e:
-        if e.code == 404:  # nothing recorded yet
-            return []
-        raise
-
-
-# ---------- HTTP ----------
-
 def read_file(name):
     with open(os.path.join(HERE, name), "rb") as f:
         return f.read()
@@ -1333,8 +1384,7 @@ def page(name, **subs):
     return body
 
 
-def html_escape(s):
-    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+html_escape = petconf.html_escape
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1380,6 +1430,36 @@ class Handler(BaseHTTPRequestHandler):
 
     def send_json(self, code, obj):
         self.send(code, json.dumps(obj).encode(), "application/json")
+
+    def live_stream(self):
+        """Server-sent events: push live.json to the phone the moment the watcher rewrites it,
+        instead of the phone polling every 2 s (profiled 2026-11-02: about 1 s saved on average)."""
+        if _streams["n"] >= STREAM_MAX:
+            return self.send_json(503, {"error": "too many live streams"})
+        _streams["n"] += 1
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            path, last_mt, last_beat, end = f"{STATE_DIR}/live.json", None, 0.0, time.time() + STREAM_LIFETIME
+            while time.time() < end:
+                try:
+                    mt = os.path.getmtime(path)
+                except OSError:
+                    mt = None
+                now_ = time.time()
+                if mt != last_mt or now_ - last_beat > 5:      # also every 5 s, so "watcher down" still shows
+                    last_mt, last_beat = mt, now_
+                    self.wfile.write(b"data: " + json.dumps(live_payload()).encode() + b"\n\n")
+                    self.wfile.flush()
+                time.sleep(0.1)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            pass
+        finally:
+            _streams["n"] -= 1
+            self.close_connection = True
 
     def redirect(self, to, headers=None):
         h = {"Location": to}
@@ -1437,7 +1517,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, page("index.html"), "text/html; charset=utf-8", self.session_headers())
         q = self.query()
         if path == "/api/live":
-            return self.send_json(200, read_live() | {"settings": get_settings()})
+            return self.send_json(200, live_payload())
+        if path == "/api/live/stream":
+            return self.live_stream()
         if path == "/api/day":
             return self.camera_call(day_report, q.get("d"))
         if path == "/api/diary":
@@ -1457,11 +1539,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(502, {"error": f"camera unreachable: {e}"})
         if path == "/api/push":
             return self.camera_call(lambda: push_status((self.device() or {}).get("id")) | push_key())
-        if path == "/api/recordings":
-            try:
-                return self.send_json(200, recordings())
-            except Exception as e:  # noqa: BLE001
-                return self.send_json(502, {"error": str(e)})
         if path == "/api/state":
             return self.camera_call(state)
         return self.send(404, b"not found")
@@ -1556,9 +1633,31 @@ class Handler(BaseHTTPRequestHandler):
         return self.send(404, b"not found")
 
 
+def ensure_cam_ssh():
+    """Authorise this server's key on the camera once (through the web command runner), so the fast
+    channel works. Idempotent; failures just leave the CGI path in use."""
+    try:
+        _camsh.run("true")
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        pub = open(CAM_SSH_KEY + ".pub").read().strip()
+        assert pub.startswith("ssh-ed25519 ") and "'" not in pub
+        camera_run(f"mkdir -p /root/.ssh && chmod 700 /root/.ssh && touch /root/.ssh/authorized_keys && "
+                   f"(grep -qF '{pub}' /root/.ssh/authorized_keys || echo '{pub}' >> /root/.ssh/authorized_keys) && "
+                   f"chmod 600 /root/.ssh/authorized_keys")
+        _camsh.down_until = 0
+        _camsh.run("true")
+        print("camera ssh: fast channel ready", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"camera ssh: not available, using the web CGIs ({e})", flush=True)
+
+
 if __name__ == "__main__":
     if not SECRET or not ENV.get("APP_PASSWORD_HASH"):
         print("WARNING: APP_SECRET or APP_PASSWORD_HASH missing; nobody can log in yet", flush=True)
     init_auth_db()
     threading.Thread(target=serve_talk_files, daemon=True).start()
+    threading.Thread(target=ensure_cam_ssh, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", 8080), Handler).serve_forever()

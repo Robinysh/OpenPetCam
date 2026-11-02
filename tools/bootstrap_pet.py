@@ -34,7 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, ".."))
 WORK = os.path.join(ROOT, "eval", "bootstrap")
 MODELS = os.path.join(ROOT, "models")
-from siteconf import HOST, KEY, PET, SITE  # noqa: E402
+from siteconf import HOST, KEY, PET, SITE, SSH  # noqa: E402
 
 LABELS = ("pet", "toy", "other_animal", "person", "nothing")
 SHEET_N = 40
@@ -84,17 +84,18 @@ def collect():
     crops_dir = os.path.join(WORK, "crops")
     os.makedirs(frames_dir, exist_ok=True)
     os.makedirs(crops_dir, exist_ok=True)
-    # 1) per-minute snapshots from the server (14 days kept there)
-    ssh("sudo tar -C /var/lib/petcam/snaps -czf /tmp/bs_snaps.tgz . && sudo chmod 644 /tmp/bs_snaps.tgz")
-    subprocess.run(["scp", "-q", "-i", KEY, f"{HOST}:/tmp/bs_snaps.tgz", f"{WORK}/snaps.tgz"], check=True)
-    subprocess.run(["tar", "-xzf", f"{WORK}/snaps.tgz", "-C", frames_dir], check=True)
-    # Candidate frames the watcher saved when it saw something dog-like (more than one a minute).
-    ssh("sudo mkdir -p /var/lib/petcam/candidates && sudo tar -C /var/lib/petcam/candidates -czf /tmp/bs_cands.tgz . "
-        "&& sudo chmod 644 /tmp/bs_cands.tgz")
-    subprocess.run(["scp", "-q", "-i", KEY, f"{HOST}:/tmp/bs_cands.tgz", f"{WORK}/cands.tgz"], check=True)
-    cand_dir = os.path.join(frames_dir, "cand")
-    os.makedirs(cand_dir, exist_ok=True)
-    subprocess.run(["tar", "-xzf", f"{WORK}/cands.tgz", "-C", cand_dir], check=True)
+    # 1) per-minute snapshots (kept 14 days on the server) and the candidate frames the watcher saved
+    #    when it saw something dog-like. Only days not fully pulled yet: today and yesterday are always
+    #    re-pulled (still growing), older days once. Streamed over ssh, never left in the server's /tmp.
+    for remote, local in (("/var/lib/petcam/snaps", frames_dir), ("/var/lib/petcam/candidates", os.path.join(frames_dir, "cand"))):
+        os.makedirs(local, exist_ok=True)
+        days = sorted(d for d in ssh(f"sudo ls -1 {remote} 2>/dev/null || true").split() if len(d) == 10)
+        have = set(os.listdir(local))
+        want = [d for d in days if d not in have or d in days[-2:]]
+        if want:
+            tar = subprocess.run(SSH + [f"sudo tar -C {remote} -cf - " + " ".join(want)], capture_output=True, check=True,
+                                 timeout=1800).stdout
+            subprocess.run(["tar", "-xf", "-", "-C", local], input=tar, check=True)
     # 2) extra positive sources dropped by hand into eval/bootstrap/extra/<label>/*.jpg (optional)
     manifest_path = os.path.join(WORK, "manifest.jsonl")
     manifest = load_jsonl(manifest_path)
@@ -180,6 +181,10 @@ def label():
     labels_path = os.path.join(WORK, "labels.jsonl")
     done = {r["id"] for r in load_jsonl(labels_path) if r["source"] == "claude"}
     todo = [m["id"] for m in manifest if m["id"] not in done]
+    cap = int(os.environ.get("PETCAM_LABEL_MAX", "0") or 0)
+    if cap and len(todo) > cap:
+        random.Random(len(todo)).shuffle(todo)          # a fair sample when there is a backlog
+        todo = todo[:cap]
     print(f"{len(todo)} crops to label")
     os.makedirs(os.path.join(WORK, "sheets"), exist_ok=True)
     for s in range(0, len(todo), SHEET_N):
@@ -295,6 +300,9 @@ def train():
         w_, b_ = fit_logreg((X[d] - m_) / s_, y[d])
         oof[~d] = 1 / (1 + np.exp(-(((X[~d] - m_) / s_) @ w_ + b_)))
     cv_th = max(ths, key=lambda t: (prf(y, (oof >= t).astype(int))["f1"], -abs(t - 0.5)))
+    with open(os.path.join(WORK, "cv_scores.json"), "w") as f:      # per-crop held-out scores, for tools/autopilot.py
+        json.dump({"threshold": float(cv_th), "by": "day" if len(groups) >= 3 else "hour",
+                   "items": {m["id"]: [round(float(p), 4), int(t), m["day"]] for (m, t), p in zip(items, oof)}}, f)
     zs_errors = {"toys_accepted": int(((zs >= 0.34) & (y == 0)).sum()), "pets_rejected": int(((zs < 0.34) & (y == 1)).sum())}
     cv_errors = {"toys_accepted": int(((oof >= cv_th) & (y == 0)).sum()), "pets_rejected": int(((oof < cv_th) & (y == 1)).sum())}
     # --allow-single-day: for a live failure of the zero-shot filter that can't wait for 3 days of data.

@@ -7,9 +7,11 @@ import json
 import os
 
 SITE_ENV = os.environ.get("PETCAM_SITE_ENV", "/etc/petcam/site.env")
+STATE = "/var/lib/petcam"     # all runtime data: database, snapshots, clips, settings, reports
+DOG_SOUND_KINDS = ("barking", "howling", "whining", "growling", "dog_sound")   # event kinds that are the dog
 
 
-def load_env(path):
+def load_env(path, unquote=True):
     env = {}
     try:
         with open(path) as f:
@@ -17,7 +19,8 @@ def load_env(path):
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip().strip('"').strip("'")
+                    v = v.strip()
+                    env[k.strip()] = v.strip('"').strip("'") if unquote else v
     except (FileNotFoundError, PermissionError):
         pass
     return env

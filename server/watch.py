@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """petcam-watch: watches the camera around the clock on a $5 box.
 
-Every ~2 s: fetch the camera's own JPEG snapshot (no video decoding here), check the picture is
-not frozen, measure motion, run a tiny dog detector, and keep the pet's state. Writes to SQLite
+Reads the camera's 640x360 substream (decoded at 5 fps, motion checked on every frame; camera
+snapshots as the fallback). Every 3 s, or within ~1 s of motion: check the picture is not frozen,
+measure motion, run a tiny detector plus the trained "is it really the pet?" verifier, and keep the pet's state. Writes to SQLite
 (/var/lib/petcam/petcam.db): raw observations, per-minute aggregates (kept forever, they are the
 long-term memory), and events with short clips cut from MediaMTX's rolling recording.
 
@@ -32,9 +33,10 @@ from PIL import Image
 
 sys.path.insert(0, "/opt/petcam")
 import app as camapi  # noqa: E402  - camera session login + motor/status helpers
+import petconf  # noqa: E402
 from detector import Detector  # noqa: E402
 
-STATE = "/var/lib/petcam"
+STATE = petconf.STATE
 DB = f"{STATE}/petcam.db"
 SNAPS = f"{STATE}/snaps"
 CLIPS = f"{STATE}/clips"
@@ -44,12 +46,12 @@ HEARTBEAT = f"{STATE}/heartbeat"
 LIVE = f"{STATE}/live.json"          # current status for the web app
 MOVED = f"{STATE}/moved_at"          # web app touches this when it moves the camera
 PRIVACY = f"{STATE}/privacy"         # "1" while the camera is paused (privacy mode)
-SETTINGS = f"{STATE}/settings.json"  # {"follow": bool} written by the web app
+SETTINGS = f"{STATE}/settings.json"  # {"follow": bool, "talk_volume": int} written by the web app
 FLAP_LOCK_FILE = f"{STATE}/daynight_lock_until"   # survives restarts, so a lock always ends
 HOUSE_FILE = f"{STATE}/housekeeping_day"            # date of the last nightly housekeeping run
 MODEL = "/opt/petcam/models/yolox_nano.onnx"
 YAMNET_MODEL = "/opt/petcam/models/yamnet.tflite"
-VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_sandy.py
+VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.py
 REPORTS = f"{STATE}/reports"                         # "Something wrong?" reports from the app
 CANDIDATES = f"{STATE}/candidates"                  # frames with dog-like things, for the next bootstrap
 ZONES = f"{STATE}/zones.json"                       # written by the web app
@@ -57,9 +59,13 @@ ZONE_POSE_TOL = (40, 25)                            # pan/tilt steps: camera cou
 ZONE_GAP = 20                                       # s without her in the zone that ends a visit
 YAMNET_CLASSES = "/opt/petcam/models/yamnet_class_map.csv"
 DOG_SOUND_THRESHOLD = 0.55    # PROVISIONAL, see SoundModel; refit on the 👍/👎 labels from the app
-LOUD_NON_DOG_DB = -28.0
-DOG_SOUND_KINDS = {"barking", "howling", "whining", "growling", "dog_sound"}       # non-dog sounds become a moment only when this loud (a crash, an alarm)
+LOUD_NON_DOG_DB = -28.0       # non-dog sounds become a moment only when this loud (a crash, an alarm)
+DOG_SOUND_KINDS = set(petconf.DOG_SOUND_KINDS)
 
+SUB_URL = "rtsp://127.0.0.1:8554/sub"   # the camera's 640x360 stream, relayed by MediaMTX
+FRAME_FPS = 5                 # decoded frames per second for motion (the detector runs far less often)
+STREAM_STALL = 90             # seconds of no live frames (while snapshots work) before the streamer is restarted
+MIN_CYCLE = 1.0               # at most one full cycle (detector, DB row) per second, even while she moves
 PERIOD = 3.0                  # seconds between snapshots (2 s kept the box over its CPU baseline)
 PRESENT_SCORE = 0.30          # animal score that counts as "the pet is here" (see README for evidence)
 ABSENT_SCORE = 0.15
@@ -135,21 +141,73 @@ def write_json(path, obj):
 # ---------------------------------------------------------------- camera
 
 def snapshot(channel="ch1"):
-    def call():
-        req = urllib.request.Request(f"http://{camapi.CAM_HOST}/x/{channel}.jpg",
-                                     headers={"Cookie": camapi._cam["cookie"] or ""})
-        with urllib.request.urlopen(req, timeout=6) as r:
-            return r.read(2_000_000)
+    """The camera's own JPEG. ch1 (640x360) through the app's camera session; ch0 (1080p) for tools."""
+    if channel == "ch1":
+        return camapi.live_frame()
+    camapi.cam_login() if not camapi._cam["cookie"] else None
+    req = urllib.request.Request(f"http://{camapi.CAM_HOST}/x/{channel}.jpg", headers={"Cookie": camapi._cam["cookie"] or ""})
+    return camapi.with_deadline(lambda: urllib.request.urlopen(req, timeout=6).read(2_000_000), 8)
 
-    if not camapi._cam["cookie"]:
-        camapi.cam_login()
+
+class FrameSource:
+    """Live frames from the camera's 640x360 substream, relayed by MediaMTX (path "sub") and decoded
+    here at FRAME_FPS. Replaces the 300 ms snapshot CGI, whose picture is ~1 s old (profiled 2026-11-02).
+    Motion is checked on every frame: real motion wakes the main loop at once instead of it sleeping
+    out its PERIOD. If the stream stalls, latest() returns None and the loop falls back to snapshots,
+    so the freeze / self-heal watchdogs work as before."""
+    W, H = 640, 360
+
+    def __init__(self, url=SUB_URL):
+        self.url = url
+        self.frame, self.t = None, 0.0
+        self.prev_small = None
+        self.wake = threading.Event()
+        self.lock = threading.Lock()
+
+    def start(self):
+        threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        backoff = 2
+        while True:
+            p = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-nostdin", "-rtsp_transport", "tcp", "-i", self.url,
+                                  "-an", "-vf", f"fps={FRAME_FPS},scale={self.W}:{self.H}", "-pix_fmt", "rgb24",
+                                  "-f", "rawvideo", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            n = self.W * self.H * 3
+            try:
+                while True:
+                    buf = p.stdout.read(n)
+                    if len(buf) < n:
+                        break
+                    backoff = 2
+                    arr = np.frombuffer(buf, np.uint8).reshape(self.H, self.W, 3)
+                    small = arr[::4, ::4].mean(axis=2).astype(np.int16)         # 160x90 gray, cheap
+                    if self.prev_small is not None:
+                        d = np.abs(small - self.prev_small)
+                        d[:9, :] = 0                                         # the clock overlay
+                        if float(d.mean()) > MOTION_DETECT and not camera_moved_at_recently():
+                            self.wake.set()
+                    self.prev_small = small
+                    with self.lock:
+                        self.frame, self.t = arr, now()
+            finally:
+                p.kill()
+                p.wait()
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 60)
+
+    def latest(self, max_age=2.0):
+        with self.lock:
+            if self.frame is None or now() - self.t > max_age:
+                return None
+            return Image.fromarray(self.frame)
+
+
+def camera_moved_at_recently(window=4.0):
     try:
-        return camapi.with_deadline(call, 8)
-    except urllib.error.HTTPError as e:
-        if e.code != 401:
-            raise
-        camapi.cam_login()
-        return camapi.with_deadline(call, 8)
+        return now() - os.path.getmtime(MOVED) < window
+    except OSError:
+        return False
 
 
 def cam_action(path):
@@ -189,7 +247,7 @@ def imaging_state():
 class Verifier:
     """Second stage: is this candidate really the pet? YOLOX calls her black plush toy a dog
     (2026-11-02: 42 of 51 morning candidates at >= 0.30 were the toy). Crops are described by
-    MobileNetV2 ImageNet logits; verifier.json (from tools/bootstrap_sandy.py) is either
+    MobileNetV2 ImageNet logits; verifier.json (from tools/bootstrap_pet.py) is either
       zeroshot: P(any ImageNet dog breed) >= threshold   (untrained; used while labels are few)
       logreg:   a logistic regression trained on Claude-labelled crops
     """
@@ -554,12 +612,8 @@ def housekeeping():
     for n in os.listdir(REPORTS) if os.path.isdir(REPORTS) else []:
         if n[:8].isdigit() and n[:8] < cutoff:
             shutil.rmtree(os.path.join(REPORTS, n), ignore_errors=True)
-    for n in os.listdir(TIMELAPSE) if os.path.isdir(TIMELAPSE) else []:
-        if n[:10] < time.strftime("%Y-%m-%d", time.localtime(now() - RETAIN["timelapse_days"] * 86400)):
-            os.remove(f"{TIMELAPSE}/{n}")
-    for n in os.listdir(HIGHLIGHTS) if os.path.isdir(HIGHLIGHTS) else []:
-        if n[:10] < time.strftime("%Y-%m-%d", time.localtime(now() - RETAIN["highlights_days"] * 86400)):
-            os.remove(f"{HIGHLIGHTS}/{n}")
+    prune_dirs(TIMELAPSE, RETAIN["timelapse_days"])      # files named <day>.mp4: same date-prefix rule
+    prune_dirs(HIGHLIGHTS, RETAIN["highlights_days"])
     con = db()
     con.execute("DELETE FROM obs WHERE ts < ?", (now() - RETAIN["obs_days"] * 86400,))
     con.execute("UPDATE events SET clip=NULL WHERE clip IS NOT NULL AND ts < ?", (now() - RETAIN["clips_days"] * 86400,))
@@ -581,6 +635,8 @@ class Watch:
         self.events = queue.Queue()
         self.audio = Audio(self.events)
         self.clips = Clips()
+        self.frames = FrameSource()
+        self.source = None
         self.prev_small = None
         self.prev_box = None
         self.last_found = []
@@ -624,6 +680,7 @@ class Watch:
             os.makedirs(d, exist_ok=True)
         self.audio.start()
         self.clips.start()
+        self.frames.start()
         while True:
             t0 = now()
             try:
@@ -631,7 +688,25 @@ class Watch:
             except Exception as e:  # noqa: BLE001
                 log("cycle error:", type(e).__name__, e)
                 self.on_failure()
-            time.sleep(max(0.2, PERIOD - (now() - t0)))
+            # Next cycle after PERIOD, or as soon as the frame reader sees motion (but not within MIN_CYCLE).
+            time.sleep(max(0.0, MIN_CYCLE - (now() - t0)))
+            self.frames.wake.wait(max(0.0, PERIOD - (now() - t0)))
+            self.frames.wake.clear()
+
+    def check_stream_stall(self):
+        """Video stopped but snapshots still work: after a stream-settings change (2026-11-02 10:28) the
+        encoder stopped sending RTSP while ch1.jpg kept updating, which the freeze watchdog (identical
+        snapshots) cannot see. Restart the streamer after STREAM_STALL s; at most once per 10 min."""
+        t = now()
+        down = t - (getattr(self, "stream_down_since", None) or t)
+        if down < STREAM_STALL or t - self.last_fix < 600:
+            return
+        self.last_fix = t
+        con = db()
+        add_event(con, "camera_frozen", {"action": "restart streamer (video stalled, snapshots fine)", "down_s": round(down)})
+        con.close()
+        cam_action("/x/restart-prudynt.cgi")
+        self.stream_down_since = t
 
     def on_failure(self):
         self.heal_streamer()
@@ -670,9 +745,23 @@ class Watch:
         con.close()
 
     def cycle(self):
-        jpg = snapshot("ch1")
-        img = Image.open(io.BytesIO(jpg))
-        img.load()
+        img = self.frames.latest()
+        if img is not None:
+            buf = io.BytesIO()
+            img.save(buf, "JPEG", quality=85)
+            jpg = buf.getvalue()
+            if self.source != "stream":
+                log("frames: live stream")
+            self.source = "stream"
+        else:                       # stream down or stale: the camera's own snapshot (freeze watchdog relies on it)
+            jpg = snapshot("ch1")
+            img = Image.open(io.BytesIO(jpg))
+            img.load()
+            if self.source != "snapshot":
+                log("frames: camera snapshots (stream not available)")
+                self.stream_down_since = now()
+            self.source = "snapshot"
+            self.check_stream_stall()
         t = now()
         con = db()
         self.heal_tries = 0
@@ -705,7 +794,7 @@ class Watch:
             self.publish(status="privacy", score=0.0, moving=False, box=None, det_t=None, motion=motion, person=0.0)
             return
         # The detector only runs when the picture changed or every DETECT_EVERY seconds: a still
-        # room doesn't need a fresh answer every 2 s, and this box lives near its CPU baseline.
+        # room doesn't need a fresh answer every cycle, and this box lives near its CPU baseline.
         if motion > MOTION_DETECT or t - self.last_detect >= DETECT_EVERY or prev is None:
             self.last_found = self.det.detect(img, min_score=0.10)
             self.last_detect = t
@@ -718,8 +807,8 @@ class Watch:
         animals = [f for f in found if f["label"] != "person"]
         if self.verifier:
             # Only candidates the verifier accepts are the pet; the toy's "dog" box is ignored.
-            the pet = [f for f in animals if f.get("verified", 0.0) >= self.verifier.threshold]
-            best = max(the pet, key=lambda f: f["verified"]) if the pet else None
+            pets = [f for f in animals if f.get("verified", 0.0) >= self.verifier.threshold]
+            best = max(pets, key=lambda f: f["verified"]) if pets else None
             score = 1.0 if best else 0.0          # presence logic below works on a yes/no here
         else:
             best = max(animals, key=lambda f: f["score"]) if animals else None
@@ -742,7 +831,7 @@ class Watch:
         else:
             self.prev_box = None
 
-        self.update_sandy(con, t, score, moving, jpg)
+        self.update_pet(con, t, score, moving, jpg)
         self.maybe_follow(t, best, score, moving)
         try:
             self.check_zones(con, t, best if score >= PRESENT_SCORE else None, jpg)
@@ -834,7 +923,7 @@ class Watch:
 
     def save_candidate(self, jpg, t):
         """Frames where the detector saw something dog-like (the pet or not), max one per 30 s:
-        the raw material for the next tools/bootstrap_sandy.py run. Kept 30 days."""
+        the raw material for the next tools/bootstrap_pet.py run. Kept 30 days."""
         if t - self.last_candidate_save < 30:
             return
         self.last_candidate_save = t
@@ -962,7 +1051,7 @@ class Watch:
 
     def check_frozen(self, con, gray, t):
         """The camera burns a ticking clock into the picture, so a live picture is never
-        bit-identical two seconds apart. 90 s of identical frames means the encoder hung
+        bit-identical a few seconds apart. 90 s of identical frames means the encoder hung
         (it did at 22:12 on 2026-11-01). Restart it; if restarts keep failing, reboot."""
         same = self.prev_small is not None and np.array_equal(gray, self.prev_small)
         if not same:
@@ -984,7 +1073,7 @@ class Watch:
         self.same_since = None
         return True
 
-    def update_sandy(self, con, t, score, moving, jpg):
+    def update_pet(self, con, t, score, moving, jpg):
         if score >= PRESENT_SCORE:
             if not self.present:
                 gone = t - self.gone_since if self.gone_since else 1e9
