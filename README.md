@@ -105,6 +105,17 @@ default only once there are enough labels across at least 3 days to test it hone
 days. The 👍/👎 answers in the app are the human labels used to check it. Method and numbers:
 [docs/evaluation.md](docs/evaluation.md).
 
+## Hands-off: the nightly loop
+
+`bash tools/install_autopilot.sh` schedules `tools/autopilot.py` on your Mac every night at 03:30
+(launchd; a sleeping Mac runs it on wake). Each run does the following:
+1. Pulls the day's new candidate crops and has `claude -p` label them.
+2. Retrains the verifier, and deploys it only if it beats the live model on held-out data and the newest day. If the server doesn't load the new model, it rolls back.
+3. Runs a check-in (health, bug reports, page errors, the pet's day) and pushes to your phone only when you need to know something.
+
+The server pushes "nightly check-up hasn't run" if the loop is silent for 36 h. Logs and each night's
+facts: `eval/autopilot/`. Remove the schedule with `tools/install_autopilot.sh --remove`.
+
 ## Repository
 
 | Path | What |
