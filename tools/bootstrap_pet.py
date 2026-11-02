@@ -38,6 +38,9 @@ from siteconf import HOST, KEY, PET, SITE, SSH  # noqa: E402
 
 LABELS = ("pet", "toy", "other_animal", "person", "nothing")
 SHEET_N = 40
+# A crop the zero-shot "any dog breed" score is this sure about is accepted even if the trained model
+# (which only knows places it has seen) says no. Above the worst toy seen live (octopus 0.43).
+ZEROSHOT_BACKUP = 0.5
 PROMPT_VERSION = "v2"   # v1 used the label "the pet"; read as "pet"
 
 sys.path.insert(0, os.path.join(ROOT, "server"))
@@ -93,8 +96,12 @@ def collect():
         have = set(os.listdir(local))
         want = [d for d in days if d not in have or d in days[-2:]]
         if want:
-            tar = subprocess.run(SSH + [f"sudo tar -C {remote} -cf - " + " ".join(want)], capture_output=True, check=True,
-                                 timeout=1800).stdout
+            # tar exits 1 when a file changes while read (today's folder gains a snapshot every minute): fine.
+            r = subprocess.run(SSH + [f"sudo tar --warning=no-file-changed -C {remote} -cf - " + " ".join(want) + "; [ $? -le 1 ]"],
+                               capture_output=True, timeout=1800)
+            if r.returncode != 0:
+                raise RuntimeError(f"pulling {remote} failed: {r.stderr[-300:]!r}")
+            tar = r.stdout
             subprocess.run(["tar", "-xf", "-", "-C", local], input=tar, check=True)
     # 2) extra positive sources dropped by hand into eval/bootstrap/extra/<label>/*.jpg (optional)
     manifest_path = os.path.join(WORK, "manifest.jsonl")
@@ -304,7 +311,8 @@ def train():
         json.dump({"threshold": float(cv_th), "by": "day" if len(groups) >= 3 else "hour",
                    "items": {m["id"]: [round(float(p), 4), int(t), m["day"]] for (m, t), p in zip(items, oof)}}, f)
     zs_errors = {"toys_accepted": int(((zs >= 0.34) & (y == 0)).sum()), "pets_rejected": int(((zs < 0.34) & (y == 1)).sum())}
-    cv_errors = {"toys_accepted": int(((oof >= cv_th) & (y == 0)).sum()), "pets_rejected": int(((oof < cv_th) & (y == 1)).sum())}
+    acc = (oof >= cv_th) | (zs >= ZEROSHOT_BACKUP)       # what the watcher does: trained model OR confident zero-shot
+    cv_errors = {"toys_accepted": int((acc & (y == 0)).sum()), "pets_rejected": int((~acc & (y == 1)).sum())}
     # --allow-single-day: for a live failure of the zero-shot filter that can't wait for 3 days of data.
     # Splits by hour instead of day and accepts 30/15 labels; re-run without it once 3 days exist.
     single = "--allow-single-day" in sys.argv
@@ -338,6 +346,7 @@ def train():
         mu, sd = X.mean(0), X.std(0) + 1e-6
         w, b = fit_logreg((X - mu) / sd, y)
         out = {"mode": "logreg", "mean": mu.tolist(), "std": sd.tolist(), "w": w.tolist(), "b": float(b),
+               "zeroshot_backup": ZEROSHOT_BACKUP, "classes": [151, 268],
                "threshold": float(cv_th), "feature_model": "mobilenetv2-12.onnx", "report": report}
     else:
         # midpoint of the gap between the classes when they separate, else the dev-fitted threshold

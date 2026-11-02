@@ -79,3 +79,21 @@ Today's per-minute presence recomputed with it: the pet-present minutes 51 -> 9.
 
 **Still owed:** a held-out test across days (needs more labelled days; the watcher now saves
 candidate frames), and human labels as the independent check (the pet moments' 👍/👎 in the app).
+
+## The trained verifier only knows places it has seen (2026-11-02 afternoon)
+
+Owner's report 13:59: the pet plainly on the rug, app said "out of sight". The trained (logreg) verifier,
+built from morning crops in the hallway and by the door, gave her **0.11** (rejected); zero-shot gave 0.62.
+Follow then searched the room and reported "not found" with her in view. Out-of-fold by hour, the
+rug crops were all rejected: the model memorises scenes. Two fixes:
+
+- 95 more labelled crops (rug, afternoon sun), checked by eye; retrained (157 crops).
+- **Zero-shot backup**: accept when P(any dog breed) >= 0.5 even if the trained model says no. The bar
+  sits above the worst toy seen live (octopus, 0.43). Held-out: toys accepted 0, pets rejected 3
+  (trained alone 4, zero-shot alone 8).
+
+On the report frames: rug 0.11 -> 0.97, door 0.98 -> 1.00, octopus 0.00 -> 0.00.
+
+Owner's report 13:26 ("box includes her toy"): YOLOX-nano draws one box over a curled-up dog and the
+rope toy touching her. YOLOX-tiny (3.5x slower) draws the same box and calls her a cat, so it is not
+worth it. Presence and identity were right; only the outline is wide.

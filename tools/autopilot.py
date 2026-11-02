@@ -68,13 +68,17 @@ def heartbeat():
 
 def scores(cfg, X):
     """The verifier's probability for each feature row (MobileNetV2 logits), as watch.Verifier computes it."""
-    if cfg["mode"] == "logreg":
-        z = (X - np.array(cfg["mean"])) / np.array(cfg["std"])
-        return 1 / (1 + np.exp(-(z @ np.array(cfg["w"]) + float(cfg["b"]))))
     sm = np.exp(X - X.max(1, keepdims=True))
     sm /= sm.sum(1, keepdims=True)
     a, b = cfg.get("classes", [151, 268])
-    return sm[:, a:b + 1].sum(1)
+    dog = sm[:, a:b + 1].sum(1)
+    if cfg["mode"] != "logreg":
+        return dog
+    z = (X - np.array(cfg["mean"])) / np.array(cfg["std"])
+    p = 1 / (1 + np.exp(-(z @ np.array(cfg["w"]) + float(cfg["b"]))))
+    if cfg.get("zeroshot_backup") is not None:
+        p = np.where(dog >= cfg["zeroshot_backup"], np.maximum(p, cfg["threshold"]), p)
+    return p
 
 
 def errors(p, y, th):
@@ -105,6 +109,9 @@ def train_and_gate():
     newest = max(d for d in days if d[:4].isdigit())
     new = days == newest
     oof = np.array([cv["items"][i][0] for i in ids])
+    if cand.get("zeroshot_backup") is not None:            # score the candidate the way the watcher runs it
+        dog = scores({"mode": "zeroshot", "classes": cand.get("classes", [151, 268])}, X)
+        oof = np.where(dog >= cand["zeroshot_backup"], np.maximum(oof, cv["threshold"]), oof)
     cur = json.load(open(DEPLOYED)) if os.path.exists(DEPLOYED) else {"mode": "zeroshot", "threshold": 0.34}
     pcur = scores(cur, X)
     ir = np.array([is_ir(os.path.join(bp.WORK, "crops", f"{i}.jpg")) for i in ids])

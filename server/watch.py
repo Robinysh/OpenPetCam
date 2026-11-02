@@ -300,12 +300,20 @@ class Verifier:
         x = np.asarray(crop.resize((224, 224), Image.BILINEAR), dtype=np.float32) / 255.0
         x = ((x - self.MEAN) / self.STD).transpose(2, 0, 1)[None]
         z = self.sess.run(None, {self.inp: x})[0].reshape(-1).astype(np.float64)
-        if self.cfg["mode"] == "logreg":
-            return float(1 / (1 + np.exp(-(((z - self.mu) / self.sd) @ self.w + self.b))))
         e = np.exp(z - z.max())
         e /= e.sum()
         a, b = self.cfg.get("classes", [151, 268])
-        return float(e[a:b + 1].sum())
+        dog = float(e[a:b + 1].sum())               # zero-shot: P(any ImageNet dog breed)
+        if self.cfg["mode"] != "logreg":
+            return dog
+        p = float(1 / (1 + np.exp(-(((z - self.mu) / self.sd) @ self.w + self.b))))
+        # The trained model knows the places it has seen; in a new spot or light it can reject the pet
+        # (2026-11-02 13:59: 0.11 for the pet on the rug). A confident "this is a dog" vouches for her too.
+        # The bar sits above the worst toy seen (octopus, 0.43 live), so toys still can't pass.
+        backup = self.cfg.get("zeroshot_backup")
+        if backup is not None and dog >= backup:
+            p = max(p, self.threshold)
+        return p
 
 
 class SoundModel:
