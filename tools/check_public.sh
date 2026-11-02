@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Refuse to commit anything that identifies your install or looks like a secret.
+#   tools/check_public.sh          check staged files (what the pre-commit hook runs)
+#   tools/check_public.sh --all    check every tracked file
+# Patterns: the values in config/site.env that name your server or home network, plus
+# common secret shapes. Install the hook once: git config core.hooksPath .githooks
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+if [ "${1:-}" = --all ]; then files=$(git ls-files); else files=$(git diff --cached --name-only --diff-filter=ACM); fi
+[ -n "$files" ] || exit 0
+pats=()
+if [ -f config/site.env ]; then
+  while IFS='=' read -r k v; do
+    v=${v%\"}; v=${v#\"}
+    case "$k" in PUBLIC_IP|PUBLIC_HOST|SSH_HOST|CAMERA_LAN_IP|CAMERA_WG_PUBKEY)
+      [ -n "$v" ] && pats+=("$(printf '%s' "${v#*@}" | sed 's/[.[\*^$+?(){}|/]/\\&/g')") ;;
+    esac
+  done < <(grep -E '^[A-Z_]+=' config/site.env)
+fi
+pats+=('BEGIN [A-Z ]*PRIVATE KEY' 'AKIA[0-9A-Z]{16}' 'pbkdf2_sha256\$[0-9]+\$[0-9a-f]{16}' 'sk-[A-Za-z0-9]{20,}' "$HOME/")
+bad=0
+for p in "${pats[@]}"; do
+  # shellcheck disable=SC2086
+  if hits=$(grep -nIE -- "$p" $files 2>/dev/null); then
+    [ "$p" = "$HOME/" ] && hits=$(printf '%s\n' "$hits" | grep -v '^tools/check_public.sh:' || true)
+    [ -n "$hits" ] || continue
+    echo "check_public: refusing, found something private:"; printf '%s\n' "$hits" | cut -c1-160; bad=1
+  fi
+done
+[ $bad -eq 0 ] || { echo "Move it to config/site.env (git-ignored) or the server's /etc/petcam/*.env."; exit 1; }

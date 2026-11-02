@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.DS_Store
+# Your install: server address, SSH key path. Only the example is public.
+config/*
+!config/site.env.example
+# Downloaded by tools/fetch_models.sh (pinned by hash); trained verifier stays local.
+models/
+# Frames and crops from your home, labels, scratch.
+eval/

@@ -1,0 +1,49 @@
+# Rendered by install.sh from config/site.env (PUBLIC_HOST).
+@PUBLIC_HOST@ {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# Video, WebRTC signalling and recordings: only for a logged-in session.
+	# /cam/* is served unprefixed: MediaMTX's WebRTC player sends follow-up WHEP requests
+	# (trickle ICE PATCH, DELETE) to absolute /cam/whep/<session> URLs.
+	@video path /cam /cam/* /hls/* /playback/*
+	handle @video {
+		forward_auth 127.0.0.1:8080 {
+			uri /auth
+		}
+		handle /cam* {
+			reverse_proxy 127.0.0.1:8889
+		}
+		handle_path /hls/* {
+			reverse_proxy 127.0.0.1:8888
+		}
+		handle_path /playback/* {
+			reverse_proxy 127.0.0.1:9996
+		}
+	}
+
+	# Clips, per-minute snapshots and daily timelapses written by petcam-watch. Only these three
+	# folders are reachable; the database next to them is not.
+	@media path /media/clips/* /media/snaps/* /media/timelapse/* /media/highlights/*
+	handle @media {
+		forward_auth 127.0.0.1:8080 {
+			uri /auth
+		}
+		uri strip_prefix /media
+		root * /var/lib/petcam
+		header Cache-Control "private, max-age=86400"
+		file_server
+	}
+	@hidden path /media/*
+	respond @hidden 404
+
+	# Login page, app page and the move/recordings API (the app checks the session itself).
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}

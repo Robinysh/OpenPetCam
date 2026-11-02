@@ -1,0 +1,55 @@
+# MediaMTX for petcam. Everything listens on localhost except WebRTC media (UDP 8189);
+# Caddy in front enforces the login. The camera source URL (with its RTSP login) comes from
+# MTX_PATHS_CAM_SOURCE in /etc/petcam/camera.env, never from this file.
+logLevel: info
+logDestinations: [stdout]
+
+api: no
+metrics: no
+pprof: no
+
+rtsp: yes
+rtspAddress: 127.0.0.1:8554
+rtspTransports: [tcp]
+rtmp: no
+srt: no
+
+hls: yes
+hlsAddress: 127.0.0.1:8888
+hlsVariant: lowLatency
+hlsAlwaysRemux: no
+
+webrtc: yes
+webrtcAddress: 127.0.0.1:8889
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: ''
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: [@PUBLIC_IP@]   # rendered by install.sh from config/site.env
+
+playback: yes
+playbackAddress: 127.0.0.1:9996
+
+# Only local processes (Caddy, the app) can reach MediaMTX at all.
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: ['127.0.0.1', '::1']
+    permissions:
+      - action: read
+      - action: playback
+
+pathDefaults:
+  record: no
+
+paths:
+  cam:
+    source: rtsp://placeholder/ch0
+    rtspTransport: tcp
+    sourceOnDemand: no
+    record: yes
+    recordPath: /var/lib/mediamtx/recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+    recordFormat: fmp4
+    recordPartDuration: 1s
+    recordSegmentDuration: 10m   # each segment boundary drops ~0.4 s of Opus audio ("too late"); fewer boundaries
+    recordDeleteAfter: 1h

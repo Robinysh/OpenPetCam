@@ -1,0 +1,1112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0b0c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="{{PET}}">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>{{APP_NAME}}</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b0b0c; --card:#151517; --card2:#1c1c1f; --line:#2a2a2e; --text:#f2f2f3; --muted:#9a9aa2;
+          --dim:#5d5d64; --accent:#ffd60a; --accent-soft:rgba(255,214,10,.22); --live:#ff3b30; --ok:#30d158;
+          --viz-active:#c98500; --viz-rest:#8a5c00; --glass:rgba(20,20,22,.58); --glass-line:rgba(255,255,255,.14); --tabbar:64px; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { background:var(--bg); }
+  body { margin:0; color:var(--text); font:15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; overscroll-behavior:none; }
+  button { font:inherit; color:inherit; }
+  .view { max-width:720px; margin:0 auto;
+          padding:calc(env(safe-area-inset-top) + 6px) 14px calc(env(safe-area-inset-bottom) + var(--tabbar) + 18px); }
+  .hidden { display:none !important; }
+  header { display:flex; align-items:center; justify-content:space-between; height:44px; }
+  header h1 { font-size:22px; margin:0; font-weight:750; letter-spacing:-.02em; }
+  .iconbtn { width:44px; height:44px; border-radius:22px; border:0; background:var(--card2); display:grid; place-items:center; cursor:pointer; }
+  .iconbtn[aria-pressed="true"] { background:var(--accent); color:#111; }
+  .iconbtn svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ---------- live video ---------- */
+  .stage { position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:18px; overflow:hidden; border:1px solid var(--line); margin-top:6px; }
+  .stage iframe, .stage video { position:absolute; inset:0; width:100%; height:100%; border:0; background:#000; object-fit:contain; }
+  #touch { position:absolute; inset:0; z-index:2; touch-action:manipulation; }
+  .sound { position:absolute; right:10px; bottom:10px; z-index:4; display:flex; align-items:center; gap:6px; min-height:36px;
+           padding:6px 12px; border-radius:999px; border:0; background:rgba(0,0,0,.58); color:#fff; font-size:13px; font-weight:650; cursor:pointer; }
+  .sound svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .sound[aria-pressed="true"] { background:rgba(255,214,10,.92); color:#111; }
+  .conn { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:3; padding:6px 12px; border-radius:999px;
+          background:rgba(0,0,0,.6); font-size:13px; font-weight:600; pointer-events:none; }
+  .badge { position:absolute; top:10px; right:10px; z-index:3; display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px;
+           background:rgba(0,0,0,.55); font-size:12px; font-weight:700; letter-spacing:.04em; pointer-events:none; }
+  .badge i { width:8px; height:8px; border-radius:50%; background:var(--live); }
+  .the pet-pill { position:absolute; left:10px; bottom:10px; z-index:3; display:flex; align-items:center; gap:7px; padding:6px 12px;
+                border-radius:999px; background:rgba(0,0,0,.58); font-size:13px; font-weight:650; pointer-events:none; }
+  .the pet-pill i { width:9px; height:9px; border-radius:50%; background:var(--dim); }
+  .the pet-pill.here i { background:var(--accent); }
+  .the pet-pill.active i { background:var(--ok); box-shadow:0 0 0 3px rgba(48,209,88,.25); }
+  .health { position:absolute; right:10px; top:40px; z-index:3; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:650;
+            background:rgba(255,59,48,.85); pointer-events:none; }
+  .box { position:absolute; z-index:2; border:2px solid rgba(255,214,10,.75); border-radius:10px; pointer-events:none;
+         transition:left .4s, top .4s, width .4s, height .4s, opacity .4s; opacity:0; }
+  .box.on { opacity:1; }
+  .box span { position:absolute; left:-2px; top:-22px; background:rgba(255,214,10,.9); color:#111; font-size:11px; font-weight:800;
+              padding:1px 6px; border-radius:6px; }
+  .reticle { position:absolute; z-index:3; width:52px; height:52px; margin:-26px 0 0 -26px; border:2px solid #fff; border-radius:50%; pointer-events:none; opacity:0; }
+  .reticle.go { animation:aim .7s ease-out forwards; }
+  @keyframes aim { 0% { opacity:.95; } 70% { opacity:.95; } 100% { opacity:0; } }
+  .hint { text-align:center; color:var(--muted); font-size:12px; margin:8px 0 0; }
+
+  /* ---------- controls ---------- */
+  .controls { display:grid; grid-template-columns:1fr auto; gap:14px; align-items:center; margin-top:14px; }
+  .stick { position:relative; width:176px; height:176px; border-radius:50%; background:radial-gradient(circle at 50% 50%, #222226 0 58%, #1a1a1d 59%);
+           border:1px solid var(--line); touch-action:none; justify-self:end; }
+  .stick.on { border-color:rgba(255,214,10,.6); box-shadow:0 0 0 4px rgba(255,214,10,.10); }
+  .stick .ar { position:absolute; width:0; height:0; border:8px solid transparent; opacity:.45; }
+  .stick .ar.u { left:80px; top:12px; border-bottom:10px solid #fff; border-top:0; }
+  .stick .ar.d { left:80px; bottom:12px; border-top:10px solid #fff; border-bottom:0; }
+  .stick .ar.l { top:80px; left:12px; border-right:10px solid #fff; border-left:0; }
+  .stick .ar.r { top:80px; right:12px; border-left:10px solid #fff; border-right:0; }
+  .stick .ar.hot { opacity:1; border-bottom-color:var(--accent); border-top-color:var(--accent); }
+  .stick .ar.l.hot { border-right-color:var(--accent); border-top-color:transparent; border-bottom-color:transparent; }
+  .stick .ar.r.hot { border-left-color:var(--accent); border-top-color:transparent; border-bottom-color:transparent; }
+  .stick .ar.u.hot { border-left-color:transparent; border-right-color:transparent; }
+  .stick .ar.d.hot { border-left-color:transparent; border-right-color:transparent; }
+  .knob { position:absolute; left:56px; top:56px; width:64px; height:64px; border-radius:50%; background:#f2f2f3;
+          box-shadow:0 4px 14px rgba(0,0,0,.5); pointer-events:none; transition:transform .14s ease-out; }
+  .stick.on .knob { transition:none; background:var(--accent); }
+  .side { display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .btn { min-height:44px; border:1px solid var(--line); background:var(--card2); border-radius:14px; padding:10px 14px; font-size:15px; font-weight:650; cursor:pointer; }
+  .btn:active, .chip:active, .seg button:active { transform:scale(.97); }
+  .btn.primary { background:var(--accent); color:#111; border-color:var(--accent); }
+  .btn.talk { display:flex; align-items:center; justify-content:center; gap:8px; min-height:56px; font-size:16px; touch-action:none;
+              -webkit-user-select:none; user-select:none; }
+  .btn.talk svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; }
+  .btn.talk.rec { background:var(--live); border-color:var(--live); color:#fff; }
+  .btn.quiet { background:transparent; color:var(--muted); font-weight:550; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { min-height:40px; border:1px solid var(--line); background:var(--card2); border-radius:999px; padding:8px 14px; font-size:14px; font-weight:650;
+          cursor:pointer; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; position:relative; }
+  .chip.add { color:var(--muted); border-style:dashed; background:transparent; }
+  .editing .chip.spot { padding-right:34px; }
+  .chip .x { display:none; position:absolute; right:8px; top:50%; transform:translateY(-50%); width:20px; height:20px; border-radius:50%;
+             background:#44444b; font-size:12px; line-height:20px; text-align:center; }
+  .editing .chip .x { display:block; }
+  .section { margin-top:18px; }
+  .section h2 { font-size:13px; font-weight:650; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:0 0 8px;
+                display:flex; justify-content:space-between; align-items:center; }
+  .section h2 button { background:none; border:0; color:var(--muted); font-size:13px; font-weight:650; text-transform:none; letter-spacing:0; cursor:pointer; padding:6px 0; }
+  .seg { display:flex; background:var(--card2); border-radius:14px; padding:4px; gap:4px; }
+  .seg button { flex:1; min-height:40px; border:0; background:transparent; color:var(--muted); border-radius:10px; font-size:14px; font-weight:650; cursor:pointer; }
+  .seg button[aria-pressed="true"] { background:#f2f2f3; color:#111; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  .row .btn { flex:1; }
+  .toggle[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
+  .namebox { display:flex; gap:8px; margin-top:8px; }
+  .namebox input, .field { flex:1; min-width:0; min-height:44px; padding:10px 12px; border-radius:12px; border:1px solid var(--line); background:#0f0f11; color:var(--text); font-size:16px; }
+  .note { color:var(--muted); font-size:13px; min-height:18px; margin-top:8px; }
+
+  /* ---------- today ---------- */
+  .hero { display:flex; gap:14px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:20px; padding:14px; margin-top:6px; }
+  .hero img { width:112px; height:63px; object-fit:cover; border-radius:10px; background:#000; flex:none; }
+  .hero .big { font-size:19px; font-weight:750; }
+  .hero .sub { color:var(--muted); font-size:13px; }
+  .tiles { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-top:12px; }
+  .tile { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:10px 4px; text-align:center; min-width:0; }
+  .tile b { display:block; font-size:17px; font-weight:750; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .tile span { color:var(--muted); font-size:11px; font-weight:600; white-space:nowrap; }
+  .timeline { position:relative; display:grid; grid-template-columns:repeat(144, 1fr); height:56px; gap:0; background:var(--card);
+              border:1px solid var(--line); border-radius:14px; padding:8px 8px 18px; touch-action:pan-y; cursor:pointer; }
+  .timeline i { display:block; align-self:end; border-radius:1px; background:var(--card2); height:6%; }
+  .timeline i.here { background:var(--viz-rest); }
+  .timeline i.act { background:var(--viz-active); }
+  .timeline i.snd { box-shadow:inset 0 2px 0 var(--live); }
+  .timeline .now { position:absolute; top:6px; bottom:16px; width:2px; background:var(--live); border-radius:1px; }
+  .timeline .cur { position:absolute; top:2px; bottom:14px; width:2px; background:#fff; border-radius:1px; }
+  .tl-labels { position:absolute; left:8px; right:8px; bottom:2px; display:flex; justify-content:space-between; color:var(--dim); font-size:10px; }
+  .peek { margin-top:10px; background:var(--card); border:1px solid var(--line); border-radius:18px; overflow:hidden; }
+  .peek .media { position:relative; aspect-ratio:16/9; background:#000; }
+  .peek img, .peek video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:#000; }
+  .peek .bar { display:flex; justify-content:space-between; align-items:center; padding:8px 12px; font-size:14px; }
+  .legend { display:flex; gap:12px; color:var(--muted); font-size:12px; margin-top:6px; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:4px; vertical-align:-1px; }
+  .feed { display:flex; flex-direction:column; gap:8px; }
+  .ev { display:flex; gap:12px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:8px; cursor:pointer; text-align:left; width:100%; }
+  .ev img { width:96px; height:54px; object-fit:cover; border-radius:9px; background:#000; flex:none; }
+  .ev .ph { width:96px; height:54px; border-radius:9px; background:var(--card2); flex:none; display:grid; place-items:center; color:var(--dim); font-size:20px; }
+  .ev b { display:block; font-size:15px; }
+  .ev span { color:var(--muted); font-size:12px; }
+  .ev .play { margin-left:auto; color:var(--accent); font-size:13px; font-weight:700; padding-right:6px; white-space:nowrap; }
+  .zdraw { position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; touch-action:none; }
+  .zdraw img { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; pointer-events:none; }
+  .zbox, .zold { position:absolute; border:2px solid var(--accent); background:rgba(255,214,10,.18); border-radius:6px; pointer-events:none; }
+  .zold { border-style:dashed; border-color:rgba(255,255,255,.7); background:transparent; }
+  .zold span { position:absolute; left:2px; top:-18px; font-size:11px; color:#fff; text-shadow:0 1px 2px #000; }
+  .pattern { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:12px 14px; margin-top:12px; }
+  .pattern b { font-size:16px; } .pattern div { color:var(--muted); font-size:13px; margin-top:2px; }
+  .fb { display:flex; align-items:center; gap:8px; margin:-2px 0 4px 10px; color:var(--muted); font-size:13px; }
+  .fb .chip { min-height:32px; padding:4px 12px; font-size:13px; }
+  .fb .chip[aria-pressed="true"] { background:var(--accent); color:#111; border-color:var(--accent); }
+  .empty { color:var(--muted); font-size:14px; text-align:center; padding:18px; background:var(--card); border-radius:16px; border:1px dashed var(--line); }
+
+  /* ---------- diary ---------- */
+  .trend { background:var(--card); border:1px solid var(--line); border-radius:20px; padding:14px; margin-top:10px; }
+  .trend h2 { margin:0 0 2px; font-size:13px; font-weight:650; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  .trend svg { display:block; width:100%; height:150px; margin-top:8px; overflow:visible; touch-action:pan-y; }
+  .trend .axis { fill:var(--dim); font-size:10px; }
+  .trend .sel { font-size:13px; color:var(--text); min-height:18px; margin-top:6px; font-variant-numeric:tabular-nums; }
+  .day { background:var(--card); border:1px solid var(--line); border-radius:20px; overflow:hidden; margin-top:12px; }
+  .day .cover { position:relative; aspect-ratio:16/9; background:#000; }
+  .day .cover img, .day .cover video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .day .cover .tag { position:absolute; left:10px; bottom:10px; background:rgba(0,0,0,.6); border-radius:999px; padding:4px 10px; font-size:12px; font-weight:700; }
+  .day .meta { padding:12px 14px; }
+  .day .meta b { font-size:17px; }
+  .day .meta div { color:var(--muted); font-size:13px; margin-top:2px; }
+  .day .acts { display:flex; gap:8px; padding:0 14px 14px; }
+
+  /* ---------- tab bar, sheets ---------- */
+  .tabbar { position:fixed; left:0; right:0; bottom:0; z-index:20; display:flex; justify-content:center;
+            padding:6px 10px calc(env(safe-area-inset-bottom) + 6px); background:rgba(11,11,12,.86);
+            -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px); border-top:1px solid #1e1e21; }
+  .tabbar div { display:flex; width:100%; max-width:480px; }
+  .tabbar button { flex:1; min-height:52px; border:0; background:none; color:var(--dim); font-size:11px; font-weight:650; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; }
+  .tabbar button svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+  .tabbar button[aria-current="page"] { color:var(--accent); }
+  .sheet-bg { position:fixed; inset:0; z-index:40; background:rgba(0,0,0,.55); display:flex; align-items:flex-end; justify-content:center; }
+  .sheet { width:100%; max-width:560px; max-height:88dvh; overflow:auto; background:#141416; border-radius:22px 22px 0 0; border:1px solid var(--line);
+           padding:10px 16px calc(env(safe-area-inset-bottom) + 18px); }
+  .sheet .grab { width:40px; height:5px; border-radius:3px; background:#3a3a40; margin:2px auto 10px; }
+  .sheet h3 { margin:6px 0 10px; font-size:20px; }
+  .dev { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #222226; }
+  .dev div { flex:1; min-width:0; }
+  .dev b { display:block; font-size:15px; }
+  .dev span { color:var(--muted); font-size:12px; }
+  .player { position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.92); display:flex; flex-direction:column; justify-content:center; padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  .player video { width:100%; max-height:80dvh; background:#000; }
+  .player .bar { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; }
+
+  /* ---------- landscape phone: full-screen live view ---------- */
+  @media (orientation:landscape) and (max-height:540px) {
+    body.tab-live { overflow:hidden; }
+    body.tab-live .view { padding:0; max-width:none; }
+    body.tab-live header, body.tab-live .hint, body.tab-live .section { display:none; }
+    body.tab-live .stage { position:fixed; inset:0; aspect-ratio:auto; border:0; border-radius:0; margin:0; }
+    body.tab-live .badge { top:calc(env(safe-area-inset-top) + 12px); right:calc(env(safe-area-inset-right) + 12px); }
+    body.tab-live .the pet-pill { left:calc(env(safe-area-inset-left) + 12px); bottom:calc(env(safe-area-inset-bottom) + 12px); }
+    body.tab-live .sound { right:auto; left:calc(env(safe-area-inset-left) + 12px); bottom:calc(env(safe-area-inset-bottom) + 56px); }
+    body.tab-live .side { display:flex; position:fixed; z-index:6; left:calc(env(safe-area-inset-left) + 12px);
+                          bottom:calc(env(safe-area-inset-bottom) + 100px); width:auto; }
+    body.tab-live .side > :not(.talk) { display:none; }
+    body.tab-live .btn.talk { min-height:48px; background:rgba(20,20,22,.55); border-color:var(--glass-line);
+                              -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); }
+    body.tab-live .btn.talk.rec { background:var(--live); }
+    body.tab-live .controls { position:fixed; z-index:6; right:calc(env(safe-area-inset-right) + 14px); bottom:calc(env(safe-area-inset-bottom) + 12px); margin:0; display:block; }
+    body.tab-live .stick { width:150px; height:150px; background:rgba(20,20,22,.42); border-color:var(--glass-line);
+                           -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); }
+    body.tab-live .knob { left:47px; top:47px; width:56px; height:56px; background:rgba(242,242,243,.9); }
+    body.tab-live .stick .ar.u, body.tab-live .stick .ar.d { left:67px; }
+    body.tab-live .stick .ar.l, body.tab-live .stick .ar.r { top:67px; }
+    body.tab-live .tabbar { display:none; }
+  }
+</style>
+</head>
+<body class="tab-live">
+
+<!-- ======================= LIVE ======================= -->
+<main class="view" id="tab-live">
+  <header>
+    <h1>{{PET}}</h1>
+    <div style="display:flex; gap:8px">
+    <button class="iconbtn" id="privacy-btn" aria-label="Pause the camera (privacy)" aria-pressed="false" title="Pause camera">
+      <svg viewBox="0 0 24 24" id="eye-open"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+      <svg viewBox="0 0 24 24" id="eye-closed" class="hidden"><path d="M3 3l18 18M10.6 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2M6.6 6.6C3.9 8.3 2 12 2 12s3.5 7 10 7a9.8 9.8 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+    </button>
+    <button class="iconbtn" id="open-settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+    </div>
+  </header>
+
+  <div class="stage" id="stage">
+    <video id="live" autoplay muted playsinline aria-label="Live camera"></video>
+    <button class="sound" id="sound-btn" type="button" aria-pressed="false" aria-label="Turn sound on">
+      <svg viewBox="0 0 24 24" id="snd-off"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M22 9l-6 6M16 9l6 6"/></svg>
+      <svg viewBox="0 0 24 24" id="snd-on" class="hidden"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+      <span id="snd-label">Sound</span>
+    </button>
+    <div class="conn hidden" id="conn">Connecting…</div>
+    <div id="touch" aria-label="Tap the picture to point the camera there"></div>
+    <div class="box" id="the pet-box"><span>{{PET}}</span></div>
+    <div class="reticle" id="reticle"></div>
+    <div class="badge"><i></i><span>LIVE</span></div>
+    <div class="the pet-pill" id="the pet-pill"><i></i><span>Looking for {{PET}}…</span></div>
+    <div class="health hidden" id="health"></div>
+  </div>
+  <p class="hint">Tap the picture to look there · hold the stick to move</p>
+
+  <div class="controls">
+    <div class="side">
+      <button class="btn talk" id="talk-btn" type="button" aria-label="Hold to talk to {{PET}}">
+        <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        <span id="talk-label">Hold to talk</span>
+      </button>
+      <button class="btn" id="go-start" type="button">Center view</button>
+      <div class="note" style="margin:0">Hold the stick and drag. Near the middle it moves gently, at the edge faster. Let go to stop.</div>
+    </div>
+    <div class="stick" id="stick" role="application" aria-label="Move the camera: hold and drag">
+      <i class="ar u"></i><i class="ar d"></i><i class="ar l"></i><i class="ar r"></i>
+      <div class="knob" id="knob"></div>
+    </div>
+  </div>
+  <div class="note" id="move-note"></div>
+  <div class="row" style="margin-top:4px">
+    <button class="btn toggle" id="follow-toggle" type="button" aria-pressed="false">Follow {{PET}}</button>
+  </div>
+  <div class="note" id="follow-note">Off: the camera only moves when you move it.</div>
+  <div class="section" style="margin-top:6px">
+    <h2>Views</h2>
+    <div class="chips" id="spots"></div>
+    <div class="namebox hidden" id="namebox">
+      <input id="spot-name" maxlength="24" placeholder="Name this view, e.g. Dog bed" enterkeyhint="done">
+      <button class="btn primary" id="spot-save" type="button">Save</button>
+    </div>
+  </div>
+  <div class="section" style="margin-top:14px">
+    <h2>Zones</h2>
+    <div class="chips" id="zones"></div>
+    <div class="note" style="margin-top:6px">Mark {{PET_POSS}} water bowl, food bowl and bed. Visits count when the camera is at the view the zone was drawn on.</div>
+  </div>
+
+  <div class="section">
+    <h2>Picture</h2>
+    <div class="seg" id="mode-seg" role="group" aria-label="Day or night picture">
+      <button data-mode="auto" aria-pressed="false">Auto</button>
+      <button data-mode="day" aria-pressed="false">Day</button>
+      <button data-mode="night" aria-pressed="false">Night</button>
+    </div>
+    <div class="row">
+      <button class="btn toggle" id="ir-toggle" type="button" aria-pressed="false">IR light</button>
+      <button class="btn toggle" id="color-toggle" type="button" aria-pressed="false">Colour</button>
+      <button class="btn toggle" id="filter-toggle" type="button" aria-pressed="false">IR filter</button>
+    </div>
+    <div class="note" id="mode-note"></div>
+  </div>
+</main>
+
+<!-- ======================= TODAY ======================= -->
+<main class="view hidden" id="tab-today">
+  <header><h1 id="today-title">Today</h1>
+    <div style="display:flex; gap:8px">
+      <button class="iconbtn" id="day-prev" aria-label="Previous day"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <button class="iconbtn" id="day-next" aria-label="Next day"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
+    </div>
+  </header>
+  <div class="hero" id="hero">
+    <img id="hero-img" alt="">
+    <div><div class="big" id="hero-big">—</div><div class="sub" id="hero-sub"></div></div>
+  </div>
+  <div class="tiles">
+    <div class="tile"><b id="t-visible">—</b><span>in view</span></div>
+    <div class="tile"><b id="t-active">—</b><span>active</span></div>
+    <div class="tile"><b id="t-nap">—</b><span>longest nap</span></div>
+    <div class="tile"><b id="t-sounds">—</b><span>barks</span></div>
+  </div>
+  <div class="pattern" id="pattern"><b id="pattern-v">—</b><div id="pattern-n"></div><div id="zone-line"></div></div>
+  <div class="section">
+    <h2>{{PET_POSS_CAP}} day</h2>
+    <div class="timeline" id="timeline" aria-label="{{PET}}'s day; tap to see a moment"></div>
+    <div class="legend"><span><i style="background:var(--viz-active)"></i>active</span><span><i style="background:var(--viz-rest)"></i>resting</span><span><i style="background:var(--card2)"></i>not in view</span><span><i style="background:var(--live)"></i>sound</span></div>
+    <div class="peek hidden" id="peek">
+      <div class="media"><img id="peek-img" alt=""><video id="peek-video" class="hidden" playsinline controls></video></div>
+      <div class="bar"><b id="peek-time"></b><span><button class="btn quiet" id="peek-play" type="button">Play from here</button></span></div>
+    </div>
+  </div>
+  <div class="section">
+    <h2>Moments</h2>
+    <div class="feed" id="feed"></div>
+  </div>
+</main>
+
+<!-- ======================= DIARY ======================= -->
+<main class="view hidden" id="tab-diary">
+  <header><h1>Diary</h1></header>
+  <div class="note" style="margin:0 0 4px">Every night the camera turns the day into a one-minute timelapse. Stats are kept for good.</div>
+  <div class="trend hidden" id="trend" role="group" aria-label="{{PET}}'s last two weeks">
+    <h2>Last two weeks</h2>
+    <svg id="trend-svg" aria-hidden="true"></svg>
+    <div class="legend"><span><i style="background:var(--viz-active)"></i>active</span><span><i style="background:var(--viz-rest)"></i>resting (in view)</span></div>
+    <div class="sel" id="trend-sel">Tap a day</div>
+  </div>
+  <div id="days"></div>
+</main>
+
+<nav class="tabbar"><div>
+  <button data-tab="live" aria-current="page"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="M16 10l5-3v10l-5-3"/></svg>Live</button>
+  <button data-tab="today"><svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>Today</button>
+  <button data-tab="diary"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Diary</button>
+</div></nav>
+
+<!-- settings sheet -->
+<div class="sheet-bg hidden" id="settings">
+  <div class="sheet" role="dialog" aria-label="Settings">
+    <div class="grab"></div>
+    <h3>Settings</h3>
+    <div class="section" style="margin-top:4px">
+      <h2>Invite someone</h2>
+      <div class="namebox" style="margin-top:0">
+        <input class="field" id="invite-name" maxlength="40" placeholder="Their name, e.g. Sam">
+        <button class="btn primary" id="invite-go" type="button">Create link</button>
+      </div>
+      <div class="note" id="invite-note">The link works once, for 24 hours, and signs their phone in for good.</div>
+    </div>
+    <div class="section">
+      <h2>Notifications</h2>
+      <div id="push-box">
+        <button class="btn primary" id="push-on" type="button" style="width:100%">Turn on alerts on this device</button>
+        <div class="row hidden" id="push-prefs" style="flex-wrap:wrap">
+          <button class="btn toggle" data-pref="camera" type="button" aria-pressed="true">Camera problems</button>
+          <button class="btn toggle" data-pref="barking" type="button" aria-pressed="true">Barking</button>
+          <button class="btn toggle" data-pref="daily" type="button" aria-pressed="true">Daily summary</button>
+          <button class="btn toggle" data-pref="comings" type="button" aria-pressed="false">Comes &amp; goes</button>
+        </div>
+        <div class="row hidden" id="push-actions">
+          <button class="btn" id="push-test" type="button">Send a test</button>
+          <button class="btn quiet" id="push-off" type="button">Turn off</button>
+        </div>
+      </div>
+      <div class="note" id="push-note"></div>
+    </div>
+    <div class="section">
+      <h2>Signed-in devices</h2>
+      <div id="devices"></div>
+    </div>
+    <div class="section">
+      <h2>Talk volume <span id="talk-vol-val" style="text-transform:none"></span></h2>
+      <input type="range" id="talk-vol" min="20" max="100" step="5" value="75" aria-label="Volume of your voice on the camera speaker">
+    </div>
+    <div class="section">
+      <h2>Camera</h2>
+      <div class="row" style="margin-top:0">
+        <button class="btn" id="recal" type="button">Recalibrate motors</button>
+      </div>
+      <div class="note" id="cam-note">Recalibrating sweeps the camera to its end stops (about 15 s). Use it if moves look off.</div>
+    </div>
+    <div class="row" style="margin-top:18px">
+      <button class="btn" id="close-settings" type="button">Done</button>
+      <form method="post" action="/logout" style="flex:1; display:flex"><button class="btn quiet" style="flex:1" type="submit">Sign out this device</button></form>
+    </div>
+  </div>
+</div>
+
+<!-- zone editor -->
+<div class="sheet-bg hidden" id="zone-sheet">
+  <div class="sheet" role="dialog" aria-label="Add a zone">
+    <div class="grab"></div>
+    <h3>Add a zone</h3>
+    <div class="note" style="margin:0 0 8px">Drag a box over the bowl or bed. It belongs to the camera's current view.</div>
+    <div class="zdraw" id="zdraw"><img id="zimg" alt="Live frame"><div class="zbox hidden" id="zbox"></div></div>
+    <div class="seg" id="zkind" style="margin-top:10px">
+      <button data-k="water" aria-pressed="true">💧 Water</button><button data-k="food" aria-pressed="false">🍖 Food</button>
+      <button data-k="bed" aria-pressed="false">🛏 Bed</button><button data-k="other" aria-pressed="false">Other</button>
+    </div>
+    <div class="namebox"><input class="field" id="zname" maxlength="24" placeholder="Name (optional)"><button class="btn primary" id="zsave" type="button">Save</button></div>
+    <div class="note" id="znote"></div>
+    <div class="row"><button class="btn" id="zcancel" type="button">Cancel</button></div>
+  </div>
+</div>
+
+<!-- clip player -->
+<div class="player hidden" id="player">
+  <div class="bar"><b id="player-title"></b><button class="btn" id="player-close" type="button">Close</button></div>
+  <video id="player-video" playsinline controls autoplay></video>
+</div>
+
+<script>
+const PET = {{PET_JS}};
+"use strict";
+const $ = (id) => document.getElementById(id);
+// ---- live player: WebRTC (WHEP) straight into our own <video>, so the sound button works on iPhone
+// (a tap inside our page may unmute; an embedded player's video can't be unmuted from outside).
+let pc = null, whepUrl = null, liveWanted = false, retryTimer = null, lastT = 0, stallSince = 0;
+function waitIce(conn, ms) {
+  return new Promise((res) => {
+    if (conn.iceGatheringState === "complete") return res();
+    const t = setTimeout(res, ms);
+    conn.addEventListener("icegatheringstatechange", () => { if (conn.iceGatheringState === "complete") { clearTimeout(t); res(); } });
+  });
+}
+function stopLive() {
+  if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+  if (whepUrl) { fetch(whepUrl, { method: "DELETE" }).catch(() => {}); whepUrl = null; }
+}
+async function startLive() {
+  liveWanted = true; clearTimeout(retryTimer); stopLive();
+  $("conn").textContent = "Connecting…"; $("conn").classList.remove("hidden");
+  const conn = new RTCPeerConnection();
+  pc = conn;
+  conn.addTransceiver("video", { direction: "recvonly" });
+  conn.addTransceiver("audio", { direction: "recvonly" });
+  conn.ontrack = (ev) => { const v = $("live"); if (v.srcObject !== ev.streams[0]) { v.srcObject = ev.streams[0]; v.play().catch(() => {}); } };
+  conn.onconnectionstatechange = () => {
+    if (conn !== pc) return;
+    if (conn.connectionState === "connected") $("conn").classList.add("hidden");
+    if (["failed", "disconnected", "closed"].includes(conn.connectionState) && liveWanted) retryLive();
+  };
+  try {
+    await conn.setLocalDescription(await conn.createOffer());
+    await waitIce(conn, 1500);
+    const r = await fetch("/cam/whep", { method: "POST", headers: { "Content-Type": "application/sdp" }, body: conn.localDescription.sdp });
+    if (r.status === 401) { location.href = "/login"; return; }
+    if (r.status !== 201) throw new Error(`video server answered ${r.status}`);
+    whepUrl = new URL(r.headers.get("Location"), location.href).href;
+    await conn.setRemoteDescription({ type: "answer", sdp: await r.text() });
+  } catch (e) {
+    $("conn").textContent = "Reconnecting…";
+    if (conn === pc) retryLive();
+  }
+}
+function retryLive() { clearTimeout(retryTimer); if (liveWanted) retryTimer = setTimeout(startLive, 2500); }
+function pauseLive() { liveWanted = false; clearTimeout(retryTimer); stopLive(); }
+// A picture that stops advancing for 8 s (sleepy phone, network change) gets a fresh connection.
+setInterval(() => {
+  const v = $("live");
+  if (!liveWanted || document.hidden || !pc || pc.connectionState !== "connected") { stallSince = 0; return; }
+  if (v.currentTime !== lastT) { lastT = v.currentTime; stallSince = 0; return; }
+  stallSince = stallSince || Date.now();
+  if (Date.now() - stallSince > 8000) { stallSince = 0; startLive(); }
+}, 2000);
+function showSound(on) {
+  $("sound-btn").setAttribute("aria-pressed", on); $("snd-on").classList.toggle("hidden", !on); $("snd-off").classList.toggle("hidden", on);
+  $("snd-label").textContent = on ? "Sound on" : "Sound"; $("sound-btn").setAttribute("aria-label", on ? "Turn sound off" : "Turn sound on");
+}
+$("sound-btn").onclick = () => {
+  const v = $("live"); v.muted = !v.muted; v.play().catch(() => {}); showSound(!v.muted);
+};
+let cam = null, live = null, today = null, dayOffset = 0, curTab = "live";
+
+function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function recall(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? { cache: "no-store" } :
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (r.status === 401) { location.href = "/login"; throw new Error("login"); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `error ${r.status}`);
+  return j;
+}
+const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function fmtDur(min) {
+  if (min == null) return "—";
+  if (min < 60) return `${Math.round(min)}m`;
+  const h = Math.floor(min / 60), m = Math.round(min % 60);
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+function ago(ts) {
+  const s = Date.now() / 1000 - ts;
+  if (s < 90) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  return `at ${fmtTime(ts)}`;
+}
+
+// ======================= tabs =======================
+function showTab(tab) {
+  curTab = tab;
+  for (const t of ["live", "today", "diary"]) $(`tab-${t}`).classList.toggle("hidden", t !== tab);
+  document.querySelectorAll(".tabbar button").forEach((b) => b.toggleAttribute("aria-current", b.dataset.tab === tab));
+  document.querySelectorAll(".tabbar button[aria-current]").forEach((b) => b.setAttribute("aria-current", "page"));
+  document.body.className = `tab-${tab}`;
+  // Only stream video while the live tab is open: saves the phone's battery and the server's CPU.
+  if (tab === "live") { if (!liveWanted) startLive(); }
+  else { pauseLive(); $("live").muted = true; showSound(false); }
+  if (tab === "today") loadDay();
+  if (tab === "diary") loadDiary();
+  store("petcam.tab", tab);
+}
+document.querySelectorAll(".tabbar button").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
+
+// ======================= live status =======================
+const KIND = {
+  appeared: ["Came into view", "👀"], left: ["Left the view", "🚪"], active: ["Got up, active", "🐕"],
+  barking: ["Barking", "🔊"], howling: ["Howling", "🐺"], whining: ["Whining", "🥺"], growling: ["Growling", "😠"],
+  dog_sound: ["Dog sound (yelp or bark)", "🐶"], loud_sound: ["Loud sound", "🔉"],
+  sound_unchecked: ["Sound (not checked)", "🔈"], camera_frozen: ["Picture froze, fixed automatically", "🛠"],
+  camera_offline: ["Camera offline", "⚠️"], camera_back: ["Camera back online", "✅"],
+  view_blocked: ["Camera can't see the room (blocked or facing a wall)", "🙈"], view_clear: ["Camera view is clear again", "👁"],
+  daynight_flapping: ["Day/night kept switching, locked to night for 2 h", "🌙"],
+  you_spoke: [`You spoke to ${PET.name}`, "🗣"], visit: ["Zone visit", "📍"], daynight_auto: ["Back to automatic day/night", "🌗"],
+};
+function sandyText(l) {
+  if (!l || l.status === "starting") return [`Looking for ${PET.name}…`, ""];
+  if (l.status === "privacy") return ["Camera paused", ""];
+  if (l.present) {
+    if (l.moving_since) return [`${PET.name} is moving`, "active"];
+    if (l.rest_since) return [`${PET.name} · resting ${fmtDur((Date.now() / 1000 - l.rest_since) / 60)}`, "here"];
+    return [`${PET.name} is here`, "here"];
+  }
+  return [l.last_seen ? `Not in view · seen ${ago(l.last_seen)}` : `${PET.name} isn't in view`, ""];
+}
+async function pollLive() {
+  try { live = await api("/api/live"); } catch (e) { live = null; }
+  const [text, cls] = sandyText(live);
+  const pill = $("the pet-pill");
+  pill.className = `the pet-pill ${cls}`;
+  pill.querySelector("span").textContent = text;
+  const bad = !live ? "Server unreachable" : live.status === "frozen" ? "Picture frozen, fixing…" :
+    live.status === "offline" ? "Camera offline" : live.status === "watcher_down" ? "Watcher not running" :
+    live.view_blocked ? "View blocked: check the camera" : "";
+  $("health").textContent = bad; $("health").classList.toggle("hidden", !bad);
+  // Only draw her box from a fresh detection: a 10-second-old box sits where she *was*.
+  const fresh = live && live.det_t && live.t - live.det_t < 9;
+  drawBox(live && live.present && live.box && fresh ? live.box : null);
+  renderModes(live && live.imaging);
+  if (Date.now() - privacyPending > 5000) showPrivacy(live && live.status === "privacy");
+  if (live && live.settings && Date.now() - followPending > 4000) showFollow(live.settings.follow);
+  if (live && live.settings && document.activeElement !== $("talk-vol")) showTalkVol(live.settings.talk_volume);
+}
+let privacyPending = 0, followPending = 0;
+function showFollow(on) {
+  $("follow-toggle").setAttribute("aria-pressed", !!on);
+  $("follow-note").textContent = on ? `On: when ${PET.name} walks toward the edge, the camera turns to keep ${PET.obj} in view (at most every 10 s).`
+                                    : "Off: the camera only moves when you move it.";
+}
+$("follow-toggle").onclick = async () => {
+  const on = $("follow-toggle").getAttribute("aria-pressed") !== "true";
+  followPending = Date.now(); showFollow(on);
+  try { await api("/api/settings", { follow: on }); } catch (e) { followPending = 0; showFollow(!on); $("move-note").textContent = e.message; }
+};
+function showPrivacy(on) {
+  $("privacy-btn").setAttribute("aria-pressed", on);
+  $("eye-open").classList.toggle("hidden", on); $("eye-closed").classList.toggle("hidden", !on);
+  $("privacy-btn").setAttribute("aria-label", on ? "Resume the camera" : "Pause the camera (privacy)");
+}
+$("privacy-btn").onclick = async () => {
+  const on = $("privacy-btn").getAttribute("aria-pressed") !== "true";
+  privacyPending = Date.now(); showPrivacy(on);
+  try { await api("/api/privacy", { on }); $("move-note").textContent = on ? "Camera paused. Tap the eye again to resume." : ""; }
+  catch (e) { privacyPending = 0; showPrivacy(!on); $("move-note").textContent = e.message; }
+};
+function videoRect() {
+  const s = $("stage").getBoundingClientRect(), ar = 16 / 9;
+  let w = s.width, h = s.width / ar;
+  if (h > s.height) { h = s.height; w = h * ar; }
+  return { x: (s.width - w) / 2, y: (s.height - h) / 2, w, h, s };
+}
+function drawBox(b) {
+  const el = $("the pet-box");
+  if (!b) { el.classList.remove("on"); return; }
+  const v = videoRect();
+  Object.assign(el.style, { left: `${v.x + b[0] * v.w}px`, top: `${v.y + b[1] * v.h}px`, width: `${(b[2] - b[0]) * v.w}px`, height: `${(b[3] - b[1]) * v.h}px` });
+  el.classList.add("on");
+}
+
+// ======================= tap to aim =======================
+$("touch").addEventListener("click", async (e) => {
+  const v = videoRect(), s = v.s;
+  const fx = (e.clientX - s.left - v.x) / v.w - 0.5, fy = (e.clientY - s.top - v.y) / v.h - 0.5;
+  if (Math.abs(fx) > 0.5 || Math.abs(fy) > 0.5) return;
+  const r = $("reticle");
+  r.style.left = `${e.clientX - s.left}px`; r.style.top = `${e.clientY - s.top}px`;
+  r.classList.remove("go"); void r.offsetWidth; r.classList.add("go");
+  try { await api("/api/aim", { fx, fy }); $("move-note").textContent = ""; } catch (err) { $("move-note").textContent = err.message; }
+});
+
+// ======================= joystick =======================
+const stick = $("stick"), knob = $("knob");
+let vec = null, inflight = false, timer = null;
+function stickGeom() { const r = stick.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, R: r.width / 2 - 28 }; }
+function setKnob(dx, dy) { knob.style.transform = `translate(${dx}px, ${dy}px)`; }
+function hotArrows(v) {
+  stick.querySelector(".u").classList.toggle("hot", v && v.y > 0.3);
+  stick.querySelector(".d").classList.toggle("hot", v && v.y < -0.3);
+  stick.querySelector(".l").classList.toggle("hot", v && v.x < -0.3);
+  stick.querySelector(".r").classList.toggle("hot", v && v.x > 0.3);
+}
+function stickMove(e) {
+  const g = stickGeom();
+  let dx = e.clientX - g.cx, dy = e.clientY - g.cy;
+  const d = Math.hypot(dx, dy);
+  if (d > g.R) { dx *= g.R / d; dy *= g.R / d; }
+  setKnob(dx, dy);
+  const v = { x: dx / g.R, y: -dy / g.R };
+  if (Math.hypot(v.x, v.y) < 0.15) { vec = null; hotArrows(null); return; }   // dead zone
+  // Snap to the main axis when one dominates: keeps moves straight, as most people intend.
+  if (Math.abs(v.x) > 2.2 * Math.abs(v.y)) v.y = 0; else if (Math.abs(v.y) > 2.2 * Math.abs(v.x)) v.x = 0;
+  vec = v; hotArrows(v);
+}
+async function tick() {
+  if (!vec || inflight) return;          // never queue: a late request is worse than a skipped one
+  inflight = true;
+  try { await api("/api/nudge", { vx: vec.x, vy: vec.y }); $("move-note").textContent = ""; }
+  catch (e) { $("move-note").textContent = e.message; }
+  finally { inflight = false; }
+}
+stick.addEventListener("pointerdown", (e) => {
+  stick.setPointerCapture(e.pointerId); stick.classList.add("on");
+  stickMove(e); tick(); timer = setInterval(tick, 160);
+});
+stick.addEventListener("pointermove", (e) => { if (stick.classList.contains("on")) stickMove(e); });
+function stickEnd() { stick.classList.remove("on"); vec = null; clearInterval(timer); setKnob(0, 0); hotArrows(null); }
+stick.addEventListener("pointerup", stickEnd);
+stick.addEventListener("pointercancel", stickEnd);
+document.addEventListener("keydown", (e) => {
+  if (curTab !== "live" || document.activeElement.tagName === "INPUT") return;
+  const map = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+  if (map[e.key]) { e.preventDefault(); api("/api/nudge", { vx: map[e.key][0] * 0.8, vy: map[e.key][1] * 0.8 }).catch(() => {}); }
+});
+
+// ======================= push-to-talk =======================
+// Hold to record (max 15 s), release to send; the server adds a soft chime and the camera plays it.
+let rec = null, recChunks = [], recStream = null, recStart = 0, recTimer = null, holding = false, wasMuted = true;
+function talkLabel(t) { $("talk-label").textContent = t; }
+async function talkDown(e) {
+  e.preventDefault(); holding = true;
+  try {
+    recStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch (err) { holding = false; $("move-note").textContent = "Microphone blocked: allow it in Settings → Safari → Microphone."; return; }
+  if (!holding) {   // the permission prompt ate the press
+    recStream.getTracks().forEach((t) => t.stop()); recStream = null;
+    $("move-note").textContent = "Microphone allowed. Now hold the button while you speak."; return;
+  }
+  const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+  rec = new MediaRecorder(recStream, mime ? { mimeType: mime } : {});
+  recChunks = []; rec.ondataavailable = (ev) => { if (ev.data.size) recChunks.push(ev.data); };
+  wasMuted = $("live").muted; $("live").muted = true;            // no echo of the live sound into the recording
+  rec.start(); recStart = Date.now(); $("talk-btn").classList.add("rec");
+  recTimer = setInterval(() => { const s = (Date.now() - recStart) / 1000; talkLabel(`Recording… ${s.toFixed(0)}s`); if (s >= 15) talkUp(); }, 250);
+}
+async function talkUp() {
+  holding = false;
+  if (!rec) return;
+  clearInterval(recTimer); $("talk-btn").classList.remove("rec");
+  const r = rec; rec = null;
+  const secs = (Date.now() - recStart) / 1000;
+  await new Promise((res) => { r.onstop = res; r.stop(); });
+  recStream.getTracks().forEach((t) => t.stop()); recStream = null;
+  $("live").muted = wasMuted;
+  if (secs < 0.7) { talkLabel("Hold to talk"); $("move-note").textContent = "Hold the button while you speak."; return; }
+  const blob = new Blob(recChunks, { type: r.mimeType || "audio/mp4" });
+  talkLabel("Sending…");
+  try {
+    const resp = await fetch("/api/talk", { method: "POST", headers: { "Content-Type": blob.type.split(";")[0] || "audio/mp4" }, body: blob });
+    const j = await resp.json().catch(() => ({}));
+    if (resp.status === 401) { location.href = "/login"; return; }
+    if (!resp.ok) throw new Error(j.error || `error ${resp.status}`);
+    talkLabel(`${PET.name} heard you ✓`); $("move-note").textContent = "";
+  } catch (err) { talkLabel("Hold to talk"); $("move-note").textContent = err.message; return; }
+  setTimeout(() => talkLabel("Hold to talk"), 2500);
+}
+$("talk-btn").addEventListener("pointerdown", talkDown);
+$("talk-btn").addEventListener("pointerup", talkUp);
+$("talk-btn").addEventListener("pointercancel", talkUp);
+$("talk-btn").addEventListener("contextmenu", (e) => e.preventDefault());
+function showTalkVol(v) { $("talk-vol").value = v; $("talk-vol-val").textContent = `${v}%`; }
+$("talk-vol").addEventListener("input", () => showTalkVol($("talk-vol").value));
+$("talk-vol").addEventListener("change", () => api("/api/settings", { talk_volume: Number($("talk-vol").value) }).catch(() => {}));
+
+// ======================= zones =======================
+const ZICON = { water: "💧", food: "🍖", bed: "🛏", other: "📍" };
+let zones = [], zKind = "water", zRect = null;
+async function loadZones() { try { zones = await api("/api/zones"); } catch (e) { zones = []; } renderZones(); }
+function renderZones() {
+  const box = $("zones"); box.innerHTML = "";
+  const editing = $("tab-live").classList.contains("editing");
+  for (const z of zones) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "chip spot";
+    b.textContent = `${ZICON[z.kind] || "📍"} ${z.name}`;
+    const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; b.appendChild(x);
+    b.onclick = async () => {
+      if ($("tab-live").classList.contains("editing")) { zones = await api("/api/zones/delete", { id: z.id }).catch(() => zones); renderZones(); }
+      else api("/api/goto", { x: z.pose[0], y: z.pose[1] }).catch((e) => { $("move-note").textContent = e.message; });
+    };
+    box.appendChild(b);
+  }
+  if (!editing) {
+    const add = document.createElement("button"); add.type = "button"; add.className = "chip add"; add.textContent = "+ Add zone";
+    add.onclick = openZoneEditor; box.appendChild(add);
+  }
+}
+function openZoneEditor() {
+  zRect = null; $("zbox").classList.add("hidden"); $("znote").textContent = ""; $("zname").value = "";
+  $("zimg").src = `/api/frame.jpg?t=${Date.now()}`;
+  const d = $("zdraw"); d.querySelectorAll(".zold").forEach((n) => n.remove());
+  for (const z of zones) {                          // zones already drawn at (about) this view
+    if (!cam || Math.abs(cam.x - z.pose[0]) > 40 || Math.abs(cam.y - z.pose[1]) > 25) continue;
+    const o = document.createElement("div"); o.className = "zold";
+    Object.assign(o.style, { left: `${z.rect[0] * 100}%`, top: `${z.rect[1] * 100}%`, width: `${(z.rect[2] - z.rect[0]) * 100}%`, height: `${(z.rect[3] - z.rect[1]) * 100}%` });
+    o.innerHTML = `<span></span>`; o.querySelector("span").textContent = z.name; d.appendChild(o);
+  }
+  $("zone-sheet").classList.remove("hidden");
+}
+(() => {
+  const d = $("zdraw"); let s0 = null;
+  const pt = (e) => { const r = d.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
+  const show = () => { const [a, b, c, e] = zRect; Object.assign($("zbox").style, { left: `${Math.min(a, c) * 100}%`, top: `${Math.min(b, e) * 100}%`, width: `${Math.abs(c - a) * 100}%`, height: `${Math.abs(e - b) * 100}%` }); $("zbox").classList.remove("hidden"); };
+  d.addEventListener("pointerdown", (e) => { d.setPointerCapture(e.pointerId); s0 = pt(e); zRect = [...s0, ...s0]; show(); });
+  d.addEventListener("pointermove", (e) => { if (s0) { zRect = [...s0, ...pt(e)]; show(); } });
+  d.addEventListener("pointerup", () => { s0 = null; });
+})();
+document.querySelectorAll("#zkind button").forEach((b) => b.onclick = () => {
+  zKind = b.dataset.k; document.querySelectorAll("#zkind button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+});
+$("zsave").onclick = async () => {
+  if (!zRect) { $("znote").textContent = "Drag a box over the bowl or bed first."; return; }
+  const name = $("zname").value.trim() || { water: "Water bowl", food: "Food bowl", bed: "Bed", other: "Spot" }[zKind];
+  try { zones = await api("/api/zones", { name, kind: zKind, rect: zRect }); renderZones(); $("zone-sheet").classList.add("hidden"); }
+  catch (e) { $("znote").textContent = e.message; }
+};
+$("zcancel").onclick = () => $("zone-sheet").classList.add("hidden");
+
+// ======================= saved views =======================
+async function refreshCam() { try { cam = await api("/api/state"); renderSpots(); } catch (e) { /* camera busy */ } }
+function renderSpots() {
+  const box = $("spots"); box.innerHTML = "";
+  for (const p of (cam && cam.presets) || []) {
+    const b = document.createElement("button");
+    b.className = "chip spot"; b.type = "button"; b.textContent = p.name;
+    const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; b.appendChild(x);
+    b.onclick = async () => {
+      if ($("tab-live").classList.contains("editing")) {
+        try { cam.presets = await api("/api/presets/delete", { name: p.name }); renderSpots(); } catch (e) { $("move-note").textContent = e.message; }
+      } else { try { await api("/api/goto", { x: p.x, y: p.y }); } catch (e) { $("move-note").textContent = e.message; } }
+    };
+    box.appendChild(b);
+  }
+  const editing = $("tab-live").classList.contains("editing");
+  if (!editing) {
+    const add = document.createElement("button");
+    add.className = "chip add"; add.type = "button"; add.textContent = "+ Save view";
+    add.onclick = () => { $("namebox").classList.remove("hidden"); $("spot-name").focus(); };
+    box.appendChild(add);
+  }
+  if ((cam && cam.presets || []).length) {
+    const ed = document.createElement("button");
+    ed.className = "chip add"; ed.type = "button"; ed.textContent = editing ? "Done" : "Edit";
+    ed.onclick = () => { $("tab-live").classList.toggle("editing"); renderSpots(); renderZones(); };
+    box.appendChild(ed);
+  }
+}
+async function saveSpot() {
+  const name = $("spot-name").value.trim(); if (!name) return;
+  try { cam.presets = await api("/api/presets", { name }); $("spot-name").value = ""; $("namebox").classList.add("hidden"); renderSpots(); }
+  catch (e) { $("move-note").textContent = e.message; }
+}
+$("spot-save").onclick = saveSpot;
+$("spot-name").addEventListener("keydown", (e) => { if (e.key === "Enter") saveSpot(); });
+$("go-start").onclick = () => api("/api/goto", { to: "start" }).catch((e) => { $("move-note").textContent = e.message; });
+
+// ======================= picture modes =======================
+let pendingMode = 0;
+function renderModes(im) {
+  if (!im || Date.now() - pendingMode < 4000) return;   // don't flicker back while the camera applies a change
+  const mode = im.daynight_enabled ? "auto" : (im.daynight_mode || "");
+  document.querySelectorAll("#mode-seg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode === mode));
+  $("ir-toggle").setAttribute("aria-pressed", im.ir940_state === 1 || im.ir850_state === 1);
+  $("color-toggle").setAttribute("aria-pressed", im.color_mode === 0);
+  $("filter-toggle").setAttribute("aria-pressed", im.ircut_state === 1);
+  $("mode-note").textContent = im.daynight_enabled ? `Auto · now ${im.daynight_mode || "?"} (light level ${im.daynight_brightness ?? "?"})` : "Manual: auto switching is off";
+}
+async function setMode(action, optimistic) {
+  pendingMode = Date.now(); optimistic();
+  try { await api("/api/imaging", { action }); $("mode-note").textContent = "Applied"; }
+  catch (e) { $("mode-note").textContent = e.message; pendingMode = 0; }
+}
+document.querySelectorAll("#mode-seg button").forEach((b) => b.onclick = () =>
+  setMode(b.dataset.mode, () => document.querySelectorAll("#mode-seg button").forEach((x) => x.setAttribute("aria-pressed", x === b))));
+function toggleBtn(id, onAction, offAction) {
+  $(id).onclick = () => { const on = $(id).getAttribute("aria-pressed") !== "true";
+    setMode(on ? onAction : offAction, () => $(id).setAttribute("aria-pressed", on)); };
+}
+toggleBtn("ir-toggle", "ir_on", "ir_off");
+toggleBtn("color-toggle", "color", "bw");
+toggleBtn("filter-toggle", "filter_on", "filter_off");
+
+// ======================= today =======================
+function dayString(offset) { const d = new Date(); d.setDate(d.getDate() + offset); return d.toLocaleDateString("en-CA"); }
+async function loadDay() {
+  const d = dayString(dayOffset);
+  $("today-title").textContent = dayOffset === 0 ? "Today" : dayOffset === -1 ? "Yesterday" :
+    new Date(d + "T12:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+  $("day-next").disabled = dayOffset >= 0;
+  try { today = await api(`/api/day?d=${d}`); } catch (e) { today = null; }
+  renderDay();
+}
+$("day-prev").onclick = () => { dayOffset -= 1; $("peek").classList.add("hidden"); loadDay(); };
+$("day-next").onclick = () => { if (dayOffset < 0) { dayOffset += 1; $("peek").classList.add("hidden"); loadDay(); } };
+function renderDay() {
+  const t = today;
+  $("t-visible").textContent = t ? fmtDur(t.visible_min) : "—";
+  $("t-active").textContent = t ? fmtDur(t.active_min) : "—";
+  $("t-nap").textContent = t ? fmtDur(t.longest_rest_min) : "—";
+  $("t-sounds").textContent = t ? `${t.barks}` : "—";
+  if (dayOffset === 0) {
+    const [text] = sandyText(live);
+    $("hero-big").textContent = text;
+    $("hero-sub").textContent = t && t.first_seen ? `First seen ${fmtTime(t.first_seen)} · ${t.minutes_recorded} min watched` : "Watching since the camera came online";
+    $("hero-img").src = `/media/snaps/${dayString(0)}/${new Date(Date.now() - 60000).toTimeString().slice(0, 5).replace(":", "-")}.jpg`;
+  } else {
+    $("hero-big").textContent = t && t.visible_min ? `In view ${fmtDur(t.visible_min)}` : "No sightings";
+    $("hero-sub").textContent = t ? `${t.minutes_recorded} min watched` : "";
+    const ev = t && t.events.find((e) => e.thumb); $("hero-img").src = ev ? ev.thumb : "/icon.png";
+  }
+  const zl = Object.entries((t && t.zones) || {}).map(([name, z]) => `${ZICON[z.kind] || "📍"} ${name} ×${z.count}${z.last ? " · last " + fmtTime(z.last) : ""}`);
+  $("zone-line").textContent = zl.length ? zl.join("   ") : (zones.length ? "No zone visits yet" : "Add zones on the Live tab to count bowl and bed visits");
+  api(`/api/wellbeing?d=${dayString(dayOffset)}`).then((w) => {
+    $("pattern-v").textContent = w.verdict;
+    const m = w.today, bl = w.baseline;
+    const restless = (w.notes || []).some((n) => n.startsWith("restless night"));
+    const facts = [`settled down ${m.settle_downs}×`].concat(restless ? [] : [`night activity ${m.night_active} min${bl ? ` (usual ${Math.round(bl.night_active)})` : ""}`]);
+    $("pattern-n").textContent = [...(w.notes || []), ...facts].join(" · ");
+  }).catch(() => { $("pattern-v").textContent = "—"; });
+  const tl = $("timeline"); tl.innerHTML = "";
+  (t ? t.buckets : Array(144).fill({ n: 0 })).forEach((b) => {
+    const i = document.createElement("i");
+    if (b.n) {
+      i.style.height = `${Math.max(8, Math.round(b.present * 100))}%`;
+      if (b.present >= 0.15) i.className = b.moving >= 0.15 ? "act" : "here";
+      if (b.sounds) i.classList.add("snd");
+    }
+    tl.appendChild(i);
+  });
+  const lab = document.createElement("div"); lab.className = "tl-labels";
+  lab.innerHTML = "<span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>12a</span>"; tl.appendChild(lab);
+  if (dayOffset === 0) {
+    const nw = new Date();   // position by clock time: DST days are 23 or 25 hours long
+    const n = document.createElement("div"); n.className = "now";
+    n.style.left = `calc(8px + (100% - 16px) * ${(nw.getHours() * 60 + nw.getMinutes()) / 1440})`; tl.appendChild(n);
+  }
+  const feed = $("feed"); feed.innerHTML = "";
+  const evs = (t && t.events) || [];
+  if (!evs.length) { feed.innerHTML = `<div class="empty">Nothing yet. Moments appear here when ${PET.name} comes and goes, gets up, or barks.</div>`; return; }
+  for (const e of evs) {
+    const [label, icon] = KIND[e.kind] || [e.kind, "•"];
+    const b = document.createElement("button"); b.className = "ev"; b.type = "button";
+    const extra = e.detail && e.detail.rested_s ? ` · after ${fmtDur(e.detail.rested_s / 60)} rest` :
+      e.detail && e.detail.away_s && e.detail.away_s < 86400 ? ` · away ${fmtDur(e.detail.away_s / 60)}` : "";
+    b.innerHTML = `${e.thumb ? `<img loading="lazy" src="${e.thumb}" alt="">` : `<div class="ph">${icon}</div>`}
+      <div><b></b><span>${fmtTime(e.ts)}${extra}</span></div>${e.clip ? `<span class="play">▶ Clip</span>` : ""}`;
+    const heard = e.kind === "loud_sound" && e.detail && e.detail.yamnet ? `: ${e.detail.yamnet.top}` : "";
+    const visit = e.kind === "visit" ? visitLabel(e.detail) : null;
+    b.querySelector("b").textContent = visit || label + heard;
+    b.onclick = () => { if (e.clip) openPlayer(e.clip, `${label} · ${fmtTime(e.ts)}`); else peekAt(e.ts); };
+    feed.appendChild(b);
+    if (SOUND_KINDS.has(e.kind)) feed.appendChild(feedbackRow(e));
+  }
+}
+function visitLabel(d) {
+  const secs = d.seconds ? ` · ${d.seconds < 90 ? d.seconds + " s" : fmtDur(d.seconds / 60)}` : "";
+  return ({ water: "💧 Drank water", food: "🍖 Ate", bed: "🛏 In bed" }[d.zone_kind] || `📍 At ${d.zone}`) + secs;
+}
+
+// "Was this the pet?" on sound moments: your answers become the labels the detector is tuned on.
+const SOUND_KINDS = new Set(["barking", "howling", "whining", "growling", "dog_sound", "loud_sound", "sound_unchecked"]);
+function feedbackRow(e) {
+  const row = document.createElement("div"); row.className = "fb";
+  const ask = document.createElement("span"); ask.textContent = `Was this ${PET.name}?`; row.appendChild(ask);
+  for (const [val, txt] of [["yes", "👍 Yes"], ["no", "👎 No"]]) {
+    const btn = document.createElement("button"); btn.type = "button"; btn.className = "chip"; btn.textContent = txt;
+    btn.setAttribute("aria-pressed", e.label === val);
+    btn.onclick = async () => {
+      const next = e.label === val ? null : val;
+      try { await api("/api/events/label", { id: e.id, label: next }); e.label = next;
+            row.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === btn && next !== null)); }
+      catch (err) { ask.textContent = err.message; }
+    };
+    row.appendChild(btn);
+  }
+  return row;
+}
+
+// tap / drag along the timeline to see that moment
+let peekTs = null;
+function tlPick(ev) {
+  const r = $("timeline").getBoundingClientRect();
+  const f = Math.min(1, Math.max(0, (ev.clientX - r.left - 8) / (r.width - 16)));
+  const t = new Date(dayString(dayOffset) + "T00:00");
+  t.setMinutes(Math.round(f * 1439));            // clock time, so DST days map correctly
+  peekAt(Math.min(Date.now() / 1000 - 60, t.getTime() / 1000));
+}
+$("timeline").addEventListener("click", tlPick);
+async function peekAt(ts) {
+  peekTs = ts;
+  $("peek").classList.remove("hidden"); $("peek-video").classList.add("hidden"); $("peek-img").classList.remove("hidden");
+  $("peek-time").textContent = new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  $("peek-play").classList.toggle("hidden", Date.now() / 1000 - ts > 3500);
+  try { const s = await api(`/api/snap?ts=${ts}`); $("peek-img").src = s.snap || "/icon.png"; } catch (e) {}
+}
+$("peek-play").onclick = () => {
+  const v = $("peek-video"); v.classList.remove("hidden"); $("peek-img").classList.add("hidden");
+  const start = new Date(peekTs * 1000).toISOString();
+  v.src = `/playback/get?path=cam&format=mp4&start=${encodeURIComponent(start)}&duration=${Math.min(600, Math.max(30, Date.now() / 1000 - peekTs))}`;
+  v.play().catch(() => {});
+};
+
+// ======================= diary =======================
+async function loadDiary() {
+  const box = $("days"); box.innerHTML = "";
+  let days = [];
+  try { days = await api("/api/diary"); } catch (e) {}
+  drawTrend(days);
+  if (!days.length) { box.innerHTML = `<div class="empty" style="margin-top:12px">The first diary page appears after the first full day.</div>`; return; }
+  for (const d of days) {
+    const el = document.createElement("div"); el.className = "day";
+    const date = new Date(d.day + "T12:00").toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+    el.innerHTML = `<div class="cover">${d.cover ? `<img loading="lazy" src="${d.cover}" alt="">` : ""}${d.timelapse ? `<span class="tag">▶ Timelapse</span>` : ""}</div>
+      <div class="meta"><b></b><div>In view ${fmtDur(d.visible_min)} · active ${fmtDur(d.active_min)} · longest nap ${fmtDur(d.longest_rest_min)} · ${d.barks} bark${d.barks === 1 ? "" : "s"}</div></div>
+      <div class="acts"></div>`;
+    el.querySelector("b").textContent = date;
+    const acts = el.querySelector(".acts");
+    if (d.timelapse) { const b = document.createElement("button"); b.className = "btn primary"; b.textContent = "Watch the day"; b.onclick = () => openPlayer(d.timelapse, `${date} · timelapse`); acts.appendChild(b); }
+    if (d.highlights) { const b = document.createElement("button"); b.className = "btn"; b.textContent = "Highlights"; b.onclick = () => openPlayer(d.highlights, `${date} · highlights`); acts.appendChild(b); }
+    const open = document.createElement("button"); open.className = "btn"; open.textContent = `${d.events} moments`;
+    open.onclick = () => { dayOffset = Math.round((new Date(d.day + "T12:00") - new Date(dayString(0) + "T12:00")) / 864e5); showTab("today"); };
+    acts.appendChild(open);
+    box.appendChild(el);
+  }
+}
+
+// Stacked bar per day: active (bottom) + resting = time in view. One axis, minutes.
+function drawTrend(days) {
+  const data = days.slice(0, 14).reverse();
+  $("trend").classList.toggle("hidden", data.length < 2);
+  if (data.length < 2) return;
+  const svg = $("trend-svg"), W = svg.clientWidth || 340, H = 150, top = 14, bottom = 20, left = 2;
+  const max = Math.max(60, ...data.map((d) => d.visible_min));
+  const slot = (W - left) / data.length, bw = Math.max(6, Math.min(22, slot - 6));
+  const y = (m) => (H - bottom) - (m / max) * (H - bottom - top);
+  const ns = "http://www.w3.org/2000/svg";
+  svg.innerHTML = ""; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const el = (tag, attrs, text) => { const e = document.createElementNS(ns, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text) e.textContent = text; svg.appendChild(e); return e; };
+  el("line", { x1: 0, x2: W, y1: H - bottom + 0.5, y2: H - bottom + 0.5, stroke: "#2a2a2e" });
+  el("text", { x: 0, y: 10, class: "axis" }, fmtDur(max));
+  data.forEach((d, i) => {
+    const x = left + i * slot + (slot - bw) / 2, act = d.active_min, rest = Math.max(0, d.visible_min - d.active_min);
+    const yA = y(act), yT = y(act + rest);
+    if (act > 0) el("rect", { x, y: yA, width: bw, height: (H - bottom) - yA, fill: "var(--viz-active)" });
+    if (rest > 0) {
+      const h = Math.max(0, yA - yT - (act > 0 ? 2 : 0));   // 2px surface gap between segments
+      const path = `M${x},${yT + h} V${yT + 4} Q${x},${yT} ${x + 4},${yT} H${x + bw - 4} Q${x + bw},${yT} ${x + bw},${yT + 4} V${yT + h} Z`;
+      if (h > 0) el("path", { d: path, fill: "var(--viz-rest)" });
+    }
+    const day = new Date(d.day + "T12:00");
+    if (i === 0 || i === data.length - 1 || day.getDay() === 1)
+      el("text", { x: x + bw / 2, y: H - 6, class: "axis", "text-anchor": "middle" }, day.toLocaleDateString([], { month: "short", day: "numeric" }));
+    const hit = el("rect", { x: left + i * slot, y: 0, width: slot, height: H, fill: "transparent" });
+    hit.style.cursor = "pointer";
+    const pick = () => { $("trend-sel").textContent = `${day.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} · in view ${fmtDur(d.visible_min)} · active ${fmtDur(d.active_min)} · ${d.barks} bark${d.barks === 1 ? "" : "s"}`; };
+    hit.addEventListener("click", pick); hit.addEventListener("pointerenter", pick);
+  });
+  const last = data[data.length - 1];
+  $("trend").setAttribute("aria-label", `Last ${data.length} days. Latest: in view ${fmtDur(last.visible_min)}, active ${fmtDur(last.active_min)}.`);
+}
+
+// ======================= player, settings =======================
+function openPlayer(src, title) { $("player-title").textContent = title; $("player-video").src = src; $("player").classList.remove("hidden"); }
+$("player-close").onclick = () => { $("player-video").pause(); $("player-video").removeAttribute("src"); $("player").classList.add("hidden"); };
+
+async function loadDevices() {
+  const box = $("devices"); box.innerHTML = "";
+  let devs = [];
+  try { devs = await api("/api/devices"); } catch (e) {}
+  for (const d of devs) {
+    const row = document.createElement("div"); row.className = "dev";
+    row.innerHTML = `<div><b></b><span>${d.this ? "This device · " : ""}last used ${ago(d.last_seen)}</span></div>`;
+    row.querySelector("b").textContent = d.name;
+    if (!d.this) {
+      const rm = document.createElement("button"); rm.className = "btn quiet"; rm.textContent = "Remove";
+      rm.onclick = async () => { rm.disabled = true; await api("/api/devices/revoke", { id: d.id }).catch(() => {}); loadDevices(); };
+      row.appendChild(rm);
+    } else {
+      const rn = document.createElement("button"); rn.className = "btn quiet"; rn.textContent = "Rename";
+      rn.onclick = () => {
+        const input = document.createElement("input"); input.className = "field"; input.value = d.name; input.maxLength = 40;
+        row.firstChild.replaceWith(input); input.focus();
+        rn.textContent = "Save"; rn.onclick = async () => { await api("/api/devices/rename", { id: d.id, name: input.value }).catch(() => {}); loadDevices(); };
+      };
+      row.appendChild(rn);
+    }
+    box.appendChild(row);
+  }
+}
+$("open-settings").onclick = () => { $("settings").classList.remove("hidden"); loadDevices(); loadPush(); };
+$("close-settings").onclick = () => $("settings").classList.add("hidden");
+$("settings").addEventListener("click", (e) => { if (e.target === $("settings")) $("settings").classList.add("hidden"); });
+$("invite-go").onclick = async () => {
+  const name = $("invite-name").value.trim() || "Guest";
+  try {
+    const r = await api("/api/invites", { name });
+    if (navigator.share) { await navigator.share({ title: PET.app, text: `${name}, here's your link to watch ${PET.name}:`, url: r.url }).catch(() => {}); }
+    else if (navigator.clipboard) { await navigator.clipboard.writeText(r.url); }
+    $("invite-note").textContent = `Link for ${name} (works once, 24 h): ${r.url}`;
+    $("invite-note").style.userSelect = "text"; $("invite-note").style.webkitUserSelect = "text";
+  } catch (e) { $("invite-note").textContent = e.message; }
+};
+$("recal").onclick = async () => {
+  try { await api("/api/recalibrate", {}); $("cam-note").textContent = "Recalibrating… about 15 seconds."; } catch (e) { $("cam-note").textContent = e.message; }
+};
+
+// ======================= notifications =======================
+const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+function b64ToBytes(b64) { const p = "=".repeat((4 - b64.length % 4) % 4); const raw = atob((b64 + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); }
+function pushPrefs() { const o = {}; document.querySelectorAll("[data-pref]").forEach((b) => { o[b.dataset.pref] = b.getAttribute("aria-pressed") === "true"; }); return o; }
+function showPush(on, prefs) {
+  $("push-on").classList.toggle("hidden", on); $("push-prefs").classList.toggle("hidden", !on); $("push-actions").classList.toggle("hidden", !on);
+  if (prefs) document.querySelectorAll("[data-pref]").forEach((b) => b.setAttribute("aria-pressed", !!prefs[b.dataset.pref]));
+}
+async function loadPush() {
+  const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  if (!supported) {
+    showPush(false); $("push-on").disabled = true;
+    $("push-note").textContent = /iPhone|iPad/.test(navigator.userAgent) && !standalone
+      ? `On iPhone: tap Share, then “Add to Home Screen”, and open ${PET.app} from there to turn on alerts.`
+      : "This browser can't receive notifications.";
+    return;
+  }
+  try { const st = await api("/api/push"); showPush(st.subscribed && Notification.permission === "granted", st.prefs);
+        $("push-note").textContent = st.subscribed ? "Alerts are on for this device." : `Get a notification if the camera has a problem or ${PET.name} barks.`; }
+  catch (e) { $("push-note").textContent = e.message; }
+}
+async function subscribe() {
+  const reg = await navigator.serviceWorker.register("/sw.js");
+  await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) { const { key } = await api("/api/push"); sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) }); }
+  await api("/api/push/subscribe", { sub: sub.toJSON(), prefs: pushPrefs() });
+}
+$("push-on").onclick = async () => {
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") { $("push-note").textContent = `Notifications were not allowed. You can allow them in Settings → Notifications → ${PET.name}.`; return; }
+    await subscribe(); showPush(true); $("push-note").textContent = "Alerts are on. Try “Send a test”.";
+  } catch (e) { $("push-note").textContent = `Couldn't turn on alerts: ${e.message}`; }
+};
+document.querySelectorAll("[data-pref]").forEach((b) => b.onclick = async () => {
+  b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true");
+  try { await subscribe(); $("push-note").textContent = "Saved."; } catch (e) { $("push-note").textContent = e.message; }
+});
+$("push-test").onclick = async () => {
+  $("push-note").textContent = "Sending…";
+  try { await api("/api/push/test", {}); $("push-note").textContent = "Sent. It should arrive in a few seconds."; } catch (e) { $("push-note").textContent = e.message; }
+};
+$("push-off").onclick = async () => {
+  try { const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && await reg.pushManager.getSubscription(); if (sub) await sub.unsubscribe(); } catch (e) {}
+  await api("/api/push/unsubscribe", {}).catch(() => {}); showPush(false); $("push-note").textContent = "Alerts are off for this device.";
+};
+
+// ======================= start =======================
+$("hero-img").onerror = () => { $("hero-img").onerror = null; $("hero-img").src = "/icon.png"; };
+pollLive(); refreshCam(); loadZones();
+if (curTab === "live") startLive();
+setInterval(() => { if (!document.hidden && curTab === "live") pollLive(); }, 2000);
+setInterval(() => { if (!document.hidden && curTab === "today") { pollLive().then(() => { if (dayOffset === 0) loadDay(); }); } }, 30000);
+setInterval(() => { if (!document.hidden && curTab === "live") refreshCam(); }, 15000);
+window.addEventListener("resize", () => drawBox(live && live.present && live.box ? live.box : null));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { pauseLive(); return; }                 // no streaming from a locked phone
+  if (curTab === "live") { pollLive(); startLive(); }
+});
+const saved = recall("petcam.tab"); if (saved && saved !== "live") showTab(saved);
+</script>
+</body>
+</html>

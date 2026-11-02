@@ -1,0 +1,2 @@
+{"mode": "zeroshot", "classes": [151, 268], "threshold": 0.34, "feature_model": "mobilenetv2-12.onnx",
+ "note": "Default: P(any ImageNet dog breed) >= 0.34 on the crop. Separated a real dog from plush toys on the author's camera; retrain for your pet with tools/bootstrap_pet.py."}
