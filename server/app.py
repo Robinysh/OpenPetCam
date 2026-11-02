@@ -1399,7 +1399,7 @@ def file_report(device_id, device_name, body):
     client_json = json.dumps(client)[:20_000]
     rep = {
         "id": rid, "ts": t, "local_time": time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(t)),
-        "by": device_name, "note": str(body.get("note") or "")[:2000],
+        "by": device_name, "device": device_id, "note": str(body.get("note") or "")[:2000],
         "client": json.loads(client_json) if len(client_json) < 20_000 else {"truncated": client_json},
         "live": read_live(), "settings": get_settings(), "zones": list_zones(),
         "obs_15min": _db_rows("select * from obs where ts > ? order by ts", (t - 900,)),
@@ -1414,6 +1414,31 @@ def file_report(device_id, device_name, body):
         json.dump(rep, f, indent=1, default=str)
     threading.Thread(target=_report_clip, args=(d, t), daemon=True).start()
     return {"id": rid}
+
+
+def list_reports(limit=20):
+    """The household's reports, newest first, with the report agent's reply when there is one
+    (reply.json, written by tools/report_agent.py: status looking | answered, text, fix)."""
+    out = []
+    try:
+        ids = sorted((n for n in os.listdir(REPORTS_DIR) if n[:8].isdigit()), reverse=True)[:limit]
+    except OSError:
+        return []
+    for rid in ids:
+        try:
+            with open(f"{REPORTS_DIR}/{rid}/report.json") as f:
+                r = json.load(f)
+        except (OSError, ValueError):
+            continue
+        reply = None
+        try:
+            with open(f"{REPORTS_DIR}/{rid}/reply.json") as f:
+                reply = json.load(f)
+        except (OSError, ValueError):
+            pass
+        out.append({"id": rid, "ts": r.get("ts"), "by": r.get("by"), "note": r.get("note"),
+                    "shown": (r.get("client") or {}).get("shown_status"), "reply": reply})
+    return out
 
 
 def log_client_error(body, ua):
@@ -1618,6 +1643,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, list_devices((self.device() or {}).get("id")))
         if path == "/api/zones":
             return self.send_json(200, list_zones())
+        if path == "/api/reports":
+            return self.send_json(200, list_reports())
         if path == "/api/wellbeing":
             return self.camera_call(wellbeing, q.get("d"))
         if path == "/api/frame.jpg":

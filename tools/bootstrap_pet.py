@@ -259,8 +259,9 @@ def train():
     manifest = {m["id"]: m for m in load_jsonl(os.path.join(WORK, "manifest.jsonl"))}
     labels = {}
     for r in load_jsonl(os.path.join(WORK, "labels.jsonl")):
-        # precedence: human (app 👍/👎) > review (a second look at one crop) > claude (sheet labeller)
-        rank = {"human": 2, "review": 1}
+        # precedence: owner (their own words in a report, via tools/report_agent.py) = human (app 👍/👎)
+        # > review (a second look at one crop) > claude (sheet labeller)
+        rank = {"owner": 2, "human": 2, "review": 1}
         if r["id"] not in labels or rank.get(r["source"], 0) >= rank.get(labels[r["id"]]["source"], 0):
             labels[r["id"]] = r
     items = [(manifest[i], 1.0 if r["label"] in ("pet", "pet") else 0.0) for i, r in labels.items() if i in manifest]

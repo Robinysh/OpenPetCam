@@ -35,6 +35,8 @@ SUMMARY_HOUR = 19             # daily summary at 7 pm local
 WATCH_STALE = 120             # watcher heartbeat older than this = watcher down / camera unreachable
 AUTOPILOT_HEARTBEAT = f"{STATE}/autopilot_ok"  # touched by tools/autopilot.py on the owner's computer
 AUTOPILOT_STALE = 36 * 3600   # nightly job: alert after a day and a half without one
+REPORT_UNANSWERED = 6 * 3600  # a report the report agent hasn't answered in this long = agent not running
+REPORTS = f"{STATE}/reports"
 RECORDING_STALE = 180         # newest recording segment older than this = video relay stuck
 
 
@@ -76,7 +78,7 @@ def send(title, body, kind, tag=None, only_device=None):
         rows = []
     targets = [r for r in rows
                if (only_device is None or r["device_id"] == only_device)
-               and (kind == "test" or json.loads(r["prefs"] or "{}").get(kind, False))]
+               and (kind in ("test", "report") or json.loads(r["prefs"] or "{}").get(kind, False))]
     if not targets:
         con.close()
         log(f"'{title}': no subscribed device wants '{kind}'")
@@ -173,6 +175,22 @@ def check():
                  (f"{APP}: nightly check-up hasn't run", "The computer that retrains the pet detector hasn't checked in "
                   "for a day and a half. Is it asleep or off? Everything else keeps working."),
                  (f"{APP}: nightly check-up is back", "It ran again"))
+    # 3b. Reports are answered by tools/report_agent.py within minutes while the owner's computer is
+    #     awake. One left unanswered for 6 h means that loop is not running: say so once.
+    waiting = []
+    try:
+        for rid in os.listdir(REPORTS):
+            d = os.path.join(REPORTS, rid)
+            if rid[:8].isdigit() and not os.path.exists(os.path.join(d, "reply.json")):
+                a = age(os.path.join(d, "report.json"))
+                if a is not None and REPORT_UNANSWERED < a < 14 * 86400:
+                    waiting.append(rid)
+    except OSError:
+        pass
+    incident(st, "reports", bool(waiting),
+             (f"{APP}: your report is still waiting", f"{len(waiting)} report(s) not looked at for 6 h. The computer that "
+              "answers them may be asleep or off."),
+             (f"{APP}: reports are being answered again", "The report agent caught up"))
     # 4. New events from the watcher. Some are stamped earlier than they are written ("left" uses
     #    the last sighting, sounds their start), and SQLite reuses ids after deletes, so neither
     #    an id nor a time watermark is safe: re-read the last 30 min, skip (id, ts) already handled.
@@ -252,7 +270,10 @@ if __name__ == "__main__":
         print(f"sent to {n} device(s)")
     elif len(sys.argv) >= 4 and sys.argv[1] == "--notify":
         # Used by tools/autopilot.py: "--notify TITLE BODY [kind]"; kind defaults to camera.
-        n = send(sys.argv[2][:80], sys.argv[3][:300], kind=sys.argv[4] if len(sys.argv) > 4 else "camera", tag="autopilot")
+        # "--notify TITLE BODY report DEVICE_ID": the report agent's reply, to the reporter's phone only.
+        kind = sys.argv[4] if len(sys.argv) > 4 else "camera"
+        n = send(sys.argv[2][:80], sys.argv[3][:300], kind=kind, tag="report" if kind == "report" else "autopilot",
+                 only_device=(sys.argv[5] or None) if len(sys.argv) > 5 else None)
         print(f"sent to {n} device(s)")
     else:
         check()

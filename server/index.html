@@ -421,11 +421,13 @@
   <div class="sheet" role="dialog" aria-label="Report a problem">
     <div class="grab"></div>
     <h3>Something wrong?</h3>
-    <div class="note" style="margin:0 0 8px">Sends this moment to be debugged: the picture, the last 90 seconds of video, what the app shows and what the camera's watcher was thinking.</div>
+    <div class="note" style="margin:0 0 8px">Sends this moment, with the picture, the last 90 seconds of video and what the camera was thinking. Your agent looks at it within minutes, fixes what it can, and answers here and on this phone.</div>
     <div class="note" id="report-shown" style="margin:0 0 8px"></div>
     <textarea class="field" id="report-note" rows="3" maxlength="2000" placeholder="What looks wrong? e.g. says {{PET}} is resting but the room is empty" style="width:100%;box-sizing:border-box"></textarea>
     <div class="row"><button class="btn" id="report-cancel" type="button">Cancel</button><button class="btn primary" id="report-send" type="button">Send</button></div>
     <div class="note" id="report-status"></div>
+    <h3 style="font-size:16px;margin:18px 0 6px">Earlier reports</h3>
+    <div id="report-list" class="note" style="margin:0">Loading…</div>
   </div>
 </div>
 
@@ -616,14 +618,35 @@ $("report-open").onclick = () => {
   $("report-shown").textContent = `App shows: ${reportSnap.shown_status}${reportSnap.shown_health ? " · " + reportSnap.shown_health : ""}`;
   $("report-status").textContent = ""; $("report-send").disabled = false;
   $("report-sheet").classList.remove("hidden");
+  loadReports();
 };
 $("report-cancel").onclick = () => $("report-sheet").classList.add("hidden");
+async function loadReports() {
+  const box = $("report-list");
+  try {
+    const rs = await api("/api/reports");
+    box.textContent = rs.length ? "" : "None yet.";
+    for (const r of rs) {
+      const row = document.createElement("div");
+      row.style.cssText = "padding:10px 0;border-top:1px solid var(--line)";
+      const q = document.createElement("div");
+      q.style.color = "var(--text, #eee)";
+      q.textContent = `${new Date(r.ts * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })} · ${r.by}: “${r.note || "(no note)"}”`;
+      const a = document.createElement("div");
+      a.style.marginTop = "4px";
+      const rep = r.reply || {};
+      a.textContent = rep.status === "answered" ? `↳ ${rep.text}` : rep.status === "looking" ? "↳ Being looked at…" : "↳ Waiting for your agent";
+      row.append(q, a);
+      box.append(row);
+    }
+  } catch (e) { box.textContent = `Couldn't load: ${e.message}`; }
+}
 $("report-send").onclick = async () => {
   $("report-send").disabled = true; $("report-status").textContent = "Sending…";
   try {
     const r = await api("/api/report", { note: $("report-note").value, client: reportSnap || clientState() });
-    $("report-status").textContent = `Sent (${r.id}). Thank you.`; $("report-note").value = "";
-    setTimeout(() => $("report-sheet").classList.add("hidden"), 1500);
+    $("report-status").textContent = "Sent. Your agent will look at it within minutes."; $("report-note").value = "";
+    loadReports();
   } catch (e) { $("report-status").textContent = `Couldn't send: ${e.message}`; $("report-send").disabled = false; }
 };
 
