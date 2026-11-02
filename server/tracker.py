@@ -62,6 +62,10 @@ class Tracker:
         self.last_vel = (0.0, 0.0)
         self.last_move = -1e9
         self.own_move_t = -1e9
+        # Report 2026-11-02 16:51: a restart mid-search found the 'camera moved' mark from the OLD
+        # process's own search moves, took it for a person and froze on a blank wall for 3 min.
+        # A mark older than this process can't be told apart from our own moves, so it doesn't pause.
+        self.started_t = clock()
         self.last_moving = False
         self.chase_dir = None         # (fx, fy) of the last chase; continued while she is still not found
         self.chase_steps = 0
@@ -84,7 +88,7 @@ class Tracker:
             m = self.cam.moved_at()
         except OSError:
             return False
-        return m > self.own_move_t + 1.5 and self.clock() - m < USER_PAUSE
+        return m > max(self.own_move_t + 1.5, self.started_t) and self.clock() - m < USER_PAUSE
 
     def velocity(self):
         if len(self.hist) < 2:
