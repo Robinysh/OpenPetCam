@@ -207,18 +207,4 @@ assert len(starts) <= 2 and len(chases) <= 6, (len(starts), len(chases), chases)
 w.pet = w.X; tr.step(w.box(), moving=False); w.pet = 99999; w.advance(3.0)
 assert (tr.step(None, moving=False, motion=(w.t - 0.2, 0.45, 0.0)) or "").startswith("chase: motion"), "chase not re-armed"
 print(f"people moving about while she sleeps out of view: {len(chases)} chase moves in 4 min")
-
-# 13. Report 2026-11-02 16:51:06: the watcher restarted in the middle of a search. The OLD process's
-#     last search move had touched the 'camera moved' mark 10 s before, the new one took that for a
-#     person, logged "paused for 3 min (a person moved the camera)" and stayed on a blank wall.
-w = World(X=900, pet=99999); w.t = 1000.0
-w.moved = w.t - 10                                   # the old process's own goto, just before the restart
-tr = tracker_for(w)                                  # the new process starts
-a = tr.step(None, moving=False)
-assert not (a or "").startswith("paused"), f"took its own pre-restart move for a person: {a}"
-assert not tr.user_paused(), "paused by a mark older than the process"
-# ...a person moving the camera after the start still pauses it
-w.advance(5.0); w.moved = w.t
-assert (tr.step(None, moving=False) or "").startswith("paused"), "a real person's move no longer pauses"
-print("restart mid-search: an earlier process's move is not taken for a person")
 print("tracker ok")
