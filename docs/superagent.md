@@ -41,11 +41,24 @@ What we apply:
 | **Measure before and after; revert regressions** | Workers record a baseline and an expected value. The health check rolls back a bad deploy. Twenty-four hours after shipping, the goal is checked again, and if it still misses, the router is told. |
 | **The loop cannot tune its own authority** (Weng) | Caps, gates, goals and steering change only when the owner says so in chat. |
 
-### Not built yet (in order)
-1. **Offline replay on held-out data**, with clips and owner labels split by day and a set the worker cannot read, plus an A/A comparison to measure the noise band before calling a win.
-2. **A shadow A/B run** for detector and search changes: run the candidate beside the current version on the same live input.
-3. **A nightly lessons miner**: a failure class seen twice in the archive becomes an entry in `agent/lessons.md`, citing its archive rows.
-4. **Router and worker prompts as improvable files**, one change in flight at a time, judged against past triggers with known correct decisions.
+### How a change is judged (all built 2026-11-02)
+1. **Static gates**: tests, compile and undefined names, the public-repo guard, allowed paths, the protected evaluator, and the test assertion count.
+2. **Held-out replay** (`tools/replay.py compare`), against the current code:
+   - **Detection:** the verifier on held-out labelled crops, where about a third of the day+hour groups are held out by hash, plus the whole detector and verifier on frames the owner said had no dog (the 2 Nov walk).
+   - **Search:** the tracker over a fixed grid of 36 simulated rooms, with realistic detection costs and misses.
+   - The candidate may not be worse on any metric beyond a small tolerance. Workers never get `eval/heldout`, and a transcript that touches it is rejected.
+   - **Probe:** re-enabling the 2 Nov zero-shot backup and removing the tilt rows was caught (false alarms 0 -> 19.5%, found 0.89 -> 0.28).
+3. **Shadow run** for changes to how frames become "the dog":
+   - For 6 h and at least 30 new live frames, both versions judge the same live candidate frames on the owner's computer, so the server's CPU budget is untouched.
+   - Disagreements go to an independent labeller that sees only the picture and the box.
+   - The candidate ships only if it is right at least as often as the current version.
+4. **Ship**: the existing deploy, health check and rollback.
+5. **Post-ship check**: 24 h later the goal is measured again; a miss goes back to the router.
+
+### Lessons and the agent's own prompts
+- **Lessons:** each night a deterministic pass over the archive writes `agent/lessons.md`. A failure class seen twice becomes a lesson that cites its archive rows, and the router and workers read the file.
+- **Prompts:** they live in `agent/prompts/`. Once a week a meta worker may change them, but only when no other worker runs, so a result can be pinned on the change. The change ships only if it scores at least as well on `agent/evals/router_cases.json`: cases with known correct decisions, which the meta worker can't edit.
+- **Fixes that wait** because the code moved on are rebased and re-judged on a later tick.
 
 ## Operating it
 - **Watch:** open `/agent` in the app. It shows goals with 7-day trends, what the agent is working on, its recent decisions and the steering.

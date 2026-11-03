@@ -106,6 +106,10 @@ def collect():
                                 "summary": f"owner report {rid}", "payload": {"rid": rid}, "title": f"Report {rid}"})
         n += r["new"]
     day = time.strftime("%Y-%m-%d")
+    wk = time.strftime("%G-W%V")
+    r = adb("add_trigger", {"source": "schedule", "kind": "meta_review", "thread": "meta:prompts", "dedupe": f"meta:{wk}",
+                            "title": "Improve the agent's own prompts", "summary": "weekly: review the router and worker prompts against lessons and the archive"})
+    n += r["new"]
     for g in adb("digest")["goals"]:                  # latest measurement of each goal
         if g["ok"] or g["value"] is None:
             continue
@@ -139,6 +143,9 @@ Owner steering (agent/steer.md, newest first; obey it):
 Policies (agent/policies.md):
 {policies}
 
+Lessons mined from earlier attempts (agent/lessons.md):
+{lessons}
+
 Budget left today: {budget}. Workers running now: {running}.
 
 Current state (open threads, recent decisions, latest goal values):
@@ -153,6 +160,13 @@ Write your decisions as JSON to {out}, exactly:
 Every new trigger id must appear in exactly one action."""
 
 
+def template(name, default):
+    """Prompts live in agent/prompts/ so the meta worker can improve them (judged by agent/evals/); the built-in text is
+    only a fallback."""
+    t = read(f"prompts/{name}.md", 20000)
+    return t if "{" in t else default
+
+
 def route(triggers):
     """The slow path: one batched router call for every trigger that needs judgement."""
     if not triggers:
@@ -164,8 +178,8 @@ def route(triggers):
     th = adb("thread", {"id": "router", "title": "Router", "kind": "router"})
     out = os.path.join(RUN, f"router_{int(time.time())}.json")
     running = [t["id"] for t in adb("digest")["open_threads"] if t.get("worker") and t["worker"].startswith("pid:")]
-    prompt = ROUTER_PROMPT.format(
-        pet=PET, goals=read("goals.json"), steer=read("steer.md"), policies=read("policies.md"),
+    prompt = template("router", ROUTER_PROMPT).format(
+        pet=PET, goals=read("goals.json"), steer=read("steer.md"), policies=read("policies.md"), lessons=read("lessons.md", 3000),
         budget=json.dumps({k: budget_left(k)[0] for k in BUDGET}), running=running or "none",
         digest=json.dumps(adb("digest"), default=str)[:12000],
         triggers=json.dumps([{k: t[k] for k in ("id", "ts", "source", "kind", "thread", "summary", "payload")} for t in triggers], default=str)[:12000],
@@ -223,6 +237,40 @@ def start_worker(thread, kind, brief):
     return True
 
 
+META_BRIEF = ("Improve the agent's own prompts (agent/prompts/router.md, agent/prompts/worker.md) using agent/lessons.md and "
+              "eval/superagent/archive.jsonl: what went wrong repeatedly, what decisions were poor. Change only agent/prompts/; keep every "
+              "{placeholder}. Your change ships only if it scores at least as well on agent/evals/router_cases.json, which you cannot change.")
+
+
+def retry_queued():
+    """Fixes that waited because the code moved on: rebase, replay against held-out data, ship (one per tick)."""
+    if ra.git("status", "--porcelain") or running_workers():
+        return
+    for f in sorted(x for x in os.listdir(RUN) if x.startswith("queued_")):
+        q = json.load(open(os.path.join(RUN, f)))
+        os.remove(os.path.join(RUN, f))
+        if not os.path.exists(q["wt"]):
+            continue
+        rep = replay_compare(q["wt"])
+        if not rep.get("ok"):
+            status, detail = "replay_worse", "; ".join(rep.get("worse", []))[:300] or rep.get("error", "")
+        else:
+            st = ra.load_state()
+            status, detail = ra.ship(q["thread"], q["wt"], q["branch"], st)
+            ra.save_state(st)
+        note("harness", f"retried a queued fix ({q.get('commit')}): {status} {detail[:300]}", q["thread"], "result")
+        with open(ARCHIVE, "a") as fa:
+            fa.write(json.dumps({"ts": time.time(), "thread": q["thread"], "kind": "retry", "commit": q.get("commit"),
+                                 "verdict": status, "detail": detail[:300], "replay": rep}) + "\n")
+        if status == "queued":
+            json.dump(q, open(os.path.join(RUN, f), "w"))
+        else:
+            subprocess.run(["git", "worktree", "remove", "--force", q["wt"]], cwd=ROOT, capture_output=True)
+            if status != "live":
+                subprocess.run(["git", "branch", "-D", q["branch"]], cwd=ROOT, capture_output=True)
+        return
+
+
 def tick():
     os.makedirs(RUN, exist_ok=True)
     lock = open(os.path.join(RUN, ".tick.lock"), "w")
@@ -241,6 +289,10 @@ def tick():
     for t in pend:
         if t["kind"] == "report":                          # fast path policy: reports go straight to a report worker
             if not t["subscriber"] and start_worker(t["thread"], "report", f"answer owner report {t['payload']}"):
+                done.append(t["id"])
+            continue
+        if t["kind"] == "meta_review":
+            if not running_workers() and start_worker(t["thread"], "meta", META_BRIEF):
                 done.append(t["id"])
             continue
         if t.get("subscriber") and t["subscriber"].startswith("pid:"):
@@ -263,6 +315,7 @@ def tick():
         else:
             note("router", f"{act}: {a.get('why', '')}", thread, act or "note")
             adb("mark", {"ids": ids, "status": "handled"})
+    retry_queued()
     beat("tick", {"new": new, "pending": len(pend), "slow": len(slow), "workers": len(running_workers())})
 
 
@@ -274,6 +327,9 @@ thread: {thread}. Your task ({kind}):
 
 Earlier attempts on this thread (the archive; learn from what failed, don't repeat it):
 {archive}
+
+Lessons from all attempts (agent/lessons.md):
+{lessons}
 
 Context: the router's view of this thread (recall more with: python3 {tools}/superagent.py recall <id>):
 {recall}
@@ -317,29 +373,48 @@ def work(thread):
             os.remove(out)
         past = [json.loads(x) for x in open(ARCHIVE)] if os.path.exists(ARCHIVE) else []
         mine = [x for x in past if x.get("thread") == thread][-8:]
-        prompt = WORKER_PROMPT.format(pet=PET, thread=thread, kind=b["kind"], brief=b["brief"], tools=HERE,
+        prompt = template("worker", WORKER_PROMPT).format(pet=PET, thread=thread, kind=b["kind"], brief=b["brief"], tools=HERE,
+                                      lessons=read("lessons.md", 3000),
                                       archive=json.dumps(mine, indent=0)[:4000] or "none yet",
                                       recall=json.dumps(adb("recall", {"ref": thread}), default=str)[:8000],
                                       goals=read("goals.json", 3000), steer=read("steer.md", 3000), out=out)
-        r = subprocess.run(["timeout", "-k", "10", str(WORKER_TIMEOUT), "claude", "-p", prompt, "--output-format", "json",
-                            "--add-dir", RUN, "--add-dir", os.path.join(ROOT, "models"), "--add-dir", os.path.join(ROOT, "eval"),
+        r = subprocess.run(["timeout", "-k", "10", str(WORKER_TIMEOUT), "claude", "-p", prompt, "--output-format", "stream-json", "--verbose",
+                            "--add-dir", RUN, "--add-dir", os.path.join(ROOT, "models"), "--add-dir", os.path.join(ROOT, "eval", "reports"),
                             "--allowedTools", "Read", "Grep", "Glob", "Edit", "Write", "Bash(python3:*)", "Bash(git diff:*)",
                             "Bash(git status:*)", "Bash(ls:*)", "Bash(ffmpeg:*)", "Bash(ffprobe:*)"],
                            cwd=wt, capture_output=True, text=True, timeout=WORKER_TIMEOUT + 60, env=dict(ENV, PETCAM_AGENT_WORKER="1"))
         if not os.path.exists(out):
             raise RuntimeError(f"worker wrote no result (rc {r.returncode}): {(r.stderr or r.stdout)[-300:]}")
         res = json.load(open(out))
+        with open(os.path.join(RUN, f"transcript_{safe}.jsonl"), "w") as f:
+            f.write(r.stdout)
         status, detail, commit = "no_change", "", None
-        if ra.git("status", "--porcelain", cwd=wt):
+        leaked = "eval/heldout" in r.stdout          # the held-out set is the judge's, never the proposer's
+        if leaked:
+            status, detail = "rejected", "the worker read the held-out data"
+        elif ra.git("status", "--porcelain", cwd=wt) and b["kind"] == "meta":
+            ok, why = ra.gates(wt, prompts_only=True)
+            status, detail = judge_prompts(wt, branch, thread, res) if ok else ("failed_checks", why)
+            commit = ra.git("rev-parse", "--short", "HEAD", cwd=wt) if status == "live" else None
+        elif ra.git("status", "--porcelain", cwd=wt):
             ok, why = ra.gates(wt)
             if ok and b["kind"] == "improve":
                 ra.git("commit", "-q", "-m", f"Agent {thread}: {res.get('fix_summary') or 'improvement'}\n\n{res.get('summary', '')[:1500]}\n"
                        f"Baseline: {res.get('baseline', '')[:300]}\nExpected: {res.get('expected_after', '')[:300]}\n\n"
                        "Made by the super-agent (tools/superagent.py).\n\nCo-Authored-By: Claude <noreply@anthropic.com>", cwd=wt)
                 commit = ra.git("rev-parse", "--short", "HEAD", cwd=wt)
-                st = ra.load_state()
-                status, detail = ra.ship(thread, wt, branch, st)
-                ra.save_state(st)
+                rep = replay_compare(wt)                 # held-out replay: no worse than the current code on any metric
+                res["replay"] = rep
+                if not rep.get("ok"):
+                    status, detail = "replay_worse", "; ".join(rep.get("worse", []))[:300] or rep.get("error", "replay failed")
+                elif touches_detection(wt):
+                    status, detail = "shadow", f"replay ok ({'; '.join(rep.get('better', [])) or 'no change'}); shadow run on live frames for {SHADOW_HOURS} h"
+                    json.dump({"thread": thread, "wt": wt, "branch": branch, "commit": commit, "started": time.time(),
+                               "since": time.time(), "frames": 0, "disagree": []}, open(os.path.join(RUN, f"shadow_{safe}.json"), "w"))
+                else:
+                    st = ra.load_state()
+                    status, detail = ra.ship(thread, wt, branch, st)
+                    ra.save_state(st)
             elif not ok:
                 status, detail = "failed_checks", why
             else:
@@ -348,7 +423,10 @@ def work(thread):
             f.write(json.dumps({"ts": time.time(), "thread": thread, "kind": b["kind"], "parent": ra.git("rev-parse", "--short", "HEAD"),
                                 "commit": commit, "verdict": status, "detail": detail[:300], "summary": res.get("summary", "")[:500],
                                 "baseline": res.get("baseline", "")[:300], "expected_after": res.get("expected_after", "")[:300],
-                                "fix_summary": res.get("fix_summary", "")[:300]}) + "\n")
+                                "fix_summary": res.get("fix_summary", "")[:300], "replay": res.get("replay")}) + "\n")
+        if status == "queued":
+            json.dump({"thread": thread, "wt": wt, "branch": branch, "commit": commit},
+                      open(os.path.join(RUN, f"queued_{safe}.json"), "w"))
         if status == "live" and thread.startswith("goal:"):
             json.dump({"thread": thread, "shipped": time.time(), "commit": commit},
                       open(os.path.join(RUN, f"watch_{safe}.json"), "w"))
@@ -359,11 +437,11 @@ def work(thread):
             note(f"worker:{b['kind']}", res["needs_owner"], thread, "ask")
         if res.get("reply") or res.get("needs_owner"):
             ra.notify(None, f"{PET} cam", (res.get("reply") or res.get("needs_owner"))[:280])
-        adb("thread", {"id": thread, "worker": "", "status": "closed" if status in ("live", "no_change", "proposal") else "open",
+        adb("thread", {"id": thread, "worker": "", "status": "closed" if status in ("live", "no_change", "proposal", "replay_worse", "rejected") else "open",
                        "summary": f"{status}: {res.get('fix_summary') or res.get('summary', '')[:200]}"})
-        if status not in ("queued",):
+        if status not in ("queued", "shadow"):
             subprocess.run(["git", "worktree", "remove", "--force", wt], cwd=ROOT, capture_output=True)
-            if status in ("no_change", "proposal", "rolled_back"):
+            if status in ("no_change", "proposal", "rolled_back", "replay_worse", "rejected"):
                 subprocess.run(["git", "branch", "-D", branch], cwd=ROOT, capture_output=True)
     except Exception as e:  # noqa: BLE001
         log("worker", thread, "failed:", type(e).__name__, str(e)[:300])
@@ -375,6 +453,179 @@ def work(thread):
         except OSError:
             pass
         beat(f"worker:{thread}", {"finished": time.time()})
+
+
+
+# ------------------------------------------------------------------ judging changes (the evaluator; workers can't edit it)
+
+SHADOW_HOURS = 6
+SHADOW_MIN_FRAMES = 30
+DETECTION_FILES = ("server/detector.py", "server/watch.py")
+
+
+def replay_compare(wt):
+    r = subprocess.run([sys.executable, os.path.join(HERE, "replay.py"), "compare", ROOT, wt], capture_output=True, text=True,
+                       timeout=1800, env=ENV)
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        return {"ok": False, "error": (r.stderr or r.stdout)[-300:]}
+
+
+def touches_detection(wt):
+    """A change to how frames become 'the dog' gets a shadow run on live frames before it ships."""
+    changed = ra.git("diff", "--name-only", "HEAD~1", "HEAD", cwd=wt).split()
+    if "server/detector.py" in changed:
+        return True
+    if "server/watch.py" in changed:
+        d = ra.git("diff", "HEAD~1", "HEAD", "--", "server/watch.py", cwd=wt)
+        return any(k in d for k in ("Verifier", "verified_box", "def detect", "det.detect", "verifier", "PRESENT_SCORE", "ABSENT_SCORE"))
+    return False
+
+
+def shadow_step():
+    """Every metrics run: new live candidate frames go through both trees; disagreements are judged by an independent
+    labeller after SHADOW_HOURS; the candidate ships only if it is right at least as often as the current code."""
+    for f in [x for x in os.listdir(RUN) if x.startswith("shadow_") and x.endswith(".json")]:
+        path = os.path.join(RUN, f)
+        job = json.load(open(path))
+        fd = os.path.join(RUN, f"frames_{f[7:-5]}")
+        os.makedirs(fd, exist_ok=True)
+        day = time.strftime("%Y-%m-%d")
+        newer = time.strftime("%H%M%S", time.localtime(job["since"]))
+        pull = subprocess.run(SSH + [f"cd /var/lib/petcam/candidates/{day} 2>/dev/null && ls | awk '$0 > \"{newer}\"' | head -200 | sudo tar -cf - -T - 2>/dev/null; true"],
+                              capture_output=True, timeout=300)
+        subprocess.run(["tar", "-C", fd, "-xf", "-"], input=pull.stdout, capture_output=True)
+        job["since"] = time.time()
+        frames = sorted(os.listdir(fd))
+        votes = {}
+        for tree, key in ((ROOT, "cur"), (job["wt"], "cand")):
+            r = subprocess.run([sys.executable, os.path.join(HERE, "replay.py"), "pipeline", "--tree", tree, "--frames", fd],
+                               capture_output=True, text=True, timeout=1800, env=ENV)
+            try:
+                votes[key] = json.loads(r.stdout)
+            except ValueError:
+                votes[key] = {}
+        job["frames"] = len(frames)
+        job["disagree"] = [fr for fr in frames if bool(votes["cur"].get(fr)) != bool(votes["cand"].get(fr))]
+        json.dump(job, open(path, "w"))
+        if time.time() - job["started"] < SHADOW_HOURS * 3600 or len(frames) < SHADOW_MIN_FRAMES:
+            continue
+        verdict, detail = adjudicate(fd, job["disagree"], votes)
+        st = ra.load_state()
+        if verdict == "ship":
+            status, why = ra.ship(job["thread"], job["wt"], job["branch"], st)
+        else:
+            status, why = "shadow_worse", detail
+        ra.save_state(st)
+        note("shadow", f"[{status}] {len(frames)} live frames, {len(job['disagree'])} disagreements: {detail} {why if status != 'shadow_worse' else ''}"[:900],
+             job["thread"], "result")
+        with open(ARCHIVE, "a") as fa:
+            fa.write(json.dumps({"ts": time.time(), "thread": job["thread"], "kind": "shadow", "commit": job["commit"],
+                                 "verdict": status, "detail": detail[:300], "frames": len(frames), "disagree": len(job["disagree"])}) + "\n")
+        if status != "queued":
+            subprocess.run(["git", "worktree", "remove", "--force", job["wt"]], cwd=ROOT, capture_output=True)
+        if status != "live":
+            subprocess.run(["git", "branch", "-D", job["branch"]], cwd=ROOT, capture_output=True)
+        os.remove(path)
+
+
+def adjudicate(fd, disagree, votes):
+    """Disagreements decided by an independent labeller (a separate model call that sees only the picture and the box,
+    not which version proposed it)."""
+    if not disagree:
+        return "ship", "no disagreements on live frames"
+    items = []
+    for i, fr in enumerate(disagree[:40]):
+        box = votes["cur"].get(fr) or votes["cand"].get(fr)
+        items.append({"n": i, "file": os.path.join(fd, fr), "box": box})
+    out = os.path.join(fd, "labels.json")
+    prompt = (f"For each picture, look at the region inside the box (fractions x0,y0,x1,y1 of the image) and say whether it "
+              f"shows the dog {PET} (a golden retriever), not a toy, person or empty floor. Items: {json.dumps(items)}. "
+              f'Write {out} as {{"n": true|false, ...}} keyed by n.')
+    subprocess.run(["timeout", "-k", "10", "600", "claude", "-p", prompt, "--allowedTools", "Read", "Write", "--add-dir", fd],
+                   cwd=ROOT, capture_output=True, text=True, timeout=700, env=ENV)
+    try:
+        lab = {int(k): bool(v) for k, v in json.load(open(out)).items()}
+    except (OSError, ValueError):
+        return "hold", "the labeller gave no answer"
+    right = {"cur": 0, "cand": 0}
+    for it in items:
+        truth = lab.get(it["n"])
+        if truth is None:
+            continue
+        fr = os.path.basename(it["file"])
+        for k in right:
+            right[k] += bool(votes[k].get(fr)) == truth
+    detail = f"right on disagreements: current {right['cur']}, candidate {right['cand']} of {len(lab)}"
+    return ("ship" if right["cand"] >= right["cur"] else "reject"), detail
+
+
+def judge_prompts(wt, branch, thread, res):
+    """A prompt change ships only if it scores at least as well as the current prompts on agent/evals/router_cases.json."""
+    cur = eval_router(os.path.join(ROOT, "agent", "prompts"))
+    cand = eval_router(os.path.join(wt, "agent", "prompts"))
+    res["replay"] = {"current": cur, "candidate": cand}
+    if cand["score"] < cur["score"] or cand["forbidden"] > cur["forbidden"]:
+        return "replay_worse", f"router cases: current {cur['score']}/{cur['n']}, candidate {cand['score']}/{cand['n']}"
+    ra.git("commit", "-q", "-m", f"Agent {thread}: prompt change\n\n{res.get('summary', '')[:1200]}\nRouter cases: {cur['score']} -> {cand['score']} of {cand['n']}\n\n"
+           "Made by the super-agent's meta worker.\n\nCo-Authored-By: Claude <noreply@anthropic.com>", cwd=wt)
+    if ra.git("status", "--porcelain") or ra.git("merge-base", "HEAD", branch) != ra.git("rev-parse", "HEAD"):
+        return "queued", "main is busy; the prompt change waits"
+    ra.git("merge", "--ff-only", branch)              # prompts run on this computer: no deploy needed
+    return "live", f"router cases {cur['score']} -> {cand['score']} of {cand['n']}"
+
+
+def eval_router(prompt_dir):
+    """Run the router prompt from prompt_dir on fixed cases with known correct decisions."""
+    cases = json.load(open(os.path.join(AGENT, "evals", "router_cases.json")))
+    tpl_path = os.path.join(prompt_dir, "router.md")
+    tpl = open(tpl_path).read() if os.path.exists(tpl_path) else ROUTER_PROMPT
+    score = forbidden = 0
+    for c in cases:
+        out = os.path.join(RUN, f"eval_{c['id']}.json")
+        if os.path.exists(out):
+            os.remove(out)
+        prompt = tpl.format(pet=PET, goals=read("goals.json"), steer=read("steer.md"), policies=read("policies.md"),
+                            lessons=read("lessons.md", 3000), budget=json.dumps(c.get("budget", {"router_calls": 30, "worker_runs": 5})),
+                            running=c.get("running", "none"), digest=json.dumps(c.get("digest", {})), triggers=json.dumps(c["triggers"]), out=out)
+        subprocess.run(["timeout", "-k", "10", "240", "claude", "-p", prompt, "--allowedTools", "Write"], cwd=ROOT,
+                       capture_output=True, text=True, timeout=300, env=ENV)
+        try:
+            acts = json.load(open(out))["actions"]
+        except (OSError, ValueError, KeyError):
+            continue
+        got = {a.get("action") for a in acts}
+        text = json.dumps(acts).lower()
+        if c["expect"] in got and not (set(c.get("not", [])) & got):
+            score += 1
+        forbidden += any(w in text for w in c.get("forbidden", []))
+    return {"n": len(cases), "score": score, "forbidden": forbidden}
+
+
+def lessons():
+    """Nightly, deterministic: a failure class seen twice in the archive becomes a lesson, citing its rows. Only this
+    function writes agent/lessons.md; workers and the router read it."""
+    rows = [json.loads(x) for x in open(ARCHIVE)] if os.path.exists(ARCHIVE) else []
+    groups = {}
+    for i, r in enumerate(rows):
+        if r.get("verdict") in ("live", "no_change", "proposal", "shadow"):
+            continue
+        key = (r.get("thread", "").split(":")[0] + ":" + (r.get("thread", "").split(":") + [""])[1], r.get("verdict"),
+               re.sub(r"[0-9.]+", "#", (r.get("detail") or "")[:60]))
+        groups.setdefault(key, []).append(i)
+    lines = ["# Lessons (mined nightly from eval/superagent/archive.jsonl; a pattern needs 2+ occurrences)", ""]
+    for (thread, verdict, detail), idx in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        if len(idx) >= 2:
+            lines.append(f"- {thread}: {verdict} {len(idx)}x ({detail.strip()}). Archive rows {idx[-5:]}. Don't retry the same approach; change the hypothesis.")
+    won = [r for r in rows if r.get("verdict") == "live"]
+    lines += ["", f"So far: {len(rows)} attempts, {len(won)} shipped."]
+    for r in won[-5:]:
+        lines.append(f"- shipped on {r.get('thread')}: {r.get('fix_summary', '')[:160]} (commit {r.get('commit')})")
+    open(os.path.join(AGENT, "lessons.md"), "w").write("\n".join(lines) + "\n")
+    day = [r for r in rows if time.time() - r.get("ts", 0) < 86400]
+    note("lessons", f"last 24 h: {len(day)} attempts; " + ", ".join(f"{v} {sum(1 for r in day if r.get('verdict') == v)}"
+                                                                     for v in sorted({r.get('verdict') for r in day})), None, "digest")
 
 
 # ------------------------------------------------------------------ metrics (goals, measured)
@@ -397,10 +648,17 @@ c = sqlite3.connect(f"{S}/petcam.db")
 ev = c.execute("select ts, detail from events where kind='search' and ts > ?", (now - 86400,)).fetchall()
 home = found = 0
 for ts, d in ev:
-    seen_after = c.execute("select count(*) from obs where ts between ? and ? and score > 0", (ts, ts + 600)).fetchone()[0]
-    if "found her" in (d or "") or seen_after:
+    # Definition v2 (2026-11-02, from the search worker's adjudication of 14 'failures' by eye): she counts as home only
+    # if seen in the 3 min before the search or within 60 s after it ended, confirmed by 2 detections (one detection can
+    # be the toy); searches a person stopped don't count. v1 (any detection within 10 min) counted later walk-ins.
+    d = d or ""
+    if "a person moved the camera" in d:
+        continue
+    near = c.execute("select count(*) from obs where score > 0 and (ts between ? and ? or ts between ? and ?)",
+                     (ts - 180 - 120, ts - 120, ts, ts + 60)).fetchone()[0]
+    if "found her" in d or near >= 2:
         home += 1
-        found += "found her" in (d or "")
+        found += "found her" in d
 out["search"] = [found, home]
 reps = sorted(d for d in os.listdir(f"{S}/reports") if d[:8].isdigit())
 waiting = [now - os.path.getmtime(f"{S}/reports/{d}/report.json") for d in reps if not os.path.exists(f"{S}/reports/{d}/reply.json")]
@@ -424,7 +682,7 @@ def metrics():
     add("app_status_fresh", m.get("live_age"), "<= 10", (m.get("live_age") or 999) <= 10, "seconds since live.json")
     f, h = m.get("search", [0, 0])
     if h:
-        add("search_success", round(f / h, 2), ">= 0.8", f / h >= 0.8, f"{f} found of {h} searches when she was home (24 h)")
+        add("search_success", round(f / h, 2), ">= 0.8", f / h >= 0.8, f"{f} found of {h} searches when she was near (24 h, definition v2)")
     add("reports_answered", m.get("oldest_unanswered_min", 0), "<= 15", m.get("oldest_unanswered_min", 0) <= 15, "minutes")
     add("owner_reports", m.get("owner_reports_per_day", 0), "<= 1", m.get("owner_reports_per_day", 0) <= 1, "per day, 7-day average")
     try:
@@ -456,6 +714,13 @@ def metrics():
     except (OSError, ValueError):
         pass
     adb("metric", {"metrics": rows})
+    try:
+        shadow_step()
+    except Exception as e:  # noqa: BLE001
+        log("shadow:", e)
+    lp = os.path.join(AGENT, "lessons.md")
+    if time.localtime().tm_hour == 3 or not os.path.exists(lp) or time.time() - os.path.getmtime(lp) > 26 * 3600:
+        lessons()
     by = {r["goal"]: r for r in rows}
     for f in [x for x in os.listdir(RUN) if x.startswith("watch_")]:
         w = json.load(open(os.path.join(RUN, f)))
@@ -530,6 +795,12 @@ if __name__ == "__main__":
         print(watchdog())
     elif cmd == "work":
         work(sys.argv[2])
+    elif cmd == "lessons":
+        lessons(); print(read("lessons.md"))
+    elif cmd == "eval-router":
+        print(json.dumps(eval_router(sys.argv[2] if len(sys.argv) > 2 else os.path.join(AGENT, "prompts"))))
+    elif cmd == "shadow":
+        shadow_step()
     elif cmd == "recall":
         recall(sys.argv[2])
     else:

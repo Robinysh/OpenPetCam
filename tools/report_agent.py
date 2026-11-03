@@ -238,7 +238,7 @@ def apply_labels(rid, d, res):
 ALLOWED = ("server/", "tools/", "tests/", "docs/", "README.md")
 # The evaluator stays out of the proposer's reach (DGM faked its test logs; METR saw models edit scoring code): the gates,
 # goal metrics, QA, the agent itself, goals, steering and policies change only through the owner.
-NEVER = ("tools/report_agent.py", "tools/superagent.py", "tools/qa.py", "tools/check_public.sh", "tools/noise_study.py",
+NEVER = ("tools/report_agent.py", "tools/superagent.py", "tools/qa.py", "tools/check_public.sh", "tools/noise_study.py", "tools/replay.py",
          "deploy.sh", "server/install.sh", "server/set-secrets.sh", "server/agentdb.py")
 NEVER_PREFIX = ("agent/",)
 
@@ -252,12 +252,16 @@ def assert_count(root):
     return n
 
 
-def gates(wt):
-    """Every check a change must pass before it may ship. Returns (ok, text)."""
+def gates(wt, prompts_only=False):
+    """Every check a change must pass before it may ship. Returns (ok, text). A meta worker (prompts_only) may change
+    agent/prompts/ and nothing else; everyone else may never touch agent/."""
     git("add", "-A", cwd=wt)
     changed = git("diff", "--cached", "--name-only", cwd=wt).split()
     kinds = git("diff", "--cached", "--summary", cwd=wt)
-    bad = [f for f in changed if not f.startswith(ALLOWED) or f in NEVER or f.startswith(NEVER_PREFIX)]
+    if prompts_only:
+        bad = [f for f in changed if not f.startswith("agent/prompts/")]
+    else:
+        bad = [f for f in changed if not f.startswith(ALLOWED) or f in NEVER or f.startswith(NEVER_PREFIX)]
     if bad or "120000" in kinds:                                # 120000 = a symlink
         return False, f"the change touches files the agent may not ship: {bad or 'a symlink'}"
     if assert_count(wt) < assert_count(ROOT):
@@ -303,7 +307,14 @@ def ship(rid, wt, branch, st):
         return "queued", "the code is being edited on the computer right now; it ships once that is committed"
     head = git("rev-parse", "HEAD")
     if git("merge-base", head, branch) != head:
-        return "queued", "the code moved on since the fix was written; it will be redone"
+        # the code moved on while the worker ran: replay the fix on top of the latest code, then re-check everything
+        r = run(["git", "rebase", head], cwd=wt, timeout=120)
+        if r.returncode != 0:
+            run(["git", "rebase", "--abort"], cwd=wt)
+            return "queued", "the fix no longer applies to the latest code; it will be redone"
+        ok, why = gates(wt)
+        if not ok:
+            return "failed_checks", f"after rebasing onto the latest code: {why}"
     if DRY:
         return "dry", "would deploy"
     git("merge", "--ff-only", branch)
