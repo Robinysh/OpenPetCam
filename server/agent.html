@@ -107,8 +107,8 @@ async function load() {
   for (const t of open) {
     const running = (t.worker || "").startsWith("pid:");
     const c = el("div", "item");
-    c.innerHTML = `<div class="t"><span>${running ? '<i class="run"></i>' : ""}${text(t.title || t.id)}</span><span>${ago(t.updated)}</span></div>
-      <div class="s">${running ? `A ${text(t.kind || "")} worker is on it. ` : ""}${text(t.summary || "")}</div>`;
+    c.innerHTML = `<div class="t"><span>${running ? '<i class="run"></i>' : ""}${text(t.id.startsWith("goal:") ? NAMES[t.id.slice(5)] || t.title : t.title || t.id)}</span><span>${ago(t.updated)}</span></div>
+      <div class="s">${running ? `Working on it (${text(t.kind || "worker")}). ` : ""}${text(t.summary || "")}</div>`;
     on.appendChild(c);
   }
   const f = $("feed"); f.innerHTML = "";
