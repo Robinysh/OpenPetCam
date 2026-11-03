@@ -251,9 +251,9 @@ class Tracker:
                 return box
         return None
 
-    def _found(self, box, t0, where, reason):
+    def _found(self, box, t0, where, reason, centre=True):
         cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
-        if max(abs(cx), abs(cy)) > 0.15:
+        if centre and max(abs(cx), abs(cy)) > 0.15:
             self._move(self.cam.aim, cx * 0.9, cy * 0.8)
         self.last_seen_t, self.last_seen_c = self.clock(), (0.0, 0.0)
         return f"search ({reason}): found her {where} in {self.clock() - t0:.0f} s"
@@ -290,7 +290,7 @@ class Tracker:
         return None
 
     def search(self, reason):
-        """Saved views first (stop and look), then a zigzag over two tilt rows. Along each row the
+        """The current view first (no move), then saved views (stop and look), then a zigzag over the tilt rows. Along each row the
         camera pans slowly (quiet speed) and EVERY frame is checked while it moves, instead of only
         stopping and looking: a stop-and-look sweep could pass her between stops, or judge one bad
         frame. A sighting mid-pan stops the motor, waits for the picture to catch up (the stream lags
@@ -302,6 +302,13 @@ class Tracker:
             x0, y0 = self.cam.position()
             xm, _ = self.cam.limits()
             fw, _ = self.cam.frame_steps()
+            # Look here before moving anywhere (2026-11-02 13:45 and 18:31: asleep in view, a detector dropout
+            # or a restart started the search, it drove to the saved views first and came back "not found";
+            # she was detected in the same view 38 s / 9 s later). Found here: no motor move at all, not
+            # even to centre her, since a motor next to a resting dog is what the owners want avoided.
+            box = self.look()
+            if box is not None:
+                return self._found(box, t0, "where the camera already was", reason, centre=False)
             for p in self.cam.presets():
                 if self.user_paused():
                     return f"search ({reason}): stopped, a person moved the camera"
@@ -313,11 +320,8 @@ class Tracker:
                 box = self.look()
                 if box is not None:
                     return self._found(box, t0, f"at the saved view ({p['x']}, {p['y']})", reason)
-            # Look here first, then scan this row toward the side she was last heading, then the rest of it,
+            # Scan this row toward the side she was last heading, then the rest of it,
             # then the second row back the other way: no long blind move before scanning starts.
-            box = self.look()
-            if box is not None:
-                return self._found(box, t0, "where the camera already was", reason)
             heading_right = bool(self.last_seen_c and self.last_seen_c[0] > 0)   # +fx (right) = lower x
             end_a, end_b = (0, xm) if heading_right else (xm, 0)
             plan, end = [], end_a                             # zigzag: alternate direction row by row
