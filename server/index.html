@@ -174,6 +174,8 @@
   .tabbar button { flex:1; min-height:52px; border:0; background:none; color:var(--dim); font-size:11px; font-weight:650; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; }
   .tabbar button svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
   .tabbar button[aria-current="page"] { color:var(--accent); }
+  .findbtn { display:block; width:100%; min-height:48px; margin:10px 0 0; font-size:16px; }
+  .findbtn.hidden { display:none; }
   .sheet-bg { position:fixed; inset:0; z-index:40; background:rgba(0,0,0,.55); display:flex; align-items:flex-end; justify-content:center; }
   .sheet { width:100%; max-width:560px; max-height:88dvh; overflow:auto; background:#141416; border-radius:22px 22px 0 0; border:1px solid var(--line);
            padding:10px 16px calc(env(safe-area-inset-bottom) + 18px); }
@@ -244,6 +246,7 @@
     <div class="pet-pill" id="pet-pill"><i></i><span>Looking for {{PET}}…</span></div>
     <div class="health hidden" id="health"></div>
   </div>
+  <button class="btn primary findbtn hidden" id="find-btn" type="button">Find {{PET}}</button>
   <p class="hint">Tap the picture to look there · hold the stick to move · <button class="linkbtn" id="report-open" type="button">Something wrong?</button></p>
 
   <div class="controls">
@@ -680,10 +683,35 @@ function renderLive(l) {
   drawBox(live && live.present && live.box && fresh ? live.box : null);
   renderModes(live && live.imaging);
   if (Date.now() - privacyPending > 5000) showPrivacy(live && live.status === "privacy");
+  renderFind(live);
   if (live && live.settings && Date.now() - followPending > 4000) showFollow(live.settings.follow);
   if (live && live.settings && document.activeElement !== $("talk-vol")) showTalkVol(live.settings.talk_volume);
 }
 let privacyPending = 0, followPending = 0;
+// "Find the dog" (owner, 2026-11-02): runs the room search now. Shown whenever she isn't in view.
+let findPending = 0;
+function renderFind(l) {
+  const btn = $("find-btn");
+  const inView = l && l.present && l.last_seen && l.t - l.last_seen < 30;
+  const usable = l && l.status === "ok";
+  btn.classList.toggle("hidden", !usable || (inView && !findPending));
+  if (findPending && l && l.find && l.find.t * 1000 > findPending) {
+    findPending = 0;
+    $("move-note").textContent = l.find.found ? `Found ${PET.name}.` : `Couldn't find ${PET.name} in the camera's reach.`;
+    track("find_result", { found: !!l.find.found });
+  } else if (findPending && Date.now() - findPending > 240000) {
+    findPending = 0; $("move-note").textContent = "The search took too long. Try again in a minute.";
+  }
+  btn.disabled = !!findPending;
+  btn.textContent = findPending ? `Looking for ${PET.name}…` : `Find ${PET.name}`;
+}
+$("find-btn").onclick = async () => {
+  findPending = Date.now(); track("find");
+  $("move-note").textContent = "The camera is sweeping the room slowly.";
+  renderFind(live);
+  try { await api("/api/find", {}); }
+  catch (e) { findPending = 0; $("move-note").textContent = e.message; renderFind(live); }
+};
 function showFollow(on) {
   $("follow-toggle").setAttribute("aria-pressed", !!on);
   $("follow-note").textContent = on ? `On: when ${PET.name} walks toward the edge, the camera turns to keep ${PET.obj} in view (at most every 10 s).`

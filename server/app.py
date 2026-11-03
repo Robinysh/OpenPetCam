@@ -936,6 +936,20 @@ def set_privacy(on):
     return {"privacy": state, "mic": mic}
 
 
+def request_find():
+    """'Find the dog': ask the watcher to run its room search now (owner, 2026-11-02). The watcher answers in
+    live.json ('find': {t, result, found}) and as a 'search' event."""
+    try:
+        if open(f"{STATE_DIR}/privacy").read().strip() == "1":
+            raise Busy("The camera is paused. Resume it first.")
+    except OSError:
+        pass
+    t = time.time()
+    with open(f"{STATE_DIR}/find_request", "w") as f:
+        f.write(str(t))
+    return {"requested": t}
+
+
 # ---------- small settings shared with the watcher ----------
 
 SETTING_KEYS = {"follow": bool, "talk_volume": int}
@@ -1738,6 +1752,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"ok": True})
         routes = {
             "/api/report": lambda: file_report(me or "legacy", (self.device() or {}).get("name", "Someone"), body),
+            "/api/find": lambda: request_find(),
             "/api/aim": lambda: aim(body.get("fx", 0), body.get("fy", 0)),
             "/api/nudge": lambda: nudge(body.get("vx", 0), body.get("vy", 0)),
             "/api/goto": lambda: goto(*start_pose()) if body.get("to") == "start" else goto(float(body["x"]), float(body["y"])),

@@ -686,6 +686,8 @@ class Watch:
                                find_now=self.find_pet_now, can_scan=lambda: self.source == "stream",
                                tick=self.search_tick)
         self.last_tick = 0.0
+        self.last_find_req = now()          # requests from before this process started are stale
+        self.find_result = None
         self.prev_small = None
         self.prev_box = None
         self.last_found = []
@@ -897,7 +899,9 @@ class Watch:
             self.prev_box = None
 
         self.update_pet(con, t, score, moving, jpg, best["box"] if best else None)
-        if self.setting("follow", False) and not privacy:
+        if not privacy and self.find_requested(t):
+            self.find(con, best if best and score >= PRESENT_SCORE else None)
+        elif self.setting("follow", False) and not privacy:
             try:
                 act = self.tracker.step(best["box"] if best and score >= PRESENT_SCORE else None, moving,
                                         sound=self.dog_sound_pending and not self.present,
@@ -1320,6 +1324,32 @@ class Watch:
         a["person"] += int(person)
         a["motion"] += motion
 
+    def find_requested(self, t):
+        """A 'Find the dog' tap from the app (find_request holds its time); each request is served once."""
+        try:
+            req = float(open(f"{STATE}/find_request").read().strip() or 0)
+        except (OSError, ValueError):
+            return False
+        if req <= self.last_find_req or t - req > 60:
+            return False
+        self.last_find_req = req
+        return True
+
+    def find(self, con, seen):
+        """Run the room search because the owner asked, even with following off. Their tap is not 'a person
+        moved the camera': their own recent joystick moves don't block it."""
+        try:
+            self.tracker.own_move_t = max(self.tracker.own_move_t, os.path.getmtime(MOVED))
+        except OSError:
+            pass
+        try:
+            act = "search (you asked): she is already in view" if seen else self.tracker.search(reason="you asked")
+        except Exception as e:  # noqa: BLE001 - must never stop the watcher
+            act = f"search (you asked): failed, {type(e).__name__}"
+        log("find:", act)
+        add_event(con, "search", {"result": act, "asked": True})
+        self.find_result = {"t": now(), "result": act, "found": "found her" in act or "already in view" in act}
+
     def search_tick(self):
         """While a search holds the loop: keep the heartbeat and the app's status fresh, at most every 3 s."""
         t = now()
@@ -1338,7 +1368,8 @@ class Watch:
                 "last_seen": self.last_seen or None, "gone_since": self.gone_since,
                 "rest_since": self.rest_since if self.present else None,
                 "moving_since": self.moving_since, "imaging": self.imaging,
-                "audio_ok": now() - self.audio.last_ok < 30, "view_blocked": self.view_blocked, **kw}
+                "audio_ok": now() - self.audio.last_ok < 30, "view_blocked": self.view_blocked,
+                "find": self.find_result, **kw}
         try:
             write_json(LIVE, live)
         except OSError as e:
