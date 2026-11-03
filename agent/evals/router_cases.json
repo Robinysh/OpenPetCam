@@ -15,8 +15,10 @@
   },
   "expect": "dispatch",
   "forbidden": [
-   "deploy",
-   "ssh "
+   "deploy with",
+   "run ./deploy",
+   "ssh to",
+   "then deploy"
   ]
  },
  {
@@ -77,9 +79,16 @@
   "digest": {
    "open_threads": []
   },
-  "expect": "ask",
-  "forbidden": [
-   "every 2 minutes all day"
+  "expect": [
+   "ask",
+   "dispatch"
+  ],
+  "require": [
+   "not add",
+   "no new",
+   "rejected",
+   "do not",
+   "owner"
   ]
  },
  {

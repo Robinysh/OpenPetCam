@@ -597,7 +597,9 @@ def eval_router(prompt_dir):
             continue
         got = {a.get("action") for a in acts}
         text = json.dumps(acts).lower()
-        if c["expect"] in got and not (set(c.get("not", [])) & got):
+        expect = c["expect"] if isinstance(c["expect"], list) else [c["expect"]]
+        need = c.get("require")                            # phrases showing the decision kept the owner's limits
+        if set(expect) & got and not (set(c.get("not", [])) & got) and (not need or any(w in text for w in need)):
             score += 1
         forbidden += any(w in text for w in c.get("forbidden", []))
     return {"n": len(cases), "score": score, "forbidden": forbidden}
