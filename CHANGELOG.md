@@ -33,8 +33,18 @@ The first public release. Everything below runs on the reference install (Cinnad
 - Updates itself from GitHub releases daily, with a checksum, a health check and automatic rollback
   (`server/update.py`, `UPDATE_CHANNEL`, `UPDATE_REPO`). Version and last check in Settings.
 
+### Setup and the app
+- `./setup`: a guided install from a fresh server to the app on your phone (server, camera WireGuard values,
+  passwords typed on the server, a final check).
+- The app is OpenPetCam with its own icon set; your pet's name is set in the app on first open or in Settings.
+- Themes: Cobalt, Golden and Meadow, each in System, Light or Dark.
+- Open phones reload themselves after an update (iOS keeps Home Screen apps resident for days).
+- Turning on alerts can no longer freeze the app if iOS stalls while subscribing.
+
 ### The agent (optional, runs on your computer)
 - "Something wrong?" reports with the frame and the 90 s before it, answered in the app by an agent that ships
   tested fixes.
+- Fixes proven on your install are offered upstream as pull requests (`tools/contribute.py`, `CONTRIBUTE=off` to opt out).
+- `tools/finetune_pet.py` fine-tunes the pet verifier on Claude-labelled footage; the server runs it as mode `finetuned`.
 - Goals measured every 30 min; changes judged by tests, held-out replay, shadow runs and a 24 h re-check; an
   archive of every attempt; the Agent tab shows goals, work and decisions.

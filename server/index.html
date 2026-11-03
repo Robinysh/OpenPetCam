@@ -1609,12 +1609,25 @@ async function loadPush() {
         $("push-note").textContent = st.subscribed ? "Alerts are on for this device." : `Get a notification if the camera has a problem or ${PET.name} barks.`; }
   catch (e) { $("push-note").textContent = e.message; }
 }
+// iOS can leave serviceWorker.ready or pushManager.subscribe pending forever (2026-11-03: the alerts sheet waited
+// on it and its overlay froze the app). Every step has a real deadline.
+function within(ms, p, what) {
+  return Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`${what} took too long`)), ms))]);
+}
 async function subscribe() {
-  const reg = await navigator.serviceWorker.register("/sw.js");
-  await navigator.serviceWorker.ready;
-  let sub = await reg.pushManager.getSubscription();
-  if (!sub) { const { key } = await api("/api/push"); sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) }); }
+  const reg = await within(10000, navigator.serviceWorker.register("/sw.js"), "Registering");
+  await within(10000, navigator.serviceWorker.ready, "Starting notifications");
+  let sub = await within(10000, reg.pushManager.getSubscription(), "Checking notifications");
+  if (!sub) {
+    const { key } = await api("/api/push");
+    sub = await within(15000, reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) }), "Subscribing");
+  }
   await api("/api/push/subscribe", { sub: sub.toJSON(), prefs: pushPrefs() });
+}
+function toast(text, ms = 3000) {
+  const n = document.createElement("div"); n.textContent = text; n.setAttribute("role", "status");
+  n.style.cssText = "position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 10px);transform:translateX(-50%);z-index:99;max-width:90vw;padding:10px 18px;border-radius:20px;background:var(--opc-video-scrim,rgba(10,14,23,.82));color:#fff;font:600 15px -apple-system,sans-serif;text-align:center";
+  document.body.appendChild(n); setTimeout(() => n.remove(), ms);
 }
 $("push-on").onclick = async () => {
   try {
@@ -1688,12 +1701,13 @@ if (Date.now() - Number(recall("petcam.updated") || 0) < 15000) {
   $("alerts-later").onclick = () => { store("petcam.alerts_asked", Date.now()); close("alerts-sheet"); track("alerts", { allowed: false }); };
   $("alerts-allow").onclick = async () => {
     store("petcam.alerts_asked", Date.now());
-    try {
-      const perm = await Notification.requestPermission();
-      if (perm === "granted") { await subscribe(); loadPush && loadPush(); }
-      track("alerts", { allowed: perm === "granted" });
-    } catch (e) { track("alerts", { error: String(e).slice(0, 80) }); }
-    close("alerts-sheet");
+    let perm = "default";
+    try { perm = await within(30000, Notification.requestPermission(), "The permission prompt"); } catch (e) {}
+    close("alerts-sheet");                       // never keep the sheet (and its overlay) up while subscribing
+    track("alerts", { allowed: perm === "granted" });
+    if (perm !== "granted") return;
+    try { await subscribe(); toast("Alerts are on"); loadPush && loadPush(); }
+    catch (e) { toast("Couldn't turn on alerts. Try again in Settings."); track("alerts", { error: String(e).slice(0, 80) }); }
   };
 })();
 
