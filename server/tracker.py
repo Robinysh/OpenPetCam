@@ -42,7 +42,12 @@ REST_NAMES = ("default", "corridor")   # a saved view named with one of these is
 USER_PAUSE = 180.0     # a move by a person pauses following/searching this long
 SETTLE = 0.9            # seconds after a move before a frame is trusted (motion blur, stream latency)
 ROW_STEP = 0.55         # the second search row is this many frame heights toward the floor
-LOOK_FRAMES = 3         # frames judged when stopped (one frame can miss her)
+LOOK_FRAMES = 4         # frames judged when stopped (one frame can miss her)
+CONFIRM_FRAMES = 2      # ...and this many of them must show her in the same place before "found her":
+                        # 2026-11-02/03, 31 of 43 finds were at night, where one infrared frame of a clothes pile
+                        # or a slipper could pass the verifier and end the search. Two agreeing frames out of four
+                        # still tolerate one frame that misses a curled-up dog.
+AGREE = 0.15            # two boxes agree when their centres are within this share of the frame
 SCAN_POLL = 0.2         # check a new frame this often while panning (the stream delivers 5 fps)
 
 
@@ -243,13 +248,24 @@ class Tracker:
             self.sleep(0.3)
         self.cam.wait_idle()
 
-    def look(self, frames=LOOK_FRAMES):
-        """Judge a few fresh frames after the camera settled: one frame can miss a curled-up dog."""
+    def look(self, frames=LOOK_FRAMES, need=CONFIRM_FRAMES):
+        """Judge fresh frames after the camera settled and return her box only when `need` of up to `frames`
+        frames show her in about the same place. One frame can miss a curled-up dog; one frame can also
+        mistake a slipper for her at night. Stops as soon as she is confirmed, or can no longer be."""
         self.tick()
-        for _ in range(frames):
+        hits = []
+        for n in range(frames):
             box = self.find_pet(self.clock())
             if box is not None:
-                return box
+                c = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+                agree = [h for h in hits if abs(h[0][0] - c[0]) <= AGREE and abs(h[0][1] - c[1]) <= AGREE]
+                if len(agree) + 1 >= need:
+                    return box
+                hits.append((c, box))
+            best = max([sum(1 for k in hits if abs(k[0][0] - h[0][0]) <= AGREE and abs(k[0][1] - h[0][1]) <= AGREE)
+                        for h in hits] or [0])
+            if best + (frames - n - 1) < need:       # even if every remaining frame agrees, not enough
+                return None
         return None
 
     def _found(self, box, t0, where, reason, centre=True):

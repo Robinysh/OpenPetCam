@@ -154,6 +154,11 @@ replaces the default only once there are enough labels across at least 3 days to
 days, and `./deploy.sh` refuses to replace a trained verifier with the default. The 👍/👎 answers in the app are the
 human labels used to check it. Method and numbers: [docs/evaluation.md](docs/evaluation.md).
 
+To label by hand, `python3 tools/label_ui.py` opens a local page: the full frame with an editable box and one key
+per label, likely mistakes and night crops first. To check Find, `python3 tools/search_review.py pull` copies what
+every search saw (each stop, each sighting, with scores); label them in the page's "Searches" queue, then
+`python3 tools/search_review.py report` gives how often "found her" was really her, by day and night.
+
 ## The agent (optional)
 
 If you use [Claude Code](https://claude.com/claude-code), `bash tools/install_autopilot.sh` runs an agent on your

@@ -2,6 +2,15 @@
 
 Releases are published from version tags; servers on `UPDATE_CHANNEL=release` install them within a day.
 
+## [Unreleased]
+### Changed
+- Find says "found her" only when 2 of up to 4 still frames show her in the same place, not on the first frame
+  the verifier accepts. Night lookalikes (a clothes pile, a slipper) could end a search on one infrared frame.
+### Added
+- Every search keeps the frame at each stop and every sighting, with each box and score (kept 21 days), so Find
+  can be checked by hand: `tools/search_review.py` and the "Searches" queue in `tools/label_ui.py`.
+- `tools/label_ui.py`: label crops by keyboard with an editable box.
+
 ## [0.1.0] - 2026-11-03
 
 The first public release. Everything below runs on the reference install (Cinnado D1 camera, AWS Lightsail nano).

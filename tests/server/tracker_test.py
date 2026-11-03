@@ -257,4 +257,23 @@ res = tr.search("test")
 w.wait_idle()
 assert "not found" in res and "Corridor" in res and (w.X, w.Y) == (2252, 704), (res, w.X, w.Y)
 print("empty search parks at the corridor view:", res)
+
+# 17. Night false finds (2026-11-02/03: 31 of 43 "found her" were at night, where an infrared clothes pile or
+#     slipper can pass the verifier on one frame). One stray verified frame must not end a search; two frames
+#     showing her in the same place do; two hits in different places do not; and a frame that misses a
+#     curled-up dog does not stop her being confirmed.
+def looker(seq):
+    w = World(X=1850, pet=99999); it = iter(seq)
+    w.find_pet = lambda after: (w.sleep(0.2), next(it, None))[1]
+    return T.Tracker(w, w.find_pet, clock=lambda: w.t, log=lambda m: None, sleep=w.sleep, find_now=w.find_now)
+A, B = [0.40, 0.40, 0.50, 0.50], [0.80, 0.10, 0.90, 0.20]
+assert looker([None, A, None, None]).look() is None, "one stray frame confirmed a find"
+assert looker([A, None, A, None]).look() == A, "two agreeing frames with a miss between did not confirm"
+assert looker([A, B, None, None]).look() is None, "two hits in different places confirmed a find"
+assert looker([None, None, None, A]).look() is None
+calls = []
+tr = looker([None, None, None, None]); f = tr.find_pet
+tr.find_pet = lambda after: (calls.append(1), f(after))[1]
+assert tr.look() is None and len(calls) == T.LOOK_FRAMES - T.CONFIRM_FRAMES + 1, ("did not stop early", len(calls))
+print(f"confirmation: {T.CONFIRM_FRAMES} agreeing of {T.LOOK_FRAMES} frames; one stray frame is not a find; gives up after {len(calls)} empty frames")
 print("tracker ok")

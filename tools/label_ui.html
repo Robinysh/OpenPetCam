@@ -46,6 +46,14 @@ aside{border-left:1px solid var(--line);padding:16px;overflow:auto;display:flex;
 .strip div b{position:absolute;left:0;right:0;bottom:0;height:5px}
 .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--panel)}
 .empty{color:var(--dim);text-align:center;padding:40px}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;width:100%;align-content:start;overflow:auto;max-height:100%}
+.sgrid figure{margin:0;position:relative;line-height:0;background:#000;border-radius:6px;overflow:hidden}
+.sgrid img{width:100%;display:block}
+.sgrid .b{position:absolute;border:2px dashed #fff8;border-radius:3px}
+.sgrid .b.v{border:3px solid var(--pet)}
+.sgrid .b i{position:absolute;left:-2px;top:-18px;font:600 11px ui-monospace,monospace;font-style:normal;background:#000c;color:#fff;padding:1px 4px;border-radius:3px;line-height:1.3}
+.sgrid figcaption{position:absolute;left:4px;bottom:4px;font:11px ui-monospace,monospace;background:#000a;color:#fff;padding:1px 5px;border-radius:3px;line-height:1.4}
+.stitle{grid-column:1/-1;font-size:15px;line-height:1.4;padding:4px 2px 8px}
 </style>
 </head>
 <body>
@@ -58,6 +66,7 @@ aside{border-left:1px solid var(--line);padding:16px;overflow:auto;display:flex;
       <option value="night">Night (infrared) only</option>
       <option value="all">All candidate boxes</option>
       <option value="frames">Frames with no box: did the detector miss your pet?</option>
+      <option value="searches">Searches: was Find right?</option>
     </select>
     <div class="prog"><i id="bar"></i></div>
     <span class="count" id="count"></span>
@@ -87,10 +96,13 @@ const KEYS=[["pet","1","P","Your pet"],["toy","2","T","A toy or lookalike"],["pe
 let S=null, queue=[], i=0, box=null, drawn=null, history=[];
 const $=id=>document.getElementById(id);
 
-async function load(){ S=await (await fetch("/api/state")).json(); build(); }
+async function load(){ S=await (await fetch("/api/state")).json(); S.searches=await (await fetch("/api/searches")).json(); build(); }
+const SKEYS={found:[["right_find","1","Y","Yes, that was her"],["false_find","2","N","No, it wasn't her"]],
+             notfound:[["missed","3","M","She is in one of these frames: it missed her"],["empty","4","E","She isn't in any of them"]]};
 function isNight(it){ const h=+it.hour; return h>=19||h<7; }
 function build(){
   const q=$("queue").value;
+  if(q==="searches"){ queue=S.searches.filter(s=>!s.outcome).concat(S.searches.filter(s=>s.outcome)).map(s=>({search:true,...s})); i=Math.min(i,Math.max(0,queue.length-1)); show(); return; }
   if(q==="frames"){ const done=new Set(S.frames_marked); queue=S.empty_frames.filter(f=>!done.has(f)).map(f=>({frameOnly:true,frame:f,id:"frame:"+f})); }
   else{
     let it=S.items.slice();
@@ -105,8 +117,32 @@ function build(){
   i=Math.min(i,Math.max(0,queue.length-1)); show();
 }
 function cur(){ return queue[i]; }
+function showSearch(it){
+  $("wrap").style.display="none"; let g=$("sgrid"); if(!g){ g=document.createElement("div"); g.id="sgrid"; g.className="sgrid"; $("stage").appendChild(g); } g.style.display="grid";
+  const when=it.id.replace("/"," "), secs=Math.round(it.t1-it.t0);
+  g.innerHTML=`<div class="stitle"><b>${it.found?"Said: found her":"Said: not found"}</b> · ${when} · ${it.night?"night":"day"} · ${secs} s · ${it.asked?"you asked":"automatic"}<br><span style="color:var(--dim)">${it.result}</span></div>`+
+    it.frames.map(fr=>`<figure><img src="/sframe?s=${encodeURIComponent(it.id)}&f=${fr.file}" loading="lazy">`+
+      fr.judged.map(j=>{ const v=fr.verified&&j.box.every((x,k)=>Math.abs(x-fr.verified[k])<1e-3);
+        return `<span class="b ${v?"v":""}" style="left:${j.box[0]*100}%;top:${j.box[1]*100}%;width:${(j.box[2]-j.box[0])*100}%;height:${(j.box[3]-j.box[1])*100}%"><i>${(j.p*100).toFixed(0)}%</i></span>`; }).join("")+
+      `<figcaption>${fr.settled?"stop":"panning"}${fr.verified?" · accepted":""}</figcaption></figure>`).join("");
+  const keys=it.found?SKEYS.found:SKEYS.notfound;
+  document.querySelector(".crop").style.display="none"; document.querySelector(".help").style.display="none";
+  $("meta").innerHTML=`<span>Frames</span><span>${it.frames.length}</span><span>Accepted</span><span>${it.frames.filter(f=>f.verified).length} frame(s)</span><span>Your answer</span><span>${it.outcome||"none yet"}</span>`;
+  $("keys").innerHTML=keys.map(([k,a,b,t])=>`<div class="k ${it.outcome===k?"sel":""}" data-k="${k}" style="color:var(--${k.includes("false")||k==="missed"?"toy":"pet"})"><kbd>${a}</kbd><kbd>${b}</kbd><span>${t}</span></div>`).join("");
+  document.querySelectorAll(".k").forEach(e=>e.onclick=()=>answerSearch(e.dataset.k));
+  const total=queue.length; $("count").textContent=`${i+1} / ${total} · ${S.searches.filter(s=>s.outcome).length} labelled`; $("bar").style.width=`${(i/total)*100}%`;
+  $("strip").innerHTML="";
+}
+async function answerSearch(outcome){
+  const it=cur(); if(!it) return;
+  try{ await post("/api/search_outcome",{search:it.id,outcome}); it.outcome=outcome; const s=S.searches.find(x=>x.id===it.id); if(s) s.outcome=outcome; flash(outcome.includes("false")||outcome==="missed"?"toy":"pet"); i=Math.min(i+1,queue.length-1); show(); }
+  catch(err){ alertless(err.message); }
+}
 function show(){
-  const it=cur(); drawn=null; document.querySelectorAll(".draw,.box").forEach(e=>e.remove());
+  const it=cur(); drawn=null;
+  if(it&&it.search) return showSearch(it);
+  $("wrap").style.display=""; const g=$("sgrid"); if(g) g.style.display="none";
+  document.querySelector(".crop").style.display=""; document.querySelector(".help").style.display=""; document.querySelectorAll(".draw,.box").forEach(e=>e.remove());
   const total=queue.length; $("count").textContent=total?`${i+1} / ${total}`:"all done";
   $("bar").style.width=total?`${(i/total)*100}%`:"100%";
   if(!it){ $("img").removeAttribute("src"); $("meta").innerHTML='<span class="empty">Nothing left in this queue.</span>'; $("keys").innerHTML=""; strip(); return; }
@@ -194,6 +230,14 @@ async function undo(){ // the label file is append-only, so undo re-opens the pi
 document.addEventListener("keydown",e=>{
   if(e.target.tagName==="SELECT"||e.metaKey||e.ctrlKey) return;
   const k=e.key.toLowerCase();
+  const it0=cur();
+  if(it0&&it0.search){
+    const keys=it0.found?SKEYS.found:SKEYS.notfound, hk=keys.find(([n,a,b])=>k===a||k===b.toLowerCase());
+    if(hk){ e.preventDefault(); return answerSearch(hk[0]); }
+    if(k==="arrowright"||k==="l"){ e.preventDefault(); i=Math.min(i+1,queue.length-1); show(); }
+    if(k==="arrowleft"||k==="j"){ e.preventDefault(); i=Math.max(0,i-1); show(); }
+    return;
+  }
   const hit=KEYS.find(([n,a,b])=>k===a||k===b.toLowerCase()); if(hit){ e.preventDefault(); return answer(hit[0]); }
   if(k===" "||k==="enter"){ e.preventDefault(); const it=cur(); if(!it) return; const lab=it.frameOnly?"nothing":(it.owner||it.label); if(lab) answer(lab); return; }
   if(k==="arrowright"||k==="l"){ e.preventDefault(); next(false); }

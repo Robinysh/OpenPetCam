@@ -29,6 +29,8 @@ PAGE = os.path.join(HERE, "label_ui.html")
 RANK = {"owner": 3, "human": 3, "review": 2, "claude": 1}
 LABELS = ("pet", "toy", "person", "nothing")
 sys.path.insert(0, HERE)
+import search_review as SR  # noqa: E402  searches recorded by the watcher, and the owner's verdict on each
+sys.path.insert(0, HERE)
 from bootstrap_pet import crop_box  # noqa: E402  same 15% margin the watcher and training use
 
 
@@ -136,6 +138,16 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, open(PAGE, "rb").read(), "text/html; charset=utf-8")
         if u.path == "/api/state":
             return self.send(200, state())
+        if u.path == "/api/searches":
+            got = SR.outcomes()
+            return self.send(200, [dict(r, outcome=got.get(r["id"])) for r in SR.searches()])
+        if u.path == "/sframe":
+            q = parse_qs(u.query)
+            base = os.path.realpath(SR.OUT)
+            p = os.path.realpath(os.path.join(base, q.get("s", [""])[0], q.get("f", [""])[0]))
+            if not p.startswith(base + os.sep) or not p.endswith(".jpg") or not os.path.exists(p):
+                return self.send(404, {"error": "not found"})
+            return self.send(200, open(p, "rb").read(), "image/jpeg")
         if u.path in ("/frame", "/crop"):
             q = parse_qs(u.query)
             try:
@@ -180,6 +192,14 @@ class H(BaseHTTPRequestHandler):
                 append("labels.jsonl", {"id": cid, "label": data["label"], "source": "owner", "by": "label_ui",
                                         "drawn": True, "ts": now})
                 return self.send(200, {"ok": True, "id": cid})
+            if u == "/api/search_outcome":
+                if data["outcome"] not in SR.OUTCOMES:
+                    raise ValueError("unknown outcome")
+                if not os.path.exists(os.path.join(SR.OUT, data["search"], "search.json")):
+                    raise ValueError("no such search")
+                with open(os.path.join(SR.OUT, "outcomes.jsonl"), "a") as f:
+                    f.write(json.dumps({"search": data["search"], "outcome": data["outcome"], "source": "owner", "ts": now}) + "\n")
+                return self.send(200, {"ok": True})
             if u == "/api/frame":
                 append("frame_labels.jsonl", {"frame": data["frame"], "has_pet": False, "source": "owner", "ts": now})
                 return self.send(200, {"ok": True})

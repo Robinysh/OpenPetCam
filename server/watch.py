@@ -36,6 +36,7 @@ import app as camapi  # noqa: E402  - camera session login + motor/status helper
 import petconf  # noqa: E402
 from detector import Detector  # noqa: E402
 from tracker import Tracker  # noqa: E402
+import tracker as T  # noqa: E402
 
 STATE = petconf.STATE
 DB = f"{STATE}/petcam.db"
@@ -55,6 +56,8 @@ YAMNET_MODEL = "/opt/petcam/models/yamnet.tflite"
 VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.py
 REPORTS = f"{STATE}/reports"                         # "Something wrong?" reports from the app
 CANDIDATES = f"{STATE}/candidates"                  # frames with dog-like things, for the next bootstrap
+SEARCHES = f"{STATE}/searches"                      # what each search saw, to label Find right/wrong (tools/search_review.py)
+SEARCH_FRAMES_MAX = 24                              # frames kept per search: the first at every stop, and every sighting
 ZONES = f"{STATE}/zones.json"                       # written by the web app
 ZONE_POSE_TOL = (40, 25)                            # pan/tilt steps: camera counts as "at the zone's view"
 ZONE_GAP = 20                                       # s without her in the zone that ends a visit
@@ -96,7 +99,13 @@ BLOCKED_SHARPNESS = 60.0      # Laplacian variance (160x90 gray). Night 1: norma
 BLOCKED_WINDOW = 600          # judge "view blocked" over this many seconds
 BLOCKED_FRACTION = 0.8
 MOTION_DETECT = 1.6           # mean pixel change (0-255, 160x90 gray) that triggers a detector run; IR grain alone is 0.5-1.1
-RETAIN = {"snaps_days": 14, "clips_days": 30, "clips_gb": 4.0, "obs_days": 30, "timelapse_days": 365, "highlights_days": 90}
+RETAIN = {"snaps_days": 14, "clips_days": 30, "clips_gb": 4.0, "obs_days": 30, "timelapse_days": 365, "highlights_days": 90, "searches_days": 21}
+
+
+def infrared(jpg):
+    """True for a night-vision (grayscale) frame."""
+    a = np.asarray(Image.open(io.BytesIO(jpg)).convert("RGB").resize((32, 18)), dtype=np.float32)
+    return bool(np.abs(a[..., 0] - a[..., 1]).mean() + np.abs(a[..., 1] - a[..., 2]).mean() < 4.0)
 
 
 def log(*a):
@@ -682,6 +691,7 @@ def housekeeping():
         log("highlights failed", e)
     prune_dirs(SNAPS, RETAIN["snaps_days"])
     prune_dirs(CANDIDATES, RETAIN["clips_days"])
+    prune_dirs(SEARCHES, RETAIN["searches_days"])
     prune_dirs(CLIPS, RETAIN["clips_days"])
     prune_clips_by_size(RETAIN["clips_gb"])
     # Bug reports (frame + 100 s clip each), named YYYYMMDD-HHMMSS: kept 60 days.
@@ -728,6 +738,7 @@ class Watch:
         self.find_result = None
         self.prev_small = None
         self.prev_box = None
+        self.search_rec = None              # frames a running search judged, written by save_search_evidence()
         self.last_found = []
         self.last_detect = 0.0
         self.sharp_samples = []       # (t, sharpness below threshold?)
@@ -964,6 +975,7 @@ class Watch:
                     log("follow:", act)
                     if act.startswith("search"):
                         add_event(con, "search", {"result": act})
+                        self.save_search_evidence(act, asked=False)
             except Exception as e:  # noqa: BLE001 - following must never stop the watcher
                 log("follow failed:", e)
         self.dog_sound_pending = False
@@ -1172,16 +1184,71 @@ class Watch:
                 img = Image.open(io.BytesIO(snapshot("ch1"))).convert("RGB")
             except Exception:  # noqa: BLE001
                 return None
-        return self.verified_box(img)
+        return self.verified_box(img, settled=True)
 
-    def verified_box(self, img):
+    def verified_box(self, img, settled=False):
         found = [f for f in self.det.detect(img, min_score=0.10) if f["label"] != "person"]
-        best = None
+        best, judged = None, []
+        thr = self.verifier.threshold if self.verifier else PRESENT_SCORE
         for f in sorted(found, key=lambda f: -f["score"])[:3]:
             p = self.verifier.prob(img, f["box"]) if self.verifier else f["score"]
-            if p >= (self.verifier.threshold if self.verifier else PRESENT_SCORE) and (best is None or p > best[0]):
+            judged.append({"box": [round(v, 4) for v in f["box"]], "det": round(f["score"], 3), "p": round(p, 4)})
+            if p >= thr and (best is None or p > best[0]):
                 best = (p, f["box"])
+        if self.tracker.searching:
+            self.record_search_frame(img, judged, best[1] if best else None, settled)
         return best[1] if best else None
+
+    # ------------------------------------------------------------ search evidence (step 0: measure Find honestly)
+    # (infrared(): a night-vision frame is grayscale, so its colour channels agree)
+
+    def record_search_frame(self, img, judged, box, settled):
+        """Keep what a running search looked at: the first settled frame after every camera move (each stop)
+        and every frame the verifier accepted. Without these, "found her" could only be checked against the
+        verifier's own opinion. Never raises: evidence must not break a search."""
+        try:
+            rec = self.search_rec
+            if rec is None:
+                rec = self.search_rec = {"t0": now(), "frames": [], "stop_move": None}
+            new_stop = settled and rec["stop_move"] != self.tracker.last_move
+            if not (box is not None or new_stop) or len(rec["frames"]) >= SEARCH_FRAMES_MAX:
+                return
+            if new_stop:
+                rec["stop_move"] = self.tracker.last_move
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, "JPEG", quality=80)
+            pos = None
+            if new_stop:                                     # where the camera stopped; mid-pan the motor is moving
+                try:
+                    pos = list(self.tracker.cam.position())
+                except Exception:  # noqa: BLE001
+                    pass
+            rec["frames"].append({"t": round(now(), 2), "jpg": buf.getvalue(), "settled": settled, "judged": judged,
+                                  "verified": [round(v, 4) for v in box] if box else None, "pos": pos})
+        except Exception as e:  # noqa: BLE001
+            log("search evidence:", e)
+
+    def save_search_evidence(self, result, asked):
+        """Write the recorded frames of the search that just ended to SEARCHES/<day>/<HHMMSS>/."""
+        rec, self.search_rec = self.search_rec, None
+        if not rec:
+            return
+        try:
+            t0 = rec["t0"]
+            d = f"{SEARCHES}/{time.strftime('%Y-%m-%d', time.localtime(t0))}/{time.strftime('%H%M%S', time.localtime(t0))}"
+            os.makedirs(d, exist_ok=True)
+            meta = []
+            for i, fr in enumerate(rec["frames"]):
+                name = f"{i:02d}.jpg"
+                with open(f"{d}/{name}", "wb") as f:
+                    f.write(fr["jpg"])
+                meta.append({k: v for k, v in fr.items() if k != "jpg"} | {"file": name})
+            with open(f"{d}/search.json", "w") as f:
+                json.dump({"t0": round(t0, 2), "t1": round(now(), 2), "result": result, "asked": asked,
+                           "found": "found her" in result, "night": infrared(rec["frames"][0]["jpg"]) if rec["frames"] else None,
+                           "confirm": f"{T.CONFIRM_FRAMES} of {T.LOOK_FRAMES}", "frames": meta}, f)
+        except Exception as e:  # noqa: BLE001
+            log("search evidence:", e)
 
     def find_pet_now(self, since):
         """For the tracker's scan while panning: the newest frame if it arrived after `since`, no waiting."""
@@ -1191,7 +1258,7 @@ class Watch:
         if not fresh:
             return None
         img = self.frames.latest()
-        return self.verified_box(img) if img is not None else None
+        return self.verified_box(img, settled=False) if img is not None else None
 
     def privacy_on(self):
         try:
@@ -1407,6 +1474,7 @@ class Watch:
             act = f"search (you asked): failed, {type(e).__name__}"
         log("find:", act)
         add_event(con, "search", {"result": act, "asked": True})
+        self.save_search_evidence(act, asked=True)
         self.find_result = {"t": now(), "result": act, "found": "found her" in act or "already in view" in act}
 
     def search_tick(self):
