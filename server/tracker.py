@@ -178,6 +178,15 @@ class Tracker:
                 best = (d, b)
         return best[1] if best else None
 
+    def lay_still(self, span=3.0, spread=0.06):
+        """She was lying still when last seen: her track covers at least `span` s and her centre stayed within
+        `spread` of the frame. Judged from where she was, not from one frame's noisy moving flag: a walking dog's
+        last sighting is often flagged still (follow benchmark, 2026-11-03), and that must not switch off the chase."""
+        if len(self.hist) < 2 or self.hist[-1][0] - self.hist[0][0] < span:
+            return False
+        xs, ys = [h[1] for h in self.hist], [h[2] for h in self.hist]
+        return max(xs) - min(xs) <= spread and max(ys) - min(ys) <= spread
+
     def _track(self, t, box, moving):
         cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
         self.hist.append((t, cx, cy))
@@ -230,7 +239,7 @@ class Tracker:
             return self._chase(*self.chase_dir, f"still not in view, continuing ({self.chase_steps + 1}/3)")
         # chase on motion: she crossed too fast to be detected twice (or at all), but the frame reader
         # saw where the picture changed. Motion near an edge, just now, with no pet in view: look there.
-        resting_here = self.last_seen_c is not None and not self.last_moving and gone < REST_MISS_HOLD
+        resting_here = gone < REST_MISS_HOLD and self.lay_still()
         if motion and t - motion[0] < 3.0 and motion[0] > self.own_move_t + 2.0 and motion[0] != self.chased_for \
                 and not resting_here:
             mx, my = motion[1], motion[2]
