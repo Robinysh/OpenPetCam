@@ -1233,10 +1233,13 @@ class Watch:
             shifted = box is None or b0 is None or \
                 math.hypot((box[0] + box[2] - b0[0] - b0[2]) / 2, (box[1] + box[3] - b0[1] - b0[3]) / 2) > 0.06 or \
                 abs((box[2] - box[0]) * (box[3] - box[1]) / max(1e-6, (b0[2] - b0[0]) * (b0[3] - b0[1])) - 1) > 0.3
-            if self.rest_since and t - self.moving_since >= 6 and self.moving_since - self.rest_since >= 300 and shifted:
-                thumb = self.save_thumb(jpg, t, "active")
-                eid = add_event(con, "active", {"rested_s": round(self.moving_since - self.rest_since)}, thumb, self.moving_since)
-                self.clips.want(eid, self.moving_since)
+            if self.rest_since and t - self.moving_since >= 6 and shifted:
+                # A real movement run ends any rest, long or short: the next still frame starts a new
+                # one (2026-11-02 19:26: "resting 2m" counted from her arrival after 90 s of moving).
+                if self.moving_since - self.rest_since >= 300:
+                    thumb = self.save_thumb(jpg, t, "active")
+                    eid = add_event(con, "active", {"rested_s": round(self.moving_since - self.rest_since)}, thumb, self.moving_since)
+                    self.clips.want(eid, self.moving_since)
                 self.rest_since = None
         else:
             # One still frame ends a movement run; resting starts counting from here.
