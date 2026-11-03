@@ -25,6 +25,6 @@ jobs:
         env:
           PETCAM_SITE_ENV: config/site.env.example
         run: |
-          for t in tracker events presence stall disconnect pill search_here_first update pet_name; do
+          for t in tracker events presence stall disconnect pill search_here_first update pet_name theme; do
             echo "== $t"; timeout 300 python tests/server/${t}_test.py
           done

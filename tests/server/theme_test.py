@@ -38,7 +38,6 @@ app = open(f"{SRV}/app.py").read()
 check("theme files served (before the login check)", all(f in app for f in ('"/themes.css"', '"/theme-controller.js"', '"/theme-data.js"', '"/theme-app.js"')))
 inst = open(f"{SRV}/install.sh").read()
 check("install.sh installs the theme files", all(f"$SRC/{f}" in inst for f in ("themes.css", "theme-controller.js", "theme-data.js", "theme-app.js", "logo-light.png")))
-r = subprocess.run(["git", "grep", "-i", "-c", "the pet"], cwd=os.path.join(HERE, "..", ".."), capture_output=True, text=True)
-check("no pet name in the repo", r.stdout.strip() == "")
+check("the second preset is Golden", '"golden"' in open(f"{SRV}/theme-data.js").read())   # the pet's name is guarded by tools/check_public.sh
 print("\nall passed" if not fails else f"\n{fails} failed")
 sys.exit(1 if fails else 0)

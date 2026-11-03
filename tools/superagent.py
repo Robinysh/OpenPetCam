@@ -707,7 +707,10 @@ try:
 except Exception:
     prev = None
 json.dump({"t": now, "cpu": cur}, open(p, "w"))
-if prev and now - prev["t"] > 300:
+# A restart (every deploy) resets a unit's counter; a delta across it is meaningless (2026-11-03: -87.8% "on target").
+# Then there is no measurement this time, rather than a made-up one.
+restarted = prev and any(cur[u] < prev["cpu"].get(u, 0) for u in units)
+if prev and now - prev["t"] > 300 and not restarted:
     out["cpu"] = round(sum(cur[u] - prev["cpu"].get(u, cur[u]) for u in units) / 1e9 / (now - prev["t"]) * 100, 1)
 out["live_age"] = round(now - json.load(open(f"{S}/live.json"))["t"], 1)
 c = sqlite3.connect(f"{S}/petcam.db")
