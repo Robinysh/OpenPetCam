@@ -189,11 +189,100 @@
   .player video { width:100%; max-height:80dvh; background:#000; }
   .player .bar { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; }
 
+
+  /* ---------- camera-first Live (2026-11-02 redesign; prototype: full-bleed video, overlays, glass) ---------- */
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+  .glass { background:rgba(22,22,24,.42) !important; -webkit-backdrop-filter:blur(18px) saturate(1.6); backdrop-filter:blur(18px) saturate(1.6);
+           box-shadow:inset 0 0 0 .5px rgba(255,255,255,.22); color:#fff; border:0; }
+  .view.live { padding-top:0; }
+  .live .stage { margin:0 -14px; width:calc(100% + 28px); aspect-ratio:auto; height:min(60dvh, 132vw, 560px); border:0; border-radius:0 0 30px 30px;
+                 margin-top:0; }
+  .live .stage video { object-fit:cover; object-position:var(--fx, 50%) 50%; transition:object-position .6s ease; }
+  .live .stage.room video { object-fit:contain; }
+  .shade { position:absolute; left:0; right:0; z-index:2; pointer-events:none; }
+  .shade.top { top:0; height:150px; background:linear-gradient(rgba(0,0,0,.6), rgba(0,0,0,0)); }
+  .shade.bot { bottom:0; height:210px; background:linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.72)); }
+  .ov-head { position:absolute; z-index:4; left:16px; right:16px; top:calc(env(safe-area-inset-top) + 10px); height:auto; align-items:flex-start; }
+  .ov-head h1 { font-size:30px; line-height:34px; font-weight:800; letter-spacing:-.02em; color:#fff; }
+  .ov-head .badge { position:static; display:inline-flex; margin-top:6px; background:rgba(22,22,24,.42); -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px); }
+  .ov-head .hbtns { display:flex; gap:8px; }
+  .live .health { top:calc(env(safe-area-inset-top) + 92px); left:16px; right:auto; }
+  .rail { position:absolute; z-index:4; right:12px; top:calc(env(safe-area-inset-top) + 96px); display:flex; flex-direction:column; gap:10px; }
+  .rail .iconbtn { position:relative; }
+  .rail .word { font-size:9px; font-weight:800; letter-spacing:.02em; }
+  .rail .iconbtn[aria-pressed="true"]#sound-btn { background:rgba(255,214,10,.92) !important; color:#111; }
+  .rail .talk { touch-action:none; -webkit-user-select:none; user-select:none; }
+  .rail .talk span { display:none; }
+  .rail .talk.rec { background:var(--live) !important; }
+  .rail .talk.rec span { display:block; position:absolute; right:52px; top:8px; white-space:nowrap; background:var(--live); color:#fff;
+                         padding:6px 10px; border-radius:14px; font-size:13px; font-weight:700; }
+  .doing { position:absolute; z-index:3; left:16px; right:70px; bottom:18px; color:#fff; pointer-events:none; }
+  .doing .pet-pill { position:static; background:none; padding:0; font-size:22px; line-height:26px; font-weight:800; letter-spacing:-.01em; gap:9px; }
+  .doing .pet-pill i { width:10px; height:10px; flex:none; }
+  .doing .pet-pill.here i { box-shadow:0 0 0 4px rgba(255,214,10,.25); }
+  .doing-sub { margin-top:3px; font-size:14px; color:rgba(255,255,255,.78); min-height:18px; }
+  .trace { position:relative; height:22px; margin-top:12px; }
+  .trace i { position:absolute; bottom:0; border-radius:2px; }
+  .trace-lab { display:flex; justify-content:space-between; font-size:10px; color:rgba(255,255,255,.6); margin-top:3px; }
+  .findbtn { pointer-events:auto; margin-top:12px; min-height:46px; padding:0 22px; border-radius:23px; border:0; background:#fff; color:#111;
+             font-size:15px; font-weight:750; }
+  .findbtn:disabled { opacity:.75; }
+  .panbar { position:absolute; z-index:3; left:0; right:0; bottom:0; height:4px; background:rgba(255,255,255,.14); pointer-events:none; }
+  .panbar i { position:absolute; top:0; height:4px; background:rgba(255,255,255,.85); transition:left .3s; }
+  .note.center { text-align:center; }
+  .live .controls { display:flex; align-items:center; justify-content:space-between; grid-template-columns:none; margin-top:12px; padding:0 4px; }
+  .live .stick { justify-self:auto; }
+  .round { width:72px; border:0; background:none; color:var(--muted); display:flex; flex-direction:column; align-items:center; gap:6px;
+           font-size:12px; font-weight:650; cursor:pointer; }
+  .round .disc { width:56px; height:56px; border-radius:28px; background:var(--card2); display:grid; place-items:center; }
+  .round svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+  .round[aria-pressed="true"] { color:var(--accent); }
+  .round[aria-pressed="true"] .disc { background:rgba(255,214,10,.18); }
+  .chips.strip { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; padding-bottom:2px; }
+  .chips.strip::-webkit-scrollbar { display:none; }
+  .chips.strip .chip { flex:none; }
+
+  /* ---------- visual Today ---------- */
+  .mosaic { display:grid; grid-template-columns:2fr 1fr; grid-template-rows:104px 104px; gap:4px; border-radius:22px; overflow:hidden; margin-top:6px; }
+  .mosaic button { position:relative; padding:0; border:0; background:var(--card2); overflow:hidden; cursor:pointer; }
+  .mosaic button:first-child { grid-row:span 2; }
+  .mosaic img { width:100%; height:100%; object-fit:cover; display:block; }
+  .mosaic .t, .card .t { position:absolute; left:8px; bottom:8px; font-size:12px; font-weight:700; color:#fff; padding:3px 8px; border-radius:10px; background:rgba(0,0,0,.5); }
+  .mosaic.one { grid-template-columns:1fr; } .mosaic.one button:first-child { grid-row:span 2; }
+  .split { margin-top:16px; }
+  .split-bar { display:flex; gap:2px; height:14px; border-radius:7px; overflow:hidden; background:var(--card2); }
+  .split-bar i { display:block; }
+  .split-nums { display:flex; justify-content:space-between; margin-top:10px; }
+  .split-nums b { display:block; font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .split-nums span { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
+  .split-nums span i { width:8px; height:8px; border-radius:4px; display:inline-block; }
+  .lanes { position:relative; height:96px; background:var(--card); border:1px solid var(--line); border-radius:18px; cursor:pointer; touch-action:pan-y; }
+  .lanes .ln { position:absolute; left:10px; font-size:10px; color:var(--dim); }
+  .lanes .blk { position:absolute; height:22px; border-radius:4px; min-width:2px; }
+  .lanes .bark { position:absolute; top:4px; bottom:4px; width:2px; background:#ff9f0a; opacity:.9; }
+  .lanes .now, .lanes .cur { position:absolute; top:4px; bottom:4px; width:2px; background:#fff; border-radius:1px; }
+  .lanes .now { opacity:.35; }
+  .lane-ticks { position:relative; height:14px; font-size:10px; color:var(--dim); margin-top:3px; }
+  .lane-ticks span { position:absolute; transform:translateX(-50%); }
+  .feed.strip { flex-direction:row; overflow-x:auto; gap:10px; scrollbar-width:none; }
+  .feed.strip::-webkit-scrollbar { display:none; }
+  .card { flex:none; width:150px; }
+  .card .media { position:relative; width:150px; height:112px; border-radius:16px; overflow:hidden; background:var(--card2); padding:0; border:0; cursor:pointer; display:block; }
+  .card .media img { width:100%; height:100%; object-fit:cover; display:block; }
+  .card .media .ph { width:100%; height:100%; display:grid; place-items:center; font-size:30px; }
+  .card .play { position:absolute; right:8px; bottom:8px; width:30px; height:30px; border-radius:15px; background:rgba(0,0,0,.5); display:grid; place-items:center; color:#fff; font-size:11px; }
+  .card .ttl { margin-top:6px; font-size:13px; font-weight:700; line-height:16px; }
+  .card .fb { margin:6px 0 0; flex-wrap:wrap; gap:6px; }
+  .card .fb span { display:none; }
+
   /* ---------- landscape phone: full-screen live view ---------- */
   @media (orientation:landscape) and (max-height:540px) {
     body.tab-live { overflow:hidden; }
     body.tab-live .view { padding:0; max-width:none; }
-    body.tab-live header, body.tab-live .hint, body.tab-live .section { display:none; }
+    body.tab-live .ov-head, body.tab-live .hint, body.tab-live .section, body.tab-live .shade, body.tab-live .trace,
+    body.tab-live .trace-lab, body.tab-live .round, body.tab-live #follow-note, body.tab-live .panbar { display:none; }
+    body.tab-live .live .stage, body.tab-live .stage { height:auto; width:auto; }
+    body.tab-live .stage video { object-fit:contain; }
     body.tab-live .stage { position:fixed; inset:0; aspect-ratio:auto; border:0; border-radius:0; margin:0; }
     body.tab-live .badge { top:calc(env(safe-area-inset-top) + 12px); right:calc(env(safe-area-inset-right) + 12px); }
     body.tab-live .pet-pill { left:calc(env(safe-area-inset-left) + 12px); bottom:calc(env(safe-area-inset-bottom) + 12px); }
@@ -217,85 +306,79 @@
 <body class="tab-live">
 
 <!-- ======================= LIVE ======================= -->
-<main class="view" id="tab-live">
-  <header>
-    <h1>{{PET}}</h1>
-    <div style="display:flex; gap:8px">
-    <button class="iconbtn" id="privacy-btn" aria-label="Pause the camera (privacy)" aria-pressed="false" title="Pause camera">
-      <svg viewBox="0 0 24 24" id="eye-open"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
-      <svg viewBox="0 0 24 24" id="eye-closed" class="hidden"><path d="M3 3l18 18M10.6 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2M6.6 6.6C3.9 8.3 2 12 2 12s3.5 7 10 7a9.8 9.8 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
-    </button>
-    <button class="iconbtn" id="open-settings" aria-label="Settings">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-    </button>
-    </div>
-  </header>
-
+<main class="view live" id="tab-live">
   <div class="stage" id="stage">
     <video id="live" autoplay muted playsinline aria-label="Live camera"></video>
-    <button class="sound" id="sound-btn" type="button" aria-pressed="false" aria-label="Turn sound on">
-      <svg viewBox="0 0 24 24" id="snd-off"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M22 9l-6 6M16 9l6 6"/></svg>
-      <svg viewBox="0 0 24 24" id="snd-on" class="hidden"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
-      <span id="snd-label">Sound</span>
-    </button>
     <div class="conn hidden" id="conn">Connecting…</div>
     <div id="touch" aria-label="Tap the picture to point the camera there"></div>
     <div class="box" id="pet-box"><span>{{PET}}</span></div>
     <div class="reticle" id="reticle"></div>
-    <div class="badge"><i></i><span>LIVE</span></div>
-    <div class="pet-pill" id="pet-pill"><i></i><span>Looking for {{PET}}…</span></div>
+    <div class="shade top" aria-hidden="true"></div><div class="shade bot" aria-hidden="true"></div>
+    <header class="ov-head">
+      <div><h1>{{PET}}</h1><div class="badge"><i></i><span>LIVE</span></div></div>
+      <div class="hbtns">
+        <button class="iconbtn glass" id="privacy-btn" aria-label="Pause the camera (privacy)" aria-pressed="false" title="Pause camera">
+          <svg viewBox="0 0 24 24" id="eye-open"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg viewBox="0 0 24 24" id="eye-closed" class="hidden"><path d="M3 3l18 18M10.6 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2M6.6 6.6C3.9 8.3 2 12 2 12s3.5 7 10 7a9.8 9.8 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+        </button>
+        <button class="iconbtn glass" id="open-settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        </button>
+      </div>
+    </header>
     <div class="health hidden" id="health"></div>
-  </div>
-  <button class="btn primary findbtn hidden" id="find-btn" type="button">Find {{PET}}</button>
-  <p class="hint">Tap the picture to look there · hold the stick to move · <button class="linkbtn" id="report-open" type="button">Something wrong?</button></p>
-
-  <div class="controls">
-    <div class="side">
-      <button class="btn talk" id="talk-btn" type="button" aria-label="Hold to talk to {{PET}}">
+    <div class="rail">
+      <button class="iconbtn glass" id="sound-btn" type="button" aria-pressed="false" aria-label="Turn sound on">
+        <svg viewBox="0 0 24 24" id="snd-off"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M22 9l-6 6M16 9l6 6"/></svg>
+        <svg viewBox="0 0 24 24" id="snd-on" class="hidden"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+        <span id="snd-label" class="sr">Sound</span>
+      </button>
+      <button class="iconbtn glass word" id="frame-btn" type="button" aria-label="Framing {{PET}}. Tap to show the whole picture">{{PET_UPPER}}</button>
+      <button class="iconbtn glass" id="light-btn" type="button" aria-label="Light and picture mode">
+        <svg viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg>
+      </button>
+      <button class="iconbtn glass talk" id="talk-btn" type="button" aria-label="Hold to talk to {{PET}}">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
         <span id="talk-label">Hold to talk</span>
       </button>
-      <button class="btn" id="go-start" type="button">Center view</button>
-      <div class="note" style="margin:0">Hold the stick and drag. Near the middle it moves gently, at the edge faster. Let go to stop.</div>
+      <button class="iconbtn glass" id="full-btn" type="button" aria-label="Full screen">
+        <svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+      </button>
     </div>
+    <div class="doing">
+      <div class="pet-pill" id="pet-pill"><i></i><span>Looking for {{PET}}…</span></div>
+      <div class="doing-sub" id="doing-sub"></div>
+      <div class="trace" id="trace" aria-label="Last 2 hours: resting, active, not in view"></div>
+      <div class="trace-lab" aria-hidden="true"><span>2 h ago</span><span>now</span></div>
+      <button class="findbtn hidden" id="find-btn" type="button">Find {{PET}}</button>
+    </div>
+    <div class="panbar" id="panbar" aria-label="Where the camera points in the room"><i id="pan-view"></i></div>
+  </div>
+  <div class="note center" id="move-note"></div>
+
+  <div class="controls">
+    <button class="round" id="go-start" type="button" aria-label="Center the camera">
+      <span class="disc"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></span>Center</button>
     <div class="stick" id="stick" role="application" aria-label="Move the camera: hold and drag">
       <i class="ar u"></i><i class="ar d"></i><i class="ar l"></i><i class="ar r"></i>
       <div class="knob" id="knob"></div>
     </div>
+    <button class="round toggle" id="follow-toggle" type="button" aria-pressed="false" aria-label="Follow {{PET}} automatically">
+      <span class="disc"><svg viewBox="0 0 24 24"><path d="M12 21s-7-5.5-7-11a7 7 0 0 1 14 0c0 5.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span><span id="follow-label">Follow</span></button>
   </div>
-  <div class="note" id="move-note"></div>
-  <div class="row" style="margin-top:4px">
-    <button class="btn toggle" id="follow-toggle" type="button" aria-pressed="false">Follow {{PET}}</button>
-  </div>
-  <div class="note" id="follow-note">Off: the camera only moves when you move it.</div>
-  <div class="section" style="margin-top:6px">
-    <h2>Views</h2>
-    <div class="chips" id="spots"></div>
+  <div class="note center" id="follow-note">Off: the camera only moves when you move it.</div>
+
+  <div class="section places">
+    <h2>Places</h2>
+    <div class="chips strip" id="spots"></div>
     <div class="namebox hidden" id="namebox">
       <input id="spot-name" maxlength="24" placeholder="Name this view, e.g. Dog bed" enterkeyhint="done">
       <button class="btn primary" id="spot-save" type="button">Save</button>
     </div>
+    <div class="chips strip" id="zones" style="margin-top:8px"></div>
+    <div class="note">Zones count {{PET_POSS}} water, food and bed visits when the camera is at the view they were drawn on.</div>
   </div>
-  <div class="section" style="margin-top:14px">
-    <h2>Zones</h2>
-    <div class="chips" id="zones"></div>
-    <div class="note" style="margin-top:6px">Mark {{PET_POSS}} water bowl, food bowl and bed. Visits count when the camera is at the view the zone was drawn on.</div>
-  </div>
-
-  <div class="section">
-    <h2>Picture</h2>
-    <div class="seg" id="mode-seg" role="group" aria-label="Day or night picture">
-      <button data-mode="auto" aria-pressed="false">Auto</button>
-      <button data-mode="day" aria-pressed="false">Day</button>
-      <button data-mode="night" aria-pressed="false">Night</button>
-    </div>
-    <div class="row">
-      <button class="btn toggle" id="ir-toggle" type="button" aria-pressed="false">IR light</button>
-      <button class="btn toggle" id="color-toggle" type="button" aria-pressed="false">Colour</button>
-      <button class="btn toggle" id="filter-toggle" type="button" aria-pressed="false">IR filter</button>
-    </div>
-    <div class="note" id="mode-note"></div>
-  </div>
+  <p class="hint">Tap the picture to look there · hold the stick to move · <button class="linkbtn" id="report-open" type="button">Something wrong?</button></p>
 </main>
 
 <!-- ======================= TODAY ======================= -->
@@ -306,21 +389,18 @@
       <button class="iconbtn" id="day-next" aria-label="Next day"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
     </div>
   </header>
-  <div class="hero" id="hero">
-    <img id="hero-img" alt="">
-    <div><div class="big" id="hero-big">—</div><div class="sub" id="hero-sub"></div></div>
-  </div>
-  <div class="tiles">
-    <div class="tile"><b id="t-visible">—</b><span>in view</span></div>
-    <div class="tile"><b id="t-active">—</b><span>active</span></div>
-    <div class="tile"><b id="t-nap">—</b><span>longest nap</span></div>
-    <div class="tile"><b id="t-sounds">—</b><span>barks</span></div>
+  <div class="mosaic" id="mosaic" aria-label="{{PET_POSS_CAP}} day in pictures"></div>
+  <div class="split" aria-label="How the day split">
+    <div class="split-bar" id="split-bar"></div>
+    <div class="split-nums" id="split-nums"></div>
   </div>
   <div class="pattern" id="pattern"><b id="pattern-v">—</b><div id="pattern-n"></div><div id="zone-line"></div></div>
   <div class="section">
     <h2>{{PET_POSS_CAP}} day</h2>
-    <div class="timeline" id="timeline" aria-label="{{PET}}'s day; tap to see a moment"></div>
-    <div class="legend"><span><i style="background:var(--viz-active)"></i>active</span><span><i style="background:var(--viz-rest)"></i>resting</span><span><i style="background:var(--card2)"></i>not in view</span><span><i style="background:var(--live)"></i>sound</span></div>
+    <div class="lanes" id="timeline" aria-label="{{PET}}'s day; tap to see a moment">
+      <span class="ln" style="top:6px">active</span><span class="ln" style="top:36px">resting</span><span class="ln" style="top:66px">unseen</span>
+    </div>
+    <div class="lane-ticks" id="lane-ticks"></div>
     <div class="peek hidden" id="peek">
       <div class="media"><img id="peek-img" alt=""><video id="peek-video" class="hidden" playsinline controls></video></div>
       <div class="bar"><b id="peek-time"></b><span><button class="btn quiet" id="peek-play" type="button">Play from here</button></span></div>
@@ -328,7 +408,7 @@
   </div>
   <div class="section">
     <h2>Moments</h2>
-    <div class="feed" id="feed"></div>
+    <div class="feed strip" id="feed"></div>
   </div>
 </main>
 
@@ -350,6 +430,27 @@
   <button data-tab="today"><svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>Today</button>
   <button data-tab="diary"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Diary</button>
 </div></nav>
+
+
+<div class="sheet-bg hidden" id="light-sheet">
+  <div class="sheet" role="dialog" aria-label="Light and picture">
+    <div class="grab"></div>
+    <h3>Light</h3>
+    <div class="note" style="margin:0 0 10px">Auto switches to infrared night vision in the dark.</div>
+    <div class="seg" id="mode-seg" role="group" aria-label="Day or night picture">
+      <button data-mode="auto" aria-pressed="false">Auto</button>
+      <button data-mode="day" aria-pressed="false">Day</button>
+      <button data-mode="night" aria-pressed="false">Night</button>
+    </div>
+    <div class="row">
+      <button class="btn toggle" id="ir-toggle" type="button" aria-pressed="false">IR light</button>
+      <button class="btn toggle" id="color-toggle" type="button" aria-pressed="false">Colour</button>
+      <button class="btn toggle" id="filter-toggle" type="button" aria-pressed="false">IR filter</button>
+    </div>
+    <div class="note" id="mode-note"></div>
+    <div class="row"><button class="btn" id="light-close" type="button">Done</button></div>
+  </div>
+</div>
 
 <!-- settings sheet -->
 <div class="sheet-bg hidden" id="settings">
@@ -681,12 +782,42 @@ function renderLive(l) {
   // Only draw her box from a fresh detection: a 10-second-old box sits where she *was*.
   const fresh = live && live.det_t && live.t - live.det_t < 9;
   drawBox(live && live.present && live.box && fresh ? live.box : null);
+  if (live && live.present && live.box && fresh) frameOn(live.box);
+  $("doing-sub").textContent = doingSub(live);
   renderModes(live && live.imaging);
   if (Date.now() - privacyPending > 5000) showPrivacy(live && live.status === "privacy");
   renderFind(live);
   if (live && live.settings && Date.now() - followPending > 4000) showFollow(live.settings.follow);
   if (live && live.settings && document.activeElement !== $("talk-vol")) showTalkVol(live.settings.talk_volume);
 }
+function doingSub(l) {
+  if (!l || l.status === "privacy") return "";
+  const t = (x) => fmtTime(x);
+  if (l.present && l.last_seen && Date.now() / 1000 - l.last_seen < 30) {
+    if (l.moving_since) return `moving since ${t(l.moving_since)}`;
+    if (l.rest_since) return `since ${t(l.rest_since)}`;
+    return "";
+  }
+  return l.last_seen ? `last seen ${ago(l.last_seen)}` : "";
+}
+// The last 2 hours as a trace along the bottom of the video (from the day's 10-minute buckets).
+let traceAt = 0;
+async function refreshTrace() {
+  if (curTab !== "live" || Date.now() - traceAt < 60000) return;
+  traceAt = Date.now();
+  let d; try { d = await api(`/api/day?d=${dayString(0)}`); } catch (e) { return; }
+  const nw = new Date(), idx = Math.floor((nw.getHours() * 60 + nw.getMinutes()) / 10);
+  const tr = $("trace"); tr.innerHTML = "";
+  for (let k = 0; k < 12; k++) {
+    const b = (d.buckets || [])[idx - 11 + k]; if (!b || !b.n) continue;
+    const kind = b.present >= 0.15 ? (b.moving >= 0.15 ? "act" : "rest") : "away";
+    const i = document.createElement("i");
+    Object.assign(i.style, { left: `${k / 12 * 100}%`, width: `calc(${100 / 12}% - 2px)`, height: { act: "20px", rest: "11px", away: "3px" }[kind],
+      background: { act: "var(--ok)", rest: "var(--accent)", away: "rgba(255,255,255,.28)" }[kind] });
+    tr.appendChild(i);
+  }
+}
+setInterval(refreshTrace, 15000);
 let privacyPending = 0, followPending = 0;
 // "Find the dog" (owner, 2026-11-02): runs the room search now. Shown whenever she isn't in view.
 let findPending = 0;
@@ -714,6 +845,7 @@ $("find-btn").onclick = async () => {
 };
 function showFollow(on) {
   $("follow-toggle").setAttribute("aria-pressed", !!on);
+  $("follow-label").textContent = on ? "Following" : "Follow";
   $("follow-note").textContent = on ? `On: when ${PET.name} walks toward the edge, the camera turns to keep ${PET.obj} in view (at most every 10 s).`
                                     : "Off: the camera only moves when you move it.";
 }
@@ -733,12 +865,42 @@ $("privacy-btn").onclick = async () => {
   try { await api("/api/privacy", { on }); $("move-note").textContent = on ? "Camera paused. Tap the eye again to resume." : ""; }
   catch (e) { privacyPending = 0; showPrivacy(!on); $("move-note").textContent = e.message; }
 };
+// Where the 16:9 picture sits inside the stage. "Room" shows all of it (contain); "the dog" fills the stage (cover)
+// and slides sideways to keep her in frame (--fx = CSS object-position), so taps and her box map through this.
+let framePos = 0.5;
 function videoRect() {
   const s = $("stage").getBoundingClientRect(), ar = 16 / 9;
+  const cover = curTab === "live" && !$("stage").classList.contains("room") && !matchMedia("(orientation:landscape) and (max-height:540px)").matches;
   let w = s.width, h = s.width / ar;
-  if (h > s.height) { h = s.height; w = h * ar; }
-  return { x: (s.width - w) / 2, y: (s.height - h) / 2, w, h, s };
+  if (cover ? h < s.height : h > s.height) { h = s.height; w = h * ar; }
+  const x = cover ? (s.width - w) * framePos : (s.width - w) / 2;
+  return { x, y: (s.height - h) / 2, w, h, s };
 }
+function frameOn(box) {
+  // keep her centred: object-position fraction that puts her box centre in the middle of the stage
+  const st = $("stage"); if (st.classList.contains("room") || !box) return;
+  const s = st.getBoundingClientRect(), w = s.height * 16 / 9;
+  if (w <= s.width) return;
+  const cx = (box[0] + box[2]) / 2;
+  const want = Math.min(1, Math.max(0, (s.width / 2 - cx * w) / (s.width - w)));
+  if (Math.abs(want - framePos) > 0.04) { framePos = want; st.style.setProperty("--fx", `${(want * 100).toFixed(1)}%`); }
+}
+function setFrame(room) {
+  $("stage").classList.toggle("room", room);
+  $("frame-btn").textContent = room ? "ROOM" : PET.name.toUpperCase();
+  $("frame-btn").setAttribute("aria-label", room ? `Showing the whole picture. Tap to frame ${PET.name}` : `Framing ${PET.name}. Tap to show the whole picture`);
+  store("petcam.frame", room ? "room" : "pet");
+  track("frame", { room });
+}
+$("frame-btn").onclick = () => setFrame(!$("stage").classList.contains("room"));
+$("light-btn").onclick = () => { track("sheet", { name: "light" }); $("light-sheet").classList.remove("hidden"); };
+$("light-close").onclick = () => $("light-sheet").classList.add("hidden");
+$("light-sheet").addEventListener("click", (e) => { if (e.target.id === "light-sheet") $("light-sheet").classList.add("hidden"); });
+$("full-btn").onclick = () => {
+  const v = $("live"); track("fullscreen");
+  if (v.webkitEnterFullscreen) { try { v.webkitEnterFullscreen(); return; } catch (e) {} }
+  const st = $("stage"); (st.requestFullscreen || st.webkitRequestFullscreen || (() => {})).call(st);
+};
 function drawBox(b) {
   const el = $("pet-box");
   if (!b) { el.classList.remove("on"); return; }
@@ -921,7 +1083,13 @@ $("zsave").onclick = async () => {
 $("zcancel").onclick = () => $("zone-sheet").classList.add("hidden");
 
 // ======================= saved views =======================
-async function refreshCam() { try { cam = await api("/api/state"); renderSpots(); } catch (e) { /* camera busy */ } }
+async function refreshCam() { try { cam = await api("/api/state"); renderSpots(); renderPan(); } catch (e) { /* camera busy */ } }
+function renderPan() {
+  // view turns RIGHT as x decreases: left edge of the bar = x_max
+  if (!cam || !cam.x_max || !cam.frame) return;
+  const span = cam.x_max + cam.frame[0], wv = cam.frame[0] / span, left = (cam.x_max - cam.x) / span;
+  Object.assign($("pan-view").style, { left: `${(left * 100).toFixed(1)}%`, width: `${(wv * 100).toFixed(1)}%` });
+}
 function renderSpots() {
   const box = $("spots"); box.innerHTML = "";
   for (const p of (cam && cam.presets) || []) {
@@ -996,24 +1164,44 @@ async function loadDay() {
 }
 $("day-prev").onclick = () => { dayOffset -= 1; $("peek").classList.add("hidden"); loadDay(); };
 $("day-next").onclick = () => { if (dayOffset < 0) { dayOffset += 1; $("peek").classList.add("hidden"); loadDay(); } };
+const BARK_KINDS = new Set(["barking", "howling", "whining", "growling", "dog_sound"]);
+const LANE = { act: { top: 4, color: "var(--ok)" }, rest: { top: 34, color: "var(--accent)" }, away: { top: 64, color: "#3a3a3e" } };
+let laneRange = [0, 144];
+function bucketKind(b) { return !b || !b.n ? null : b.present >= 0.15 ? (b.moving >= 0.15 ? "act" : "rest") : "away"; }
 function renderDay() {
-  const t = today;
-  $("t-visible").textContent = t ? fmtDur(t.visible_min) : "—";
-  $("t-active").textContent = t ? fmtDur(t.active_min) : "—";
-  $("t-nap").textContent = t ? fmtDur(t.longest_rest_min) : "—";
-  $("t-sounds").textContent = t ? `${t.barks}` : "—";
-  if (dayOffset === 0) {
-    const [text] = petText(live);
-    $("hero-big").textContent = text;
-    $("hero-sub").textContent = t && t.first_seen ? `First seen ${fmtTime(t.first_seen)} · ${t.minutes_recorded} min watched` : "Watching since the camera came online";
-    $("hero-img").src = `/media/snaps/${dayString(0)}/${new Date(Date.now() - 60000).toTimeString().slice(0, 5).replace(":", "-")}.jpg`;
-  } else {
-    $("hero-big").textContent = t && t.visible_min ? `In view ${fmtDur(t.visible_min)}` : "No sightings";
-    $("hero-sub").textContent = t ? `${t.minutes_recorded} min watched` : "";
-    const ev = t && t.events.find((e) => e.thumb); $("hero-img").src = ev ? ev.thumb : "/icon.png";
+  const t = today, buckets = (t && t.buckets) || [];
+  // --- mosaic: her latest moments with a picture (today: the live view first)
+  const pics = ((t && t.events) || []).filter((e) => e.thumb && !["camera_frozen", "camera_back", "camera_offline", "search"].includes(e.kind));
+  const tiles = [];
+  if (dayOffset === 0) tiles.push({ src: `/media/snaps/${dayString(0)}/${new Date(Date.now() - 60000).toTimeString().slice(0, 5).replace(":", "-")}.jpg`, ts: Date.now() / 1000 - 60, label: "now" });
+  for (const e of pics) { if (tiles.length >= 3) break; tiles.push({ src: e.thumb, ts: e.ts, clip: e.clip, label: fmtTime(e.ts), kind: e.kind }); }
+  const mo = $("mosaic"); mo.innerHTML = ""; mo.classList.toggle("one", tiles.length < 3);
+  mo.classList.toggle("hidden", !tiles.length);
+  for (const x of tiles.slice(0, tiles.length < 3 ? 1 : 3)) {
+    const bt = document.createElement("button"); bt.type = "button";
+    bt.innerHTML = `<img loading="lazy" alt=""><span class="t"></span>`;
+    const im = bt.querySelector("img"); im.onerror = () => { im.onerror = null; im.src = "/icon.png"; };
+    im.src = x.src; bt.querySelector(".t").textContent = x.label;
+    bt.setAttribute("aria-label", `${x.kind ? (KIND[x.kind] || [x.kind])[0] + ", " : ""}${x.label}`);
+    bt.onclick = () => { if (x.clip) openPlayer(x.clip, x.label); else peekAt(x.ts); };
+    mo.appendChild(bt);
+  }
+  // --- how the day split: resting / active / not in view, plus barks
+  const vis = t ? t.visible_min : 0, act = t ? t.active_min : 0, rec = t ? t.minutes_recorded : 0;
+  const parts = [["rest", "Resting", Math.max(0, vis - act)], ["act", "Active", act], ["away", "Not in view", Math.max(0, rec - vis)]];
+  const sb = $("split-bar"); sb.innerHTML = "";
+  for (const [k, , m] of parts) if (m > 0) { const i = document.createElement("i"); i.style.flex = m; i.style.background = LANE[k].color; sb.appendChild(i); }
+  $("split-nums").innerHTML = "";
+  for (const [k, lab, m] of parts.concat([["bark", "Barks", null]])) {
+    const d = document.createElement("div");
+    d.innerHTML = `<b></b><span><i></i></span>`;
+    d.querySelector("b").textContent = k === "bark" ? (t ? `${t.barks}` : "—") : t ? fmtDur(m) : "—";
+    d.querySelector("i").style.background = k === "bark" ? "#ff9f0a" : LANE[k].color;
+    d.querySelector("span").append(lab);
+    $("split-nums").appendChild(d);
   }
   const zl = Object.entries((t && t.zones) || {}).map(([name, z]) => `${ZICON[z.kind] || "📍"} ${name} ×${z.count}${z.last ? " · last " + fmtTime(z.last) : ""}`);
-  $("zone-line").textContent = zl.length ? zl.join("   ") : (zones.length ? "No zone visits yet" : "Add zones on the Live tab to count bowl and bed visits");
+  $("zone-line").textContent = zl.length ? zl.join("   ") : (zones.length ? "No zone visits yet" : "");
   api(`/api/wellbeing?d=${dayString(dayOffset)}`).then((w) => {
     $("pattern-v").textContent = w.verdict;
     const m = w.today, bl = w.baseline;
@@ -1021,40 +1209,54 @@ function renderDay() {
     const facts = [`settled down ${m.settle_downs}×`].concat(restless ? [] : [`night activity ${m.night_active} min${bl ? ` (usual ${Math.round(bl.night_active)})` : ""}`]);
     $("pattern-n").textContent = [...(w.notes || []), ...facts].join(" · ");
   }).catch(() => { $("pattern-v").textContent = "—"; });
-  const tl = $("timeline"); tl.innerHTML = "";
-  (t ? t.buckets : Array(144).fill({ n: 0 })).forEach((b) => {
-    const i = document.createElement("i");
-    if (b.n) {
-      i.style.height = `${Math.max(8, Math.round(b.present * 100))}%`;
-      if (b.present >= 0.15) i.className = b.moving >= 0.15 ? "act" : "here";
-      if (b.sounds) i.classList.add("snd");
+  // --- lanes: from the first watched hour to now (or the last watched bucket)
+  const nw = new Date(), nowIdx = Math.floor((nw.getHours() * 60 + nw.getMinutes()) / 10);
+  const watched = buckets.map((b, i) => (b && b.n ? i : -1)).filter((i) => i >= 0);
+  let lo = watched.length ? Math.floor(watched[0] / 6) * 6 : 0;
+  let hi = dayOffset === 0 ? nowIdx + 1 : (watched.length ? watched[watched.length - 1] + 1 : 144);
+  if (hi - lo < 12) lo = Math.max(0, hi - 12);
+  laneRange = [lo, hi];
+  const tl = $("timeline"); tl.querySelectorAll(".blk, .bark, .now, .cur").forEach((x) => x.remove());
+  const X = (i) => `calc(56px + (100% - 66px) * ${((i - lo) / (hi - lo)).toFixed(4)})`;
+  for (let i = lo; i < hi; ) {
+    const k = bucketKind(buckets[i]); let j = i + 1;
+    while (j < hi && bucketKind(buckets[j]) === k) j++;
+    if (k) {
+      const el = document.createElement("i"); el.className = "blk";
+      Object.assign(el.style, { top: `${LANE[k].top}px`, left: X(i), width: `calc((100% - 66px) * ${((j - i) / (hi - lo)).toFixed(4)} - 1px)`, background: LANE[k].color, opacity: k === "away" ? .7 : 1 });
+      tl.appendChild(el);
     }
-    tl.appendChild(i);
-  });
-  const lab = document.createElement("div"); lab.className = "tl-labels";
-  lab.innerHTML = "<span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>12a</span>"; tl.appendChild(lab);
-  if (dayOffset === 0) {
-    const nw = new Date();   // position by clock time: DST days are 23 or 25 hours long
-    const n = document.createElement("div"); n.className = "now";
-    n.style.left = `calc(8px + (100% - 16px) * ${(nw.getHours() * 60 + nw.getMinutes()) / 1440})`; tl.appendChild(n);
+    i = j;
   }
+  const day0 = new Date(dayString(dayOffset) + "T00:00").getTime() / 1000;
+  for (const e of (t && t.events) || []) if (BARK_KINDS.has(e.kind)) {
+    const idx = (e.ts - day0) / 600; if (idx < lo || idx > hi) continue;
+    const el = document.createElement("i"); el.className = "bark"; el.style.left = X(idx); tl.appendChild(el);
+  }
+  if (dayOffset === 0) { const n = document.createElement("i"); n.className = "now"; n.style.left = X((nw.getHours() * 60 + nw.getMinutes()) / 10); tl.appendChild(n); }
+  const tk = $("lane-ticks"); tk.innerHTML = "";
+  const stepH = (hi - lo) / 6 > 8 ? 4 : (hi - lo) / 6 > 4 ? 2 : 1;
+  for (let h = Math.ceil(lo / 6); h * 6 <= hi; h += stepH) {
+    const sp = document.createElement("span"); sp.style.left = X(h * 6);
+    sp.textContent = new Date(2000, 0, 1, h % 24).toLocaleTimeString([], { hour: "numeric" }); tk.appendChild(sp);
+  }
+  // --- moments as photo cards
   const feed = $("feed"); feed.innerHTML = "";
   const evs = (t && t.events) || [];
-  if (!evs.length) { feed.innerHTML = `<div class="empty">Nothing yet. Moments appear here when ${PET.name} comes and goes, gets up, or barks.</div>`; return; }
+  if (!evs.length) { feed.innerHTML = `<div class="empty" style="width:100%">Nothing yet. Moments appear here when ${PET.name} comes and goes, gets up, or barks.</div>`; return; }
   for (const e of evs) {
     const [label, icon] = KIND[e.kind] || [e.kind, "•"];
-    const b = document.createElement("button"); b.className = "ev"; b.type = "button";
-    const extra = e.detail && e.detail.rested_s ? ` · after ${fmtDur(e.detail.rested_s / 60)} rest` :
-      e.detail && e.detail.away_s && e.detail.away_s < 86400 ? ` · away ${fmtDur(e.detail.away_s / 60)}` :
-      e.detail && e.detail.episode_barks > 1 ? ` · ×${e.detail.episode_barks} over ${fmtDur((e.detail.episode_last - e.ts) / 60)}` : "";
-    b.innerHTML = `${e.thumb ? `<img loading="lazy" src="${e.thumb}" alt="">` : `<div class="ph">${icon}</div>`}
-      <div><b></b><span>${fmtTime(e.ts)}${extra}</span></div>${e.clip ? `<span class="play">▶ Clip</span>` : ""}`;
+    const card = document.createElement("div"); card.className = "card";
+    card.innerHTML = `<button class="media" type="button">${e.thumb ? `<img loading="lazy" alt="">` : `<div class="ph"></div>`}<span class="t"></span>${e.clip ? `<span class="play">▶</span>` : ""}</button><div class="ttl"></div>`;
+    if (e.thumb) card.querySelector("img").src = e.thumb; else card.querySelector(".ph").textContent = icon;
+    card.querySelector(".t").textContent = fmtTime(e.ts);
     const heard = e.kind === "loud_sound" && e.detail && e.detail.yamnet ? `: ${e.detail.yamnet.top}` : "";
     const visit = e.kind === "visit" ? visitLabel(e.detail) : null;
-    b.querySelector("b").textContent = visit || label + heard;
-    b.onclick = () => { if (e.clip) openPlayer(e.clip, `${label} · ${fmtTime(e.ts)}`); else peekAt(e.ts); };
-    feed.appendChild(b);
-    if (SOUND_KINDS.has(e.kind)) feed.appendChild(feedbackRow(e));
+    card.querySelector(".ttl").textContent = visit || label + heard;
+    card.querySelector(".media").setAttribute("aria-label", `${visit || label + heard}, ${fmtTime(e.ts)}`);
+    card.querySelector(".media").onclick = () => { if (e.clip) openPlayer(e.clip, `${label} · ${fmtTime(e.ts)}`); else peekAt(e.ts); };
+    if (SOUND_KINDS.has(e.kind)) card.appendChild(feedbackRow(e));
+    feed.appendChild(card);
   }
 }
 function visitLabel(d) {
@@ -1085,9 +1287,12 @@ function feedbackRow(e) {
 let peekTs = null;
 function tlPick(ev) {
   const r = $("timeline").getBoundingClientRect();
-  const f = Math.min(1, Math.max(0, (ev.clientX - r.left - 8) / (r.width - 16)));
+  const f = Math.min(1, Math.max(0, (ev.clientX - r.left - 56) / (r.width - 66)));
+  const [lo, hi] = laneRange;
   const t = new Date(dayString(dayOffset) + "T00:00");
-  t.setMinutes(Math.round(f * 1439));            // clock time, so DST days map correctly
+  t.setMinutes(Math.round((lo + f * (hi - lo)) * 10));   // clock time, so DST days map correctly
+  const tl = $("timeline"); tl.querySelectorAll(".cur").forEach((x) => x.remove());
+  const c = document.createElement("i"); c.className = "cur"; c.style.left = `${ev.clientX - r.left}px`; tl.appendChild(c);
   peekAt(Math.min(Date.now() / 1000 - 60, t.getTime() / 1000));
 }
 $("timeline").addEventListener("click", tlPick);
@@ -1258,7 +1463,6 @@ $("push-off").onclick = async () => {
 };
 
 // ======================= start =======================
-$("hero-img").onerror = () => { $("hero-img").onerror = null; $("hero-img").src = "/icon.png"; };
 pollLive(); refreshCam(); loadZones();
 if (curTab === "live") startLive();
 setInterval(() => { if (!document.hidden && curTab === "live") { startLiveStream(); if (!streaming()) pollLive(); } }, 2000);
@@ -1270,6 +1474,8 @@ document.addEventListener("visibilitychange", () => {
   if (curTab === "live") { esFails = 0; pollLive(); startLive(); startLiveStream(); }
 });
 const saved = recall("petcam.tab"); if (saved && saved !== "live") showTab(saved);
+if (recall("petcam.frame") === "room") setFrame(true);
+refreshTrace();
 </script>
 </body>
 </html>

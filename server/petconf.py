@@ -47,6 +47,7 @@ def template_vars():
     """Placeholders the web pages use: {{PET}} etc. in HTML, {{PET_JS}} as a JS object."""
     return {
         "PET": html_escape(PET),
+        "PET_UPPER": html_escape(PET.upper()),
         "APP_NAME": html_escape(APP_NAME),
         "PET_POSS_CAP": html_escape(POSS.capitalize()),
         "PET_POSS": html_escape(POSS),
