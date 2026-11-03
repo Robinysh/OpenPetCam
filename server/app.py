@@ -1468,6 +1468,17 @@ def list_reports(limit=20):
     return out
 
 
+def agent_dashboard():
+    """The super-agent's state for the owners' dashboard (/agent): goals, open threads, decisions, heartbeats,
+    and the steering file the agent obeys (pushed here by tools/superagent.py on every tick)."""
+    import agentdb
+    with agentdb.db() as c:
+        d = agentdb.cmd_dashboard(c, {})
+        st = c.execute("SELECT title, summary FROM threads WHERE id='steer'").fetchone()
+    d["north"], d["steer"] = (st["title"], st["summary"]) if st else ("", "")
+    return d
+
+
 def log_client_error(body, ua):
     """Uncaught errors from the page (iPhone-only bugs are otherwise invisible). Capped: 30/min, 1 MB."""
     now = time.time()
@@ -1672,6 +1683,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, list_zones())
         if path == "/api/reports":
             return self.send_json(200, list_reports())
+        if path == "/api/agent":
+            return self.send_json(200, agent_dashboard())
+        if path == "/agent":
+            return self.send(200, page("agent.html"), "text/html; charset=utf-8")
         if path == "/api/wellbeing":
             return self.camera_call(wellbeing, q.get("d"))
         if path == "/api/frame.jpg":

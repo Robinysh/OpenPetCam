@@ -191,6 +191,18 @@ def check():
              (f"{APP}: your report is still waiting", f"{len(waiting)} report(s) not looked at for 6 h. The computer that "
               "answers them may be asleep or off."),
              (f"{APP}: reports are being answered again", "The report agent caught up"))
+    # 3c. The super-agent's brain runs on the owner's computer; its tick heartbeats into agent.db. Silent for 6 h
+    #     (computer asleep or off, or the loop broken): say so once.
+    try:
+        ac = sqlite3.connect(f"{STATE}/agent.db", timeout=5)
+        row = ac.execute("SELECT ts FROM beats WHERE name='tick'").fetchone()
+        ac.close()
+        if row:
+            incident(st, "agent", time.time() - row[0] > 6 * 3600,
+                     (f"{APP}: the agent is paused", "Its computer hasn't checked in for 6 h (asleep or off?). Reports and goals wait until it is back."),
+                     (f"{APP}: the agent is back", "It is working through what waited"))
+    except sqlite3.Error:
+        pass
     # 4. New events from the watcher. Some are stamped earlier than they are written ("left" uses
     #    the last sighting, sounds their start), and SQLite reuses ids after deletes, so neither
     #    an id nor a time watermark is safe: re-read the last 30 min, skip (id, ts) already handled.

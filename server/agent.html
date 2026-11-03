@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0b0c">
+<title>{{PET}} cam · Agent</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b0b0c; --card:#151517; --card2:#1c1c1f; --line:#2a2a2e; --text:#f2f2f3; --muted:#9a9aa2;
+          --dim:#5d5d64; --accent:#ffd60a; --ok:#30d158; --warn:#ff9f0a; --bad:#ff453a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 30px); }
+  header { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  h1 { margin:0; font-size:28px; font-weight:800; letter-spacing:-.02em; }
+  h2 { font-size:13px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:22px 0 8px; }
+  a { color:var(--accent); }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:12px; background:var(--card2); font-size:12px; font-weight:700; }
+  .chip i { width:8px; height:8px; border-radius:4px; background:var(--dim); }
+  .chip.ok i { background:var(--ok); } .chip.warn i { background:var(--warn); } .chip.bad i { background:var(--bad); }
+  .north { color:var(--muted); font-size:13px; margin:8px 0 0; }
+  .goals { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px; }
+  .goal { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:12px 14px; }
+  .goal .top { display:flex; justify-content:space-between; align-items:center; font-size:13px; color:var(--muted); font-weight:650; }
+  .goal .badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:9px; }
+  .badge.ok { background:rgba(48,209,88,.16); color:var(--ok); } .badge.miss { background:rgba(255,159,10,.18); color:var(--warn); }
+  .goal b { display:block; font-size:24px; font-weight:800; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .goal .tgt { font-size:12px; color:var(--dim); }
+  .goal svg { display:block; width:100%; height:34px; margin-top:6px; }
+  .goal .why { font-size:12px; color:var(--muted); margin-top:4px; }
+  .list { display:flex; flex-direction:column; gap:8px; }
+  .item { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:11px 13px; }
+  .item .t { display:flex; justify-content:space-between; gap:8px; font-weight:700; font-size:14px; }
+  .item .t span { color:var(--dim); font-weight:600; font-size:12px; white-space:nowrap; }
+  .item .s { color:var(--muted); font-size:13px; margin-top:3px; overflow-wrap:anywhere; }
+  .run { display:inline-block; width:8px; height:8px; border-radius:4px; background:var(--accent); margin-right:6px; animation:p 1.2s infinite; }
+  @keyframes p { 50% { opacity:.25; } }
+  .feed .item { padding:9px 12px; }
+  .k { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); }
+  .k.result { color:var(--ok); } .k.ask, .k.alert { color:var(--warn); } .k.error { color:var(--bad); } .k.dispatch { color:var(--accent); }
+  pre { white-space:pre-wrap; font:13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; background:var(--card); border:1px solid var(--line);
+        border-radius:14px; padding:12px; color:var(--muted); margin:0; }
+  .empty { color:var(--dim); font-size:13px; padding:8px 2px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>Agent</h1><div class="north" id="north"></div></div>
+    <span class="chip" id="alive"><i></i><span>…</span></span>
+  </header>
+
+  <h2>Goals</h2>
+  <div class="goals" id="goals"></div>
+
+  <h2>Working on</h2>
+  <div class="list" id="ongoing"></div>
+
+  <h2>Recent decisions</h2>
+  <div class="list feed" id="feed"></div>
+
+  <h2>Your steering</h2>
+  <pre id="steer">…</pre>
+  <p class="north">To steer: tell Claude Code in your chat. It edits this list, the goals and the policies, and the agent reads them every turn.
+    <a href="/">Back to the camera</a></p>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 90 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+const NAMES = { reports_answered: "Reports answered", owner_reports: "Owner reports / day", search_success: "Find success",
+  cpu: "CPU (% of a core)", burst_credits: "CPU credits", qa: "QA failures", app_status_fresh: "App freshness (s)" };
+function spark(pts) {
+  if (!pts || pts.length < 2) return "";
+  const vs = pts.map((p) => p[1]).filter((v) => v !== null), lo = Math.min(...vs), hi = Math.max(...vs), r = hi - lo || 1;
+  const t0 = pts[0][0], t1 = pts[pts.length - 1][0] || t0 + 1;
+  const d = pts.filter((p) => p[1] !== null).map((p, i) => `${i ? "L" : "M"}${((p[0] - t0) / (t1 - t0 || 1) * 196 + 2).toFixed(1)},${(32 - (p[1] - lo) / r * 28).toFixed(1)}`).join(" ");
+  return `<svg viewBox="0 0 200 34" preserveAspectRatio="none" aria-hidden="true"><path d="${d}" fill="none" stroke="var(--muted)" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
+}
+function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; }
+function text(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+async function load() {
+  let d;
+  try { const r = await fetch("/api/agent", { credentials: "same-origin" }); if (r.status === 401) { location.href = "/login"; return; } d = await r.json(); }
+  catch (e) { $("alive").querySelector("span").textContent = "Server unreachable"; return; }
+  const beats = Object.fromEntries((d.beats || []).map((b) => [b.name, b]));
+  const tick = beats.tick, wd = beats.watchdog;
+  const age = tick ? d.now - tick.ts : 1e9;
+  const probs = wd && wd.detail ? (JSON.parse(wd.detail).problems || []) : [];
+  const chip = $("alive");
+  chip.className = `chip ${age < 600 && !probs.length ? "ok" : age < 3600 ? "warn" : "bad"}`;
+  chip.querySelector("span").textContent = age < 600 ? (probs.length ? `Running · ${probs.length} issue${probs.length > 1 ? "s" : ""}` : "Running") : tick ? `Paused · last ${ago(tick.ts)}` : "Not started";
+  chip.title = probs.join("; ");
+  $("north").textContent = d.north || "";
+  const g = $("goals"); g.innerHTML = "";
+  if (!d.goals.length) g.appendChild(el("div", "empty", "No measurements yet."));
+  for (const x of d.goals) {
+    const c = el("div", "goal");
+    c.innerHTML = `<div class="top"><span>${text(NAMES[x.goal] || x.goal)}</span><span class="badge ${x.ok ? "ok" : "miss"}">${x.ok ? "On target" : "Missing"}</span></div>
+      <b>${x.value === null ? "—" : text(x.value)}</b><div class="tgt">target ${text(x.target)} · ${ago(x.ts)}</div>${spark(d.series[x.goal])}
+      <div class="why">${text((x.detail || "").replace(/^"|"$/g, ""))}</div>`;
+    g.appendChild(c);
+  }
+  const on = $("ongoing"); on.innerHTML = "";
+  const open = d.threads.filter((t) => t.status !== "closed" && !["router", "steer"].includes(t.id));
+  if (!open.length) on.appendChild(el("div", "empty", "Nothing open."));
+  for (const t of open) {
+    const running = (t.worker || "").startsWith("pid:");
+    const c = el("div", "item");
+    c.innerHTML = `<div class="t"><span>${running ? '<i class="run"></i>' : ""}${text(t.title || t.id)}</span><span>${ago(t.updated)}</span></div>
+      <div class="s">${running ? `A ${text(t.kind || "")} worker is on it. ` : ""}${text(t.summary || "")}</div>`;
+    on.appendChild(c);
+  }
+  const f = $("feed"); f.innerHTML = "";
+  for (const l of d.log.slice(0, 40)) {
+    const c = el("div", "item");
+    c.innerHTML = `<div class="t"><span><span class="k ${text(l.kind)}">${text(l.kind)}</span> · ${text(l.actor)}${l.thread ? ` · ${text(l.thread)}` : ""}</span><span>${ago(l.ts)}</span></div>
+      <div class="s">${text(l.text)}</div>`;
+    f.appendChild(c);
+  }
+  if (!d.log.length) f.appendChild(el("div", "empty", "No decisions yet."));
+  $("steer").textContent = d.steer || "(none yet)";
+}
+load(); setInterval(load, 20000);
+</script>
+</body>
+</html>

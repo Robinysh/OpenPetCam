@@ -89,7 +89,7 @@ done
 echo "10c95ea3eb9a7bb4cb8bddf6feb023250381008177ac162ce169694d05c317de  /opt/petcam/models/yamnet.tflite" | sha256sum -c --quiet -
 
 render $SRC/mediamtx.yml > /etc/mediamtx/mediamtx.yml && chmod 644 /etc/mediamtx/mediamtx.yml
-install -m 644 $SRC/petconf.py $SRC/tracker.py $SRC/app.py $SRC/watch.py $SRC/detector.py $SRC/alert.py $SRC/index.html $SRC/login.html $SRC/join.html \
+install -m 644 $SRC/petconf.py $SRC/agentdb.py $SRC/tracker.py $SRC/app.py $SRC/watch.py $SRC/detector.py $SRC/alert.py $SRC/index.html $SRC/agent.html $SRC/login.html $SRC/join.html \
   $SRC/manifest.webmanifest $SRC/icon.png $SRC/sw.js /opt/petcam/
 render $SRC/Caddyfile > /etc/caddy/Caddyfile && chmod 644 /etc/caddy/Caddyfile
 install -m 750 -o root -g root $SRC/set-secrets.sh /opt/petcam/set-secrets.sh
