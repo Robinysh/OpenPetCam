@@ -259,7 +259,7 @@
   .lanes { position:relative; height:96px; background:var(--card); border:1px solid var(--line); border-radius:18px; cursor:pointer; touch-action:pan-y; }
   .lanes .ln { position:absolute; left:10px; font-size:10px; color:var(--dim); }
   .lanes .blk { position:absolute; height:22px; border-radius:4px; min-width:2px; }
-  .lanes .bark { position:absolute; top:4px; bottom:4px; width:2px; background:#ff9f0a; opacity:.9; }
+  .lanes .bark { position:absolute; top:0; height:5px; width:2px; background:#ff9f0a; border-radius:0 0 1px 1px; }
   .lanes .now, .lanes .cur { position:absolute; top:4px; bottom:4px; width:2px; background:#fff; border-radius:1px; }
   .lanes .now { opacity:.35; }
   .lane-ticks { position:relative; height:14px; font-size:10px; color:var(--dim); margin-top:3px; }
@@ -1173,8 +1173,13 @@ function renderDay() {
   // --- mosaic: her latest moments with a picture (today: the live view first)
   const pics = ((t && t.events) || []).filter((e) => e.thumb && !["camera_frozen", "camera_back", "camera_offline", "search"].includes(e.kind));
   const tiles = [];
-  if (dayOffset === 0) tiles.push({ src: `/media/snaps/${dayString(0)}/${new Date(Date.now() - 60000).toTimeString().slice(0, 5).replace(":", "-")}.jpg`, ts: Date.now() / 1000 - 60, label: "now" });
-  for (const e of pics) { if (tiles.length >= 3) break; tiles.push({ src: e.thumb, ts: e.ts, clip: e.clip, label: fmtTime(e.ts), kind: e.kind }); }
+  const inView = live && live.present && live.last_seen && Date.now() / 1000 - live.last_seen < 30;
+  if (dayOffset === 0 && inView) tiles.push({ src: `/media/snaps/${dayString(0)}/${new Date(Date.now() - 60000).toTimeString().slice(0, 5).replace(":", "-")}.jpg`, ts: Date.now() / 1000 - 60, label: "now" });
+  for (const e of pics) {      // one picture per moment: skip repeats and moments within 2 min of one already shown
+    if (tiles.length >= 3) break;
+    if (tiles.some((x) => x.src === e.thumb || Math.abs(x.ts - e.ts) < 120)) continue;
+    tiles.push({ src: e.thumb, ts: e.ts, clip: e.clip, label: fmtTime(e.ts), kind: e.kind });
+  }
   const mo = $("mosaic"); mo.innerHTML = ""; mo.classList.toggle("one", tiles.length < 3);
   mo.classList.toggle("hidden", !tiles.length);
   for (const x of tiles.slice(0, tiles.length < 3 ? 1 : 3)) {
