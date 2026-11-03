@@ -205,7 +205,7 @@ chases = [a for _, a in log if a.startswith("chase")]
 starts = [a for a in chases if "motion at the edge" in a]
 assert len(starts) <= 2 and len(chases) <= 6, (len(starts), len(chases), chases)
 # ...but once she is seen, motion may start a chase again right away
-w.pet = w.X; tr.step(w.box(), moving=False); w.pet = 99999; w.advance(3.0)
+w.pet = w.X; tr.step(w.box(), moving=False); w.pet = 99999; w.advance(T.REST_MISS_HOLD + 1.0)
 assert (tr.step(None, moving=False, motion=(w.t - 0.2, 0.45, 0.0)) or "").startswith("chase: motion"), "chase not re-armed"
 print(f"people moving about while she sleeps out of view: {len(chases)} chase moves in 4 min")
 
@@ -277,4 +277,18 @@ tr = looker([None, None, None, None]); f = tr.find_pet
 tr.find_pet = lambda after: (calls.append(1), f(after))[1]
 assert tr.look() is None and len(calls) == T.LOOK_FRAMES - T.CONFIRM_FRAMES + 1, ("did not stop early", len(calls))
 print(f"confirmation: {T.CONFIRM_FRAMES} agreeing of {T.LOOK_FRAMES} frames; one stray frame is not a find; gives up after {len(calls)} empty frames")
+
+# 18. Report 2026-11-03 12:22: asleep in the middle of the picture for two hours; she stirred, then the detector
+#     missed her on one frame just after the stream restarted, while the frame reader reported motion at the
+#     left edge. A motion chase turned the camera left 3 times, away from her, and the search missed her.
+#     A pet seen lying still a moment ago is not chased on motion alone; the camera stays put.
+w = World(X=1850, pet=1850); tr = tracker_for(w)
+log = run(w, tr, 60)                                   # resting, in view
+assert not w.moves, w.moves
+seen_box = w.box(); w.advance(1.0)
+a = tr.step(None, moving=False, motion=(w.t - 0.2, -0.48, -0.06))   # one missed frame + edge motion
+w.advance(2.0)
+b = tr.step(seen_box, moving=False)                    # the next frame sees her again
+assert not (a or "").startswith("chase") and not w.moves and w.box() is not None, (a, b, w.moves)
+print("resting pet missed for one frame: no motion chase away from her")
 print("tracker ok")

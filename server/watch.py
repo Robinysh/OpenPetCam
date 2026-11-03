@@ -215,6 +215,9 @@ class FrameSource:
                                   "-f", "rawvideo", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             n = self.W * self.H * 3
             stopped = False
+            # A new decoder session must not compare its first frame with the last one of the previous session
+            # (minutes old when it went idle): the difference reads as motion and can start a chase.
+            self.prev_small = None
             try:
                 while True:
                     if not self.wanted():

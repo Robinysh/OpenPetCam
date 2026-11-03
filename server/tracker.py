@@ -38,6 +38,9 @@ GIVE_UP_AFTER = 2       # this many unprompted searches in a row found nothing: 
 MOTION_CHASE_QUIET = 180.0  # after a chase set off by motion alone, no new motion chase for this long unless
                         # she is seen (2026-11-02 16:44-16:48: people moving about while she slept on the rug
                         # set off 6 motion chases, 18 motor moves in 4 min; the owner wants fewer, quieter moves)
+REST_MISS_HOLD = 8.0  # she was seen lying still this recently: edge motion is not her, so no motion chase
+                        # (report 2026-11-03 12:22: two hours asleep on the sofa, one missed frame right after the
+                        # stream restarted, and a motion chase turned the camera 3 times away from her)
 REST_NAMES = ("default", "corridor")   # a saved view named with one of these is where a failed search waits
 USER_PAUSE = 180.0     # a move by a person pauses following/searching this long
 SETTLE = 0.9            # seconds after a move before a frame is trusted (motion blur, stream latency)
@@ -227,7 +230,9 @@ class Tracker:
             return self._chase(*self.chase_dir, f"still not in view, continuing ({self.chase_steps + 1}/3)")
         # chase on motion: she crossed too fast to be detected twice (or at all), but the frame reader
         # saw where the picture changed. Motion near an edge, just now, with no pet in view: look there.
-        if motion and t - motion[0] < 3.0 and motion[0] > self.own_move_t + 2.0 and motion[0] != self.chased_for:
+        resting_here = self.last_seen_c is not None and not self.last_moving and gone < REST_MISS_HOLD
+        if motion and t - motion[0] < 3.0 and motion[0] > self.own_move_t + 2.0 and motion[0] != self.chased_for \
+                and not resting_here:
             mx, my = motion[1], motion[2]
             if max(abs(mx), abs(my) * 1.2) > 0.3 and t - self.last_move > MOVE_EVERY and \
                     t - self.motion_chase_t >= MOTION_CHASE_QUIET:
