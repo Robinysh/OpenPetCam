@@ -64,6 +64,7 @@ LOUD_NON_DOG_DB = -28.0       # non-dog sounds become a moment only when this lo
 DOG_SOUND_KINDS = set(petconf.DOG_SOUND_KINDS)
 
 SUB_URL = "rtsp://127.0.0.1:8554/sub"   # the camera's 640x360 stream, relayed by MediaMTX
+STREAM_HOLD = 90              # seconds the live decoder keeps running after the last reason to watch closely
 FRAME_FPS = 5                 # decoded frames per second for motion (the detector runs far less often)
 STREAM_STALL = 90             # seconds of no live frames (while snapshots work) before the streamer is restarted
 CAM_MOVE_GRACE = 10.0         # s around a camera move in which entering/leaving the picture is not an event
@@ -166,6 +167,7 @@ class FrameSource:
 
     def __init__(self, url=SUB_URL):
         self.url = url
+        self.wake_decoder = threading.Event()
         self.frame, self.t = None, 0.0
         self.prev_small = None
         self.motion_c = None        # (t, fx, fy): where in the picture the last real motion was (-0.5..0.5)
@@ -175,15 +177,38 @@ class FrameSource:
     def start(self):
         threading.Thread(target=self.run, daemon=True).start()
 
+    # Idle mode (2026-11-02 CPU profile: decoding this stream all day was ~10% of a core on a box allowed ~10% in
+    # total). The decoder runs only while someone wants live frames: motion, an active or followed pet, a search.
+    # Otherwise the watcher uses the camera's own JPEG snapshot every few seconds.
+    want_until = 0.0
+
+    def want(self, secs=STREAM_HOLD):
+        self.want_until = max(self.want_until, now() + secs)
+        self.wake_decoder.set()
+
+    def wanted(self):
+        return now() < self.want_until
+
     def run(self):
         backoff = 2
+        self.wake_decoder = getattr(self, "wake_decoder", threading.Event())
         while True:
+            if not self.wanted():
+                with self.lock:
+                    self.frame = None
+                self.wake_decoder.wait(5)
+                self.wake_decoder.clear()
+                continue
             p = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-nostdin", "-threads", "1", "-rtsp_transport", "tcp", "-i", self.url,
                                   "-an", "-vf", f"fps={FRAME_FPS},scale={self.W}:{self.H}", "-pix_fmt", "rgb24",
                                   "-f", "rawvideo", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             n = self.W * self.H * 3
+            stopped = False
             try:
                 while True:
+                    if not self.wanted():
+                        stopped = True          # idle again: stop decoding
+                        break
                     buf = p.stdout.read(n)
                     if len(buf) < n:
                         break
@@ -204,6 +229,8 @@ class FrameSource:
             finally:
                 p.kill()
                 p.wait()
+            if stopped:
+                continue
             time.sleep(backoff)
             backoff = min(backoff * 2, 60)
 
@@ -687,7 +714,7 @@ class Watch:
         self.cam_moves = collections.deque(maxlen=20)
         self.move_box0 = None
         self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep,
-                               find_now=self.find_pet_now, can_scan=lambda: self.source == "stream",
+                               find_now=self.find_pet_now, can_scan=lambda: self.source != "snapshot",   # idle is fine (frames start on demand); a broken stream is blind
                                tick=self.search_tick)
         self.last_tick = 0.0
         self.last_motion_t = 0.0
@@ -822,15 +849,21 @@ class Watch:
             if self.source != "stream":
                 log("frames: live stream")
             self.source = "stream"
-        else:                       # stream down or stale: the camera's own snapshot (freeze watchdog relies on it)
+        else:                       # idle (decoder off) or stream down: the camera's own snapshot
             jpg = snapshot("ch1")
             img = Image.open(io.BytesIO(jpg))
             img.load()
-            if self.source != "snapshot":
-                log("frames: camera snapshots (stream not available)")
-                self.stream_down_since = now()
-            self.source = "snapshot"
-            self.check_stream_stall()
+            if not self.frames.wanted():
+                if self.source != "idle":
+                    log("frames: idle, camera snapshots")
+                self.source = "idle"
+                self.stream_down_since = None
+            else:
+                if self.source != "snapshot":
+                    log("frames: camera snapshots (stream not available)")
+                    self.stream_down_since = now()
+                self.source = "snapshot"
+                self.check_stream_stall()
         t = now()
         con = db()
         self.heal_tries = 0
@@ -868,6 +901,8 @@ class Watch:
                   or t - (self.last_seen or 0) < 20 and not self.rest_since)
         if motion > MOTION_DETECT:
             self.last_motion_t = t
+        if lively or motion > MOTION_DETECT:
+            self.frames.want()                 # something to watch closely: live frames for the next 90 s
         if motion > MOTION_DETECT or t - self.last_detect >= (DETECT_EVERY if lively else DETECT_STILL) or prev is None:
             self.last_found = self.det.detect(img, min_score=0.10)
             self.last_detect = t
@@ -1112,6 +1147,7 @@ class Watch:
     def find_pet(self, after_t, wait=2.5):
         """For the tracker's search: the verified pet box in a frame that arrived after after_t
         (the camera has settled), or None."""
+        self.frames.want()
         deadline = now() + wait
         img = None
         while now() < deadline:
@@ -1139,6 +1175,7 @@ class Watch:
 
     def find_pet_now(self, since):
         """For the tracker's scan while panning: the newest frame if it arrived after `since`, no waiting."""
+        self.frames.want()
         with self.frames.lock:
             fresh = self.frames.frame is not None and self.frames.t > since
         if not fresh:

@@ -55,5 +55,6 @@ paths:
   sub:
     source: rtsp://placeholder/ch1
     rtspTransport: tcp
-    sourceOnDemand: no
+    sourceOnDemand: yes            # pulled from the camera only while the watcher decodes it (idle mode, 2026-11-02)
+    sourceOnDemandCloseAfter: 15s
     record: no
