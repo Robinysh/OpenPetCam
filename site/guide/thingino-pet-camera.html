@@ -8,12 +8,12 @@
 <meta property="og:image" content="https://crimeacs.github.io/OpenPetCam/media/share.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#355BEB">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="../apple-touch-icon.png">
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../site.css">
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Build a pet camera with Thingino firmware (step by step)", "description": "Turn a cheap Thingino-supported pan/tilt Wi-Fi camera into a private pet camera that finds your dog, with OpenPetCam and a $5 server. Cameras, firewall ports, WireGuard settings.", "datePublished": "2026-11-03", "dateModified": "2026-11-03", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/guide/thingino-pet-camera.html", "image": "https://crimeacs.github.io/OpenPetCam/media/share.png"}</script>
 <script src="../analytics.js" defer></script></head>
-<body><header class="topbar"><nav class="nav"><a class="brand" href="../"><img src="../media/openpetcam-logo-horizontal-white.svg" alt="OpenPetCam" width="160" height="34"></a>
-<div class="navlinks"><a href="../#film">Film</a><a href="../#faq">FAQ</a><a href="./">Guides</a><a class="gh" href="https://github.com/crimeacs/OpenPetCam" data-track="nav">GitHub ★</a></div></nav></header>
+<body><nav class="nav"><a class="word" href="../" aria-label="OpenPetCam home"><img src="../media/openpetcam-mark-color.svg" width="34" height="34" alt="">OpenPetCam</a>
+<div class="links"><a href="../#search">How it finds her</a><a href="./">Guides</a><a class="star" href="https://github.com/crimeacs/OpenPetCam" data-track="nav">★ GitHub</a></div></nav>
 <main class="doc" data-section="guide">
 <p class="crumbs"><a href="../">OpenPetCam</a> / <a href="./">Guides</a></p>
 <h1>Build a pet camera with Thingino firmware</h1>
@@ -57,7 +57,7 @@ git checkout "$(git describe --tags --abbrev=0)"
 <h2>Another camera model?</h2>
 <p>Most Thingino pan/tilt cameras work. Motor ranges differ, so run <code>tools/calibrate.py</code> once. If yours works (or doesn't), <a href="https://github.com/crimeacs/OpenPetCam/issues/new/choose" data-track="guide-issue">tell us in an issue</a>: it's the most useful thing you can share.</p>
 
-<p style="margin-top:48px"><a class="btn primary" style="background:var(--blue);color:#fff" href="https://github.com/crimeacs/OpenPetCam" data-track="guide-star">Get OpenPetCam on GitHub</a></p>
+<p style="margin-top:48px"><a class="btn primary" style="background:var(--blue);color:#fff;font-family:var(--snout-t)" href="https://github.com/crimeacs/OpenPetCam" data-track="guide-star">Get OpenPetCam on GitHub</a></p>
 </main>
 <footer><p>OpenPetCam is Apache-2.0 open source. <a href="https://github.com/crimeacs/OpenPetCam">GitHub</a> · <a href="../">Home</a> · <a href="../llms.txt">llms.txt</a></p></footer>
 </body></html>
