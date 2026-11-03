@@ -878,9 +878,13 @@ class Watch:
 
         moved_recently = self.camera_moved_recently()
         prev = self.prev_small
+        # A camera JPEG and a decoded stream frame differ in compression and exposure: comparing across a switch
+        # reads as motion and restarted the decoder 3 s after every switch to idle (measured 2026-11-02 21:26).
+        same_source = getattr(self, "prev_source", None) in (None, self.source)
+        self.prev_source = self.source
         diff = None
         motion = 0.0
-        if prev is not None and not moved_recently:
+        if prev is not None and not moved_recently and same_source:
             diff = np.abs(gray - prev)
             diff[:9, :] = 0                               # ignore the clock overlay
             motion = float(diff.mean())

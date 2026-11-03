@@ -297,6 +297,15 @@
   .send:disabled { opacity:.4; }
   .send svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
 
+
+  .steps { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+  .steps li { display:flex; align-items:center; gap:12px; background:var(--card2); border-radius:16px; padding:12px; font-size:15px; }
+  .steps b { width:28px; height:28px; flex:none; border-radius:14px; background:#2e2e33; display:grid; place-items:center; font-size:13px; }
+  .steps em { font-style:normal; font-weight:700; }
+  .ishare { width:20px; height:20px; vertical-align:-4px; fill:none; stroke:#0a84ff; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .bell { width:64px; height:64px; margin:6px auto 4px; border-radius:32px; background:rgba(255,214,10,.16); color:var(--accent); display:grid; place-items:center; }
+  .bell svg { width:30px; height:30px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+
   /* ---------- landscape phone: full-screen live view ---------- */
   @media (orientation:landscape) and (max-height:540px) {
     body.tab-live { overflow:hidden; }
@@ -471,6 +480,31 @@
     </div>
     <div class="note" id="mode-note"></div>
     <div class="row"><button class="btn" id="light-close" type="button">Done</button></div>
+  </div>
+</div>
+
+
+<!-- install on iPhone + turn on alerts (no App Store, no developer account: the web app, from the Home Screen) -->
+<div class="sheet-bg hidden" id="install-sheet">
+  <div class="sheet" role="dialog" aria-label="Install on your iPhone">
+    <div class="grab"></div>
+    <h3>Put {{PET}} on your Home Screen</h3>
+    <div class="note" style="margin:0 0 12px">Opens full screen like an app, and can tell you when {{PET}} barks or your agent answers.</div>
+    <ol class="steps">
+      <li><b>1</b><span>Tap <svg class="ishare" viewBox="0 0 24 24" aria-label="Share"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M6 11v9h12v-9"/></svg> Share in Safari's bar</span></li>
+      <li><b>2</b><span>Scroll and tap <em>Add to Home Screen</em></span></li>
+      <li><b>3</b><span>Open <em>{{PET}}</em> from your Home Screen</span></li>
+    </ol>
+    <button class="btn primary" id="install-ok" type="button" style="width:100%;margin-top:14px">Got it</button>
+  </div>
+</div>
+<div class="sheet-bg hidden" id="alerts-sheet">
+  <div class="sheet" role="dialog" aria-label="Turn on alerts" style="text-align:center">
+    <div class="grab"></div>
+    <div class="bell"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg></div>
+    <h3>Let {{PET}} cam tell you</h3>
+    <div class="note" style="margin:0 0 14px">When {{PET}} barks, when the camera has a problem, and when your agent answers a report.</div>
+    <div class="row"><button class="btn" id="alerts-later" type="button">Not now</button><button class="btn primary" id="alerts-allow" type="button">Allow</button></div>
   </div>
 </div>
 
@@ -1509,6 +1543,34 @@ document.querySelectorAll("[data-pref]").forEach((b) => b.onclick = async () => 
   b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true");
   try { await subscribe(); $("push-note").textContent = "Saved."; } catch (e) { $("push-note").textContent = e.message; }
 });
+
+// First open in iPhone Safari: how to install (the only way to get alerts on iPhone). From the Home Screen,
+// once: ask to turn alerts on (2026-11-02: both phones had only ever opened the app in Safari, so no alert
+// or agent reply could reach them).
+(function onboarding() {
+  const iOS = /iPhone|iPad/.test(navigator.userAgent);
+  const recent = (k, days) => { const v = Number(recall(k) || 0); return Date.now() - v < days * 864e5; };
+  const close = (id) => $(id).classList.add("hidden");
+  if (iOS && !standalone && !recent("petcam.install_seen", 3)) {
+    setTimeout(() => { $("install-sheet").classList.remove("hidden"); track("sheet", { name: "install" }); }, 1500);
+  }
+  $("install-ok").onclick = () => { store("petcam.install_seen", Date.now()); close("install-sheet"); };
+  const canPush = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  if (standalone && canPush && Notification.permission === "default" && !recent("petcam.alerts_asked", 7)) {
+    setTimeout(() => { $("alerts-sheet").classList.remove("hidden"); track("sheet", { name: "alerts" }); }, 1500);
+  }
+  $("alerts-later").onclick = () => { store("petcam.alerts_asked", Date.now()); close("alerts-sheet"); track("alerts", { allowed: false }); };
+  $("alerts-allow").onclick = async () => {
+    store("petcam.alerts_asked", Date.now());
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm === "granted") { await subscribe(); loadPush && loadPush(); }
+      track("alerts", { allowed: perm === "granted" });
+    } catch (e) { track("alerts", { error: String(e).slice(0, 80) }); }
+    close("alerts-sheet");
+  };
+})();
+
 $("push-test").onclick = async () => {
   $("push-note").textContent = "Sending…";
   try { await api("/api/push/test", {}); $("push-note").textContent = "Sent. It should arrive in a few seconds."; } catch (e) { $("push-note").textContent = e.message; }
