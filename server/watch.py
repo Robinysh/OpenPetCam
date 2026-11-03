@@ -80,7 +80,10 @@ APPEAR_AFTER = 180            # seconds she must have been gone before "appeared
 FREEZE_AFTER = 90             # seconds of a bit-identical picture before the encoder is restarted
 OFFLINE_AFTER = 180           # seconds of failed snapshots before "camera offline"
 CLIP_BEFORE, CLIP_LEN = 8, 30
-DETECT_EVERY = 8              # seconds between detector runs on a still picture
+DETECT_EVERY = 8              # seconds between detector runs while she is active, followed or searched for
+DETECT_STILL = 30             # ...and while the picture is still and nobody moved for a minute (profiled 2026-11-02:
+                              # the detector was ~18% of a core on a box allowed ~10% sustained; motion still
+                              # triggers a run at once, so arrivals are seen as fast as before)
 LOUD_PER_HOUR = 6             # at most this many "loud sound" moments per hour (barking is not capped)
 FLAP_SWITCHES = 4             # this many day/night switches within FLAP_WINDOW = flapping
 FLAP_WINDOW = 600
@@ -175,7 +178,7 @@ class FrameSource:
     def run(self):
         backoff = 2
         while True:
-            p = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-nostdin", "-rtsp_transport", "tcp", "-i", self.url,
+            p = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-nostdin", "-threads", "1", "-rtsp_transport", "tcp", "-i", self.url,
                                   "-an", "-vf", f"fps={FRAME_FPS},scale={self.W}:{self.H}", "-pix_fmt", "rgb24",
                                   "-f", "rawvideo", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             n = self.W * self.H * 3
@@ -687,6 +690,7 @@ class Watch:
                                find_now=self.find_pet_now, can_scan=lambda: self.source == "stream",
                                tick=self.search_tick)
         self.last_tick = 0.0
+        self.last_motion_t = 0.0
         self.last_find_req = now()          # requests from before this process started are stale
         self.find_result = None
         self.prev_small = None
@@ -860,7 +864,11 @@ class Watch:
             return
         # The detector only runs when the picture changed or every DETECT_EVERY seconds: a still
         # room doesn't need a fresh answer every cycle, and this box lives near its CPU baseline.
-        if motion > MOTION_DETECT or t - self.last_detect >= DETECT_EVERY or prev is None:
+        lively = (self.moving_since is not None or t - (self.last_motion_t or 0) < 60 or self.tracker.searching
+                  or t - (self.last_seen or 0) < 20 and not self.rest_since)
+        if motion > MOTION_DETECT:
+            self.last_motion_t = t
+        if motion > MOTION_DETECT or t - self.last_detect >= (DETECT_EVERY if lively else DETECT_STILL) or prev is None:
             self.last_found = self.det.detect(img, min_score=0.10)
             self.last_detect = t
             if self.verifier:
