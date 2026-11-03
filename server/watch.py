@@ -683,7 +683,9 @@ class Watch:
         self.cam_moves = collections.deque(maxlen=20)
         self.move_box0 = None
         self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep,
-                               find_now=self.find_pet_now, can_scan=lambda: self.source == "stream")
+                               find_now=self.find_pet_now, can_scan=lambda: self.source == "stream",
+                               tick=self.search_tick)
+        self.last_tick = 0.0
         self.prev_small = None
         self.prev_box = None
         self.last_found = []
@@ -1317,6 +1319,19 @@ class Watch:
         a["moving"] += int(self.present and moving)
         a["person"] += int(person)
         a["motion"] += motion
+
+    def search_tick(self):
+        """While a search holds the loop: keep the heartbeat and the app's status fresh, at most every 3 s."""
+        t = now()
+        if t - self.last_tick < 3:
+            return
+        self.last_tick = t
+        try:
+            with open(HEARTBEAT, "w") as f:
+                f.write(str(t))
+        except OSError:
+            pass
+        self.publish(status="ok", searching=True, score=0.0, moving=False, box=None, det_t=self.last_detect, motion=0.0, person=0.0)
 
     def publish(self, status, **kw):
         live = {"t": now(), "status": status, "present": self.present and status != "privacy",

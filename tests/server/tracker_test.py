@@ -239,4 +239,12 @@ log = run(w, tr, 60)
 s = [a for _, a in log if a.startswith("search")]
 assert s and "found her" in s[0] and w.box() is not None, (log, w.moves)
 print("no live stream: waits instead of a blind sweep; with the stream back:", s[0])
+# 15. A search holds the watcher's loop for minutes: it must keep calling tick() so the heartbeat and app stay fresh.
+w = World(X=1200, pet=99999); ticks = []
+tr = T.Tracker(w, w.find_pet, clock=lambda: w.t, log=lambda m: None, sleep=w.sleep, find_now=w.find_now, tick=lambda: ticks.append(w.t))
+tr.last_seen_t = w.t - 100
+res = tr.search("test")
+gaps = [b - a for a, b in zip(ticks, ticks[1:])]
+assert "not found" in res and ticks and max(gaps) < 5, (res, len(ticks), max(gaps) if gaps else None)
+print(f"long sweep keeps the watcher alive: {len(ticks)} ticks, longest gap {max(gaps):.1f} s")
 print("tracker ok")

@@ -46,7 +46,7 @@ SCAN_POLL = 0.2         # check a new frame this often while panning (the stream
 
 
 class Tracker:
-    def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None, can_scan=None):
+    def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None, can_scan=None, tick=None):
         """cam: position() -> (x, y); home() -> (x, y); goto(x, y) (returns at once); aim(fx, fy); wait_idle(); busy(); stop();
                  limits() -> (xmax, ymax);
                  frame_steps() -> (pan steps per frame width, tilt steps per frame height);
@@ -59,6 +59,9 @@ class Tracker:
         self.find_now = find_now or (lambda since: None)   # newest frame since `since`, no waiting
         self.sleep = sleep or (lambda s: None)
         self.can_scan = can_scan or (lambda: True)
+        # tick(): called every few seconds while a search holds the watcher's loop, so it can keep its heartbeat
+        # and the app's status fresh (report 2026-11-02 16:51: a 2-min sweep showed 'Watcher not running').
+        self.tick = tick or (lambda: None)
         self.hist = collections.deque()
         self.last_seen_t = clock()     # starting up counts as "just lost": an unseen pet still gets searched for
         self.last_seen_c = None
@@ -233,6 +236,7 @@ class Tracker:
 
     def look(self, frames=LOOK_FRAMES):
         """Judge a few fresh frames after the camera settled: one frame can miss a curled-up dog."""
+        self.tick()
         for _ in range(frames):
             box = self.find_pet(self.clock())
             if box is not None:
@@ -254,6 +258,7 @@ class Tracker:
         self._move(self.cam.goto, b, y)              # returns at once; the motor keeps going
         seen_t = self.clock()
         while self.cam.busy():
+            self.tick()
             if self.user_paused():
                 self.cam.stop()
                 return f"search ({reason}): stopped, a person moved the camera"

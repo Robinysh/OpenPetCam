@@ -231,3 +231,7 @@ caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
 systemctl reload caddy || systemctl restart caddy
 sleep 3
 systemctl is-active mediamtx petcam-app caddy
+
+# Ubuntu's firmware updater has nothing to update on a cloud VM; its timer fails and shows as a failed unit in QA.
+systemctl disable --now fwupd-refresh.timer >/dev/null 2>&1 || true
+systemctl reset-failed fwupd-refresh.service >/dev/null 2>&1 || true
