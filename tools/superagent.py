@@ -283,6 +283,7 @@ def tick():
     except (ValueError, KeyError):
         north = ""
     adb("thread", {"id": "steer", "title": north, "kind": "steer", "status": "closed", "summary": read("steer.md", 4000)})
+    retry_queued()                                         # finished fixes first, before starting new work
     new = collect()
     pend = adb("pending")
     slow, done = [], []
@@ -315,7 +316,6 @@ def tick():
         else:
             note("router", f"{act}: {a.get('why', '')}", thread, act or "note")
             adb("mark", {"ids": ids, "status": "handled"})
-    retry_queued()
     beat("tick", {"new": new, "pending": len(pend), "slow": len(slow), "workers": len(running_workers())})
 
 
