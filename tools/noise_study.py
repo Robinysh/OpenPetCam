@@ -117,7 +117,7 @@ if why:
     print(json.dumps({"skipped": why})); sys.exit(0)
 wav = "/tmp/noise_study.wav"
 rec = subprocess.Popen(["ffmpeg", "-nostdin", "-v", "error", "-y", "-rtsp_transport", "tcp", "-allowed_media_types", "audio",
-                        "-i", "rtsp://127.0.0.1:8554/cam", "-ac", "1", "-ar", "16000", wav], stdin=subprocess.DEVNULL)
+                        "-i", "rtsp://127.0.0.1:8554/cam", "-ac", "1", "-ar", "48000", wav], stdin=subprocess.DEVNULL)
 time.sleep(4)
 t0 = time.time()
 x0, y0 = app.position()
@@ -142,21 +142,32 @@ w = wave.open(wav); fr = w.getframerate(); raw = w.readframes(w.getnframes()); w
 import array
 pcm = array.array("h", raw)
 lag = 4.0   # recording started 4 s before t0
-def db(a, b):
+import numpy as np
+x_all = np.asarray(pcm, dtype=np.float64) / 32768
+BANDS = {"all": (20, 24000), "low_20_1k": (20, 1000), "mid_1k_8k": (1000, 8000), "high_8k_20k": (8000, 20000)}
+def db(a, b, band="all"):
+    # 48 kHz: stepper whine and dog hearing reach far above the 8 kHz a 16 kHz recording keeps
     i, k = int((a + lag) * fr), int((b + lag) * fr)
-    seg = pcm[max(0, i):max(0, k)]
-    if len(seg) < fr // 10:
+    seg = x_all[max(0, i):max(0, k)]
+    n = fr // 10
+    if len(seg) < n:
         return None
-    blocks = [seg[j:j + fr // 10] for j in range(0, len(seg) - fr // 10 + 1, fr // 10)]
-    vals = [20 * math.log10(max(1e-9, math.sqrt(sum(v * v for v in bl) / len(bl)) / 32768)) for bl in blocks]
+    lo, hi = BANDS[band]
+    f = np.fft.rfftfreq(n, 1 / fr); sel = (f >= lo) & (f < hi)
+    vals = []
+    for j in range(0, len(seg) - n + 1, n):
+        spec = np.abs(np.fft.rfft(seg[j:j + n] * np.hanning(n))) ** 2
+        vals.append(10 * math.log10(max(1e-20, float(spec[sel].sum()))))
     return vals
 out = []
 for speed, a, b in marks:
-    move, before = db(a, b), db(a - 2.0, a - 0.2)
-    if move and before:
-        floor = sorted(before)[len(before) // 2]
-        out.append({"speed": speed, "secs": round(b - a, 1), "excess_mean": round(sum(move) / len(move) - floor, 1),
-                    "excess_peak": round(max(move) - floor, 1), "floor": round(floor, 1)})
+    row = {"speed": speed, "secs": round(b - a, 1)}
+    for band in BANDS:
+        move, before = db(a, b, band), db(a - 2.0, a - 0.2, band)
+        if move and before:
+            floor = sorted(before)[len(before) // 2]
+            row[band] = {"excess_mean": round(sum(move) / len(move) - floor, 1), "excess_peak": round(max(move) - floor, 1)}
+    out.append(row)
 print(json.dumps({"x0": x0, "moves": out}))
 """
 
@@ -172,9 +183,11 @@ def loudness():
     by = {}
     for m in d["moves"]:
         by.setdefault(m["speed"], []).append(m)
-    d["summary"] = {sp: {"n": len(v), "excess_mean_db": round(statistics.median(x["excess_mean"] for x in v), 1),
-                         "excess_peak_db": round(statistics.median(x["excess_peak"] for x in v), 1),
-                         "secs_per_300_steps": round(statistics.median(x["secs"] for x in v), 1)} for sp, v in sorted(by.items())}
+    bands = ("all", "low_20_1k", "mid_1k_8k", "high_8k_20k")
+    d["summary"] = {sp: {"n": len(v), "secs_per_300_steps": round(statistics.median(x["secs"] for x in v), 1),
+                         **{b: {"excess_mean_db": round(statistics.median(x[b]["excess_mean"] for x in v if b in x), 1),
+                                "excess_peak_db": round(statistics.median(x[b]["excess_peak"] for x in v if b in x), 1)} for b in bands}}
+                    for sp, v in sorted(by.items())}
     return d
 
 

@@ -275,6 +275,28 @@
   .card .fb { margin:6px 0 0; flex-wrap:wrap; gap:6px; }
   .card .fb span { display:none; }
 
+
+  /* ---------- your agent (report chat) ---------- */
+  .sheet.chat { display:flex; flex-direction:column; height:min(80dvh, 680px); padding-top:14px; }
+  .chat-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+  .chat-head h3 { margin:0 0 2px; }
+  .chat-head .iconbtn svg { width:18px; height:18px; }
+  .thread { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:14px 2px 10px; -webkit-user-select:text; user-select:text; }
+  .msg { max-width:84%; padding:10px 13px; border-radius:18px; font-size:15px; line-height:20px; }
+  .msg.me { align-self:flex-end; background:var(--accent); color:#111; border-bottom-right-radius:6px; }
+  .msg.agent { align-self:flex-start; background:var(--card2); border-bottom-left-radius:6px; }
+  .msg .meta { display:block; font-size:11px; opacity:.65; margin-top:4px; }
+  .stat { display:inline-block; font-size:11px; font-weight:750; padding:2px 8px; border-radius:9px; margin-bottom:5px; }
+  .stat.fixed { background:rgba(48,209,88,.18); color:var(--ok); }
+  .stat.coming { background:rgba(255,214,10,.16); color:var(--accent); }
+  .stat.needs { background:rgba(255,159,10,.2); color:#ff9f0a; }
+  .stat.look { background:#2a2a2e; color:var(--muted); }
+  .composer { display:flex; gap:8px; align-items:flex-end; }
+  .composer textarea { resize:none; min-height:46px; max-height:120px; border-radius:23px; padding:12px 16px; }
+  .send { width:46px; height:46px; flex:none; border-radius:23px; border:0; background:var(--accent); color:#111; display:grid; place-items:center; cursor:pointer; }
+  .send:disabled { opacity:.4; }
+  .send svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+
   /* ---------- landscape phone: full-screen live view ---------- */
   @media (orientation:landscape) and (max-height:540px) {
     body.tab-live { overflow:hidden; }
@@ -522,16 +544,17 @@
 </div>
 
 <div class="sheet-bg hidden" id="report-sheet">
-  <div class="sheet" role="dialog" aria-label="Report a problem">
-    <div class="grab"></div>
-    <h3>Something wrong?</h3>
-    <div class="note" style="margin:0 0 8px">Sends this moment, with the picture, the last 90 seconds of video and what the camera was thinking. Your agent looks at it within minutes, fixes what it can, and answers here and on this phone.</div>
-    <div class="note" id="report-shown" style="margin:0 0 8px"></div>
-    <textarea class="field" id="report-note" rows="3" maxlength="2000" placeholder="What looks wrong? e.g. says {{PET}} is resting but the room is empty" style="width:100%;box-sizing:border-box"></textarea>
-    <div class="row"><button class="btn" id="report-cancel" type="button">Cancel</button><button class="btn primary" id="report-send" type="button">Send</button></div>
-    <div class="note" id="report-status"></div>
-    <h3 style="font-size:16px;margin:18px 0 6px">Earlier reports</h3>
-    <div id="report-list" class="note" style="margin:0">Loading…</div>
+  <div class="sheet chat" role="dialog" aria-label="Your agent">
+    <div class="chat-head">
+      <div><h3>Your agent</h3><div class="note" id="report-shown" style="margin:0"></div></div>
+      <button class="iconbtn" id="report-cancel" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="thread" id="report-list" aria-live="polite"></div>
+    <div class="note" id="report-status" style="margin:0 2px 6px"></div>
+    <div class="composer">
+      <textarea class="field" id="report-note" rows="1" maxlength="2000" placeholder="What looks wrong?" aria-label="What looks wrong?"></textarea>
+      <button class="send" id="report-send" type="button" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
+    </div>
   </div>
 </div>
 
@@ -721,39 +744,60 @@ function clientState() {
 $("report-open").onclick = () => {
   track("sheet", { name: "report" });
   reportSnap = clientState();
-  $("report-shown").textContent = `App shows: ${reportSnap.shown_status}${reportSnap.shown_health ? " · " + reportSnap.shown_health : ""}`;
+  $("report-shown").textContent = `The app shows: ${reportSnap.shown_status}${reportSnap.shown_health ? " · " + reportSnap.shown_health : ""}`;
   $("report-status").textContent = ""; $("report-send").disabled = false;
   $("report-sheet").classList.remove("hidden");
-  loadReports();
+  loadReports(true);
 };
 $("report-cancel").onclick = () => $("report-sheet").classList.add("hidden");
-async function loadReports() {
+$("report-sheet").addEventListener("click", (e) => { if (e.target.id === "report-sheet") $("report-sheet").classList.add("hidden"); });
+$("report-note").addEventListener("input", (e) => { const t = e.target; t.style.height = "auto"; t.style.height = `${Math.min(120, t.scrollHeight)}px`; });
+function replyStatus(rep) {
+  if (!rep || rep.status !== "answered") return ["look", "Looking…"];
+  const f = (rep.fix && rep.fix.status) || "";
+  if (/Your call:/.test(rep.text || "")) return ["needs", "Needs you"];
+  if (f === "live") return ["fixed", "Fixed"];
+  if (f === "queued" || f === "planned") return ["coming", "Fix coming"];
+  if (f === "error" || f === "failed_checks" || f === "rolled_back") return ["needs", "Not fixed yet"];
+  return ["", ""];
+}
+let reportPoll = null;
+async function loadReports(scroll) {
   const box = $("report-list");
-  try {
-    const rs = await api("/api/reports");
-    box.textContent = rs.length ? "" : "None yet.";
-    for (const r of rs) {
-      const row = document.createElement("div");
-      row.style.cssText = "padding:10px 0;border-top:1px solid var(--line)";
-      const q = document.createElement("div");
-      q.style.color = "var(--text, #eee)";
-      q.textContent = `${new Date(r.ts * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })} · ${r.by}: “${r.note || "(no note)"}”`;
-      const a = document.createElement("div");
-      a.style.marginTop = "4px";
-      const rep = r.reply || {};
-      a.textContent = rep.status === "answered" ? `↳ ${rep.text}` : rep.status === "looking" ? "↳ Being looked at…" : "↳ Waiting for your agent";
-      row.append(q, a);
-      box.append(row);
-    }
-  } catch (e) { box.textContent = `Couldn't load: ${e.message}`; }
+  let rs;
+  try { rs = await api("/api/reports"); } catch (e) { box.textContent = `Couldn't load: ${e.message}`; return; }
+  rs = rs.filter((r) => !/^QA probe/.test(r.by || "")).slice(0, 8).reverse();     // oldest first, like a chat
+  box.innerHTML = "";
+  if (!rs.length) { const m = document.createElement("div"); m.className = "msg agent"; m.textContent = `Tell me what looks wrong and I'll check the video and fix what I can.`; box.appendChild(m); }
+  const when = (ts) => new Date(ts * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+  let waiting = false;
+  for (const r of rs) {
+    const me = document.createElement("div"); me.className = "msg me";
+    me.textContent = r.note || "(no note)";
+    const mm = document.createElement("span"); mm.className = "meta"; mm.textContent = `${when(r.ts)}${r.by ? " · " + r.by : ""}`; me.appendChild(mm);
+    box.appendChild(me);
+    const rep = r.reply || {}, [cls, label] = replyStatus(rep);
+    const ag = document.createElement("div"); ag.className = "msg agent";
+    if (label) { const st = document.createElement("span"); st.className = `stat ${cls}`; st.textContent = label; ag.appendChild(st); ag.appendChild(document.createElement("br")); }
+    ag.append(rep.status === "answered" ? rep.text : "Checking the video from that moment.");
+    if (rep.status !== "answered") waiting = true;
+    box.appendChild(ag);
+  }
+  if (scroll !== false) box.scrollTop = box.scrollHeight;
+  clearTimeout(reportPoll);   // while a reply is pending and the chat is open, check again every 20 s
+  if (waiting && !$("report-sheet").classList.contains("hidden")) reportPoll = setTimeout(() => loadReports(), 20000);
 }
 $("report-send").onclick = async () => {
-  $("report-send").disabled = true; $("report-status").textContent = "Sending…";
+  const note = $("report-note").value.trim();
+  if (!note) { $("report-note").focus(); return; }
+  $("report-send").disabled = true; $("report-status").textContent = "";
   try {
-    const r = await api("/api/report", { note: $("report-note").value, client: reportSnap || clientState() });
-    $("report-status").textContent = "Sent. Your agent will look at it within minutes."; $("report-note").value = "";
-    loadReports();
-  } catch (e) { $("report-status").textContent = `Couldn't send: ${e.message}`; $("report-send").disabled = false; }
+    await api("/api/report", { note, client: reportSnap || clientState() });
+    $("report-note").value = ""; $("report-note").style.height = "";
+    track("report_sent");
+    await loadReports(true);
+  } catch (e) { $("report-status").textContent = `Couldn't send: ${e.message}`; }
+  $("report-send").disabled = false;
 };
 
 // Live status is pushed (server-sent events); polling every 2 s is only the fallback.
@@ -830,7 +874,10 @@ function renderFind(l) {
   btn.classList.toggle("hidden", !usable || (inView && !findPending));
   if (findPending && l && l.find && l.find.t * 1000 > findPending) {
     findPending = 0;
-    $("move-note").textContent = l.find.found ? `Found ${PET.name}.` : `Couldn't find ${PET.name} in the camera's reach.`;
+    const r = l.find.result || "";
+    $("move-note").textContent = l.find.found ? `Found ${PET.name}.` :
+      /stopped, a person moved/.test(r) ? "Search stopped because the camera was moved." :
+      /failed/.test(r) ? "The search failed. Try again in a minute." : `Couldn't find ${PET.name} in the camera's reach.`;
     track("find_result", { found: !!l.find.found });
   } else if (findPending && Date.now() - findPending > 240000) {
     findPending = 0; $("move-note").textContent = "The search took too long. Try again in a minute.";
