@@ -13,6 +13,7 @@ home") is a set of frames where any "the dog" is a false alarm. Workers never ge
 worker whose transcript touched it.
 """
 import glob
+import random as _random
 import hashlib
 import json
 import os
@@ -145,7 +146,7 @@ def search(tree):
         def position(self): return round(self.X), round(self.Y)
         def limits(self): return XM, YM
         def frame_steps(self): return FW, FH
-        def presets(self): return []
+        def presets(self): return getattr(self, "saved_views", [])
         def home(self): return 1850, 500
         def moved_at(self): return self.moved
         def busy(self): return self.X != self.tx
@@ -187,14 +188,23 @@ def search(tree):
             return b if b is not None and self.rng.random() < 0.5 else None
 
     found = times = travel = stops = n = 0
+    inview_n = inview_moves = 0
+    for pet in range(150, 3700, 450):          # she is already in view when the search starts (detector missed a frame):
+        w = World(pet + 100, pet, 500)          # the right answer is to find her without moving the motor
+        w.rng = _random.Random(pet)
+        w.saved_views = [{"x": 355, "y": 450}, {"x": 1718, "y": 426}]      # the owners' real saved views (2 Nov)
+        tr = T.Tracker(w, w.find_pet, clock=lambda w=w: w.t, log=lambda m: None, sleep=w.sleep, find_now=w.find_now)
+        tr.last_seen_t = w.t - 100
+        tr.search("replay")
+        inview_n += 1
+        inview_moves += w.stops
     for pet in range(150, 3700, 450):
         for pet_y in (300, 500, 720):
             for start in (200, 3500):
                 if abs(start - pet) < FW:
                     continue
                 w = World(start, pet, pet_y)
-                import random
-                w.rng = random.Random(pet * 7919 + pet_y * 31 + start)
+                w.rng = _random.Random(pet * 7919 + pet_y * 31 + start)
                 tr = T.Tracker(w, w.find_pet, clock=lambda w=w: w.t, log=lambda m: None, sleep=w.sleep, find_now=w.find_now)
                 tr.last_seen_t = w.t - 100
                 res = tr.search("replay")
@@ -205,7 +215,8 @@ def search(tree):
                 travel += w.travel
                 stops += w.stops
     return {"rooms": n, "found_rate": round(found / max(1, n), 3), "mean_time_s": round(times / max(1, found), 1),
-            "motor_travel_per_search": round(travel / max(1, n)), "moves_per_search": round(stops / max(1, n), 1)}
+            "motor_travel_per_search": round(travel / max(1, n)), "moves_per_search": round(stops / max(1, n), 1),
+            "moves_when_in_view": round(inview_moves / max(1, inview_n), 2)}
 
 
 def pipeline(tree, frames):
@@ -231,7 +242,7 @@ def pipeline(tree, frames):
 # metric -> (direction, tolerance): the candidate may not be worse than current by more than the tolerance
 RULES = {"recall": ("up", 0.0), "precision": ("up", 0.0), "accuracy": ("up", 0.0), "false_alarm_rate": ("down", 0.0),
          "found_rate": ("up", 0.0), "mean_time_s": ("down", 2.0), "moves_per_search": ("down", 1.0),
-         "motor_travel_per_search": ("down", 300)}
+         "motor_travel_per_search": ("down", 300), "moves_when_in_view": ("down", 0.0)}
 
 
 def compare(cur, cand):
