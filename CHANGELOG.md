@@ -4,6 +4,9 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 ### Changed
+- The fine-tuned verifier's cut-off is calibrated from the pet's own photos (just below the weakest training photo
+  of her) instead of a fixed 0.5. Held out by day on 452 owner-labelled crops: 9 missed / 1 false accept, against
+  23 / 9 for the previous logistic-regression verifier and 0 / 16 at 0.5.
 - Find says "found her" only when 2 of up to 4 still frames show her in the same place, not on the first frame
   the verifier accepts. Night lookalikes (a clothes pile, a slipper) could end a search on one infrared frame.
 ### Added
