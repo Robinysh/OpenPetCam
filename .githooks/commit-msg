@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Refuse a commit message that names your machine or server (agents paste tracebacks into messages).
+msg=$(cat "$1")
+cd "$(git rev-parse --show-toplevel)"
+pats=("$HOME/")
+if [ -f config/site.env ]; then
+  while IFS='=' read -r k v; do
+    v=${v%\"}; v=${v#\"}
+    case "$k" in PUBLIC_IP|PUBLIC_HOST|SSH_HOST|CAMERA_LAN_IP) [ -n "$v" ] && pats+=("${v#*@}") ;; esac
+  done < <(grep -E '^[A-Z_]+=' config/site.env)
+fi
+for p in "${pats[@]}"; do
+  if printf '%s' "$msg" | grep -qF -- "$p"; then
+    echo "commit-msg: refusing, the message contains '$p'. Use repo-relative paths."; exit 1
+  fi
+done

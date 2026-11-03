@@ -1,6 +1,6 @@
 # Steering from the owners
 
-Written by Claude Code when Artemii says so in chat. The router reads this every turn. Newest first.
+Written by Claude Code when the owner says so in chat. The router reads this every turn. Newest first.
 
 - 2026-11-02: Build all of: replay on held-out days before shipping, shadow runs of detection changes on live frames,
   nightly lessons, and self-improving prompts (judged by agent/evals). search_success uses definition v2 (seen 3 min
