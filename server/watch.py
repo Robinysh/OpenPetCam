@@ -327,6 +327,10 @@ class Verifier:
         self.sess = ort.InferenceSession(model, opts, providers=["CPUExecutionProvider"])
         self.inp = self.sess.get_inputs()[0].name
         self.threshold = float(self.cfg["threshold"])
+        if self.cfg["mode"] == "finetuned":           # tools/finetune_pet.py: one logit from a fine-tuned MobileNetV2
+            self.sess = ort.InferenceSession(os.path.join(os.path.dirname(path), self.cfg["model"]), opts,
+                                             providers=["CPUExecutionProvider"])
+            self.inp = self.sess.get_inputs()[0].name
         if self.cfg["mode"] == "logreg":
             self.mu, self.sd = np.array(self.cfg["mean"]), np.array(self.cfg["std"])
             self.w, self.b = np.array(self.cfg["w"]), float(self.cfg["b"])
@@ -342,6 +346,8 @@ class Verifier:
         x = np.asarray(crop.resize((224, 224), Image.BILINEAR), dtype=np.float32) / 255.0
         x = ((x - self.MEAN) / self.STD).transpose(2, 0, 1)[None]
         z = self.sess.run(None, {self.inp: x})[0].reshape(-1).astype(np.float64)
+        if self.cfg["mode"] == "finetuned":
+            return float(1 / (1 + np.exp(-z[0])))
         e = np.exp(z - z.max())
         e /= e.sum()
         a, b = self.cfg.get("classes", [151, 268])

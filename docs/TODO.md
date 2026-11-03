@@ -30,6 +30,16 @@ Worked top to bottom. Each item moves to Done with the commit that shipped it.
 11. **Fixed budget per experiment** (autoresearch): every worker run gets the same wall-clock and token budget so attempts
    in the archive are comparable, and the archive records cost per accepted change.
 
+12. **Fine-tune the pet classifier on footage collected over weeks** (owner, 2026-11-03), replacing the
+   logistic regression on frozen MobileNetV2 features, which memorises scenes (rug 0.11 on 2 Nov).
+   - Collect: keep every candidate crop with its context (time, pan/tilt, IR or day), deduplicated, bounded in size.
+   - Label: bootstrap with `claude -p` as today, owner 👍/👎 as the independent labels, plus hard negatives (toys,
+     empty rug, people) and hard positives (curled up, IR, partial).
+   - Train on the laptop or the Jetson: unfreeze the last MobileNetV2 blocks (or a small EfficientNet), strong
+     augmentation (IR-like grayscale, crops, light), ONNX export at the same speed budget.
+   - Judge: held-out by day (never seen days), the 118-frame walk set must stay at 0 false accepts, then a
+     shadow run on live frames before it ships; retrain weekly as footage grows.
+
 ## Done
 
 - QA suite tools/qa.py: 20 pass, 0 fail (2 Nov 19:10)

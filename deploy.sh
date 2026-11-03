@@ -26,7 +26,8 @@ tools/fetch_models.sh
 mode() { python3 -c 'import json,sys; print(json.load(sys.stdin).get("mode",""))' 2>/dev/null; }
 LOCAL_MODE=$(mode < models/verifier.json || true)
 LIVE_MODE=$("${SSH[@]}" "$SSH_HOST" "cat /opt/petcam/models/verifier.json 2>/dev/null" | mode || true)
-if [ "$LIVE_MODE" = logreg ] && [ "$LOCAL_MODE" != logreg ] && [ "${PETCAM_ALLOW_DEFAULT:-}" != 1 ]; then
+trained() { [ "$1" = logreg ] || [ "$1" = finetuned ]; }
+if trained "$LIVE_MODE" && ! trained "$LOCAL_MODE" && [ "${PETCAM_ALLOW_DEFAULT:-}" != 1 ]; then
   echo "Refusing: the server runs a trained verifier but models/verifier.json is '$LOCAL_MODE'. Restore it (eval/bootstrap/verifier.json) or set PETCAM_ALLOW_DEFAULT=1."
   exit 1
 fi

@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""OpenPetCam guided setup: from a fresh server to the app on your phone.
+
+    ./setup            first install, or re-run any time (it remembers your answers)
+
+It asks a few questions, writes config/site.env, deploys, walks you through the camera's WireGuard page,
+sets the passwords on the server (typed there, never stored here), and checks that video arrives.
+Everything it does is also a plain command in the README, if you prefer to go by hand.
+"""
+import ipaddress
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.request
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+CONF = os.path.join(ROOT, "config", "site.env")
+EXAMPLE = os.path.join(ROOT, "config", "site.env.example")
+B, D, G, Y, R, X = "\033[1m", "\033[2m", "\033[32m", "\033[33m", "\033[31m", "\033[0m"
+if not sys.stdout.isatty():
+    B = D = G = Y = R = X = ""
+
+
+def say(*a):
+    print(*a, flush=True)
+
+
+def step(n, total, title):
+    say(f"\n{B}[{n}/{total}] {title}{X}")
+
+
+def ask(prompt, default="", check=None):
+    while True:
+        v = input(f"  {prompt}{f' {D}[{default}]{X}' if default else ''}: ").strip() or default
+        err = check(v) if check else None
+        if not err:
+            return v
+        say(f"  {R}{err}{X}")
+
+
+def read_conf():
+    vals = {}
+    for path in (EXAMPLE, CONF):
+        if os.path.exists(path):
+            for line in open(path):
+                m = re.match(r"\s*([A-Z_]+)=([^#\n]*)", line)
+                if m:
+                    vals[m.group(1)] = m.group(2).strip().strip('"')
+    return vals
+
+
+def write_conf(vals):
+    """Keep the example's comments and order; fill in the values."""
+    out, seen = [], set()
+    for line in open(EXAMPLE):
+        m = re.match(r"(\s*#?\s*)([A-Z_]+)=([^#\n]*)(.*)", line)
+        if m and m.group(2) in vals and not m.group(1).strip().startswith("#"):
+            k = m.group(2); seen.add(k)
+            v = vals[k]
+            v = f'"{v}"' if " " in v else v
+            out.append(f"{k}={v}{(' ' + m.group(4).strip()) if m.group(4).strip() else ''}\n")
+        else:
+            out.append(line)
+    for k, v in vals.items():
+        if k not in seen and k in ("CAMERA_WG_PUBKEY", "SSH_HOST", "SSH_KEY"):
+            out.append(f"{k}={v}\n")
+    os.makedirs(os.path.dirname(CONF), exist_ok=True)
+    with open(CONF, "w") as f:
+        f.writelines(out)
+    os.chmod(CONF, 0o600)
+
+
+def ssh_cmd(vals):
+    return ["ssh", "-i", os.path.expanduser(vals["SSH_KEY"]), "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+            "-o", "StrictHostKeyChecking=accept-new", vals["SSH_HOST"]]
+
+
+def ssh(vals, cmd, tty=False):
+    if tty:                                   # interactive: the server asks for the passwords itself
+        return subprocess.call(["ssh", "-t", "-i", os.path.expanduser(vals["SSH_KEY"]), vals["SSH_HOST"], cmd])
+    return subprocess.run(ssh_cmd(vals) + [cmd], capture_output=True, text=True, timeout=120)
+
+
+def valid_ip(v):
+    try:
+        ip = ipaddress.ip_address(v)
+        return "That's a private address; use the server's public IP." if ip.is_private else None
+    except ValueError:
+        return "Not an IP address, e.g. 203.0.113.10"
+
+
+def local_tz():
+    try:
+        return os.path.realpath("/etc/localtime").split("zoneinfo/")[1]
+    except IndexError:
+        return "UTC"
+
+
+def main():
+    say(f"{B}OpenPetCam setup{X}  {D}(Ctrl-C to stop; re-running is safe){X}")
+    say(f"{D}You need: a Thingino camera on your Wi-Fi, an Ubuntu 24.04 server with a public IP, and its SSH key.{X}")
+    v = read_conf()
+    total = 6
+
+    step(1, total, "Your server")
+    ip = ask("Server public IP", "" if v.get("PUBLIC_IP", "").startswith("203.0.113") else v.get("PUBLIC_IP", ""), valid_ip)
+    user = ask("SSH user", (v.get("SSH_HOST", "ubuntu@").split("@")[0] or "ubuntu"))
+    key = ask("SSH key file", v.get("SSH_KEY", "~/.ssh/id_ed25519"),
+              lambda k: None if os.path.exists(os.path.expanduser(k)) else "No such file")
+    v.update(PUBLIC_IP=ip, SSH_HOST=f"{user}@{ip}", SSH_KEY=key)
+    r = ssh(v, "lsb_release -rs 2>/dev/null; nproc; free -m | awk '/Mem/{print $2}'")
+    if r.returncode != 0:
+        say(f"  {R}Can't reach {user}@{ip} with that key:{X} {(r.stderr or '').strip()[-200:]}")
+        say("  Check the IP, the user and the key, and that port 22 is open in the cloud firewall.")
+        sys.exit(1)
+    rel, cpus, mem = (r.stdout.split() + ["?", "?", "?"])[:3]
+    say(f"  {G}✓{X} reached the server (Ubuntu {rel}, {cpus} CPU, {mem} MB RAM)")
+
+    step(2, total, "A few settings")
+    host_default = v.get("PUBLIC_HOST") if v.get("PUBLIC_HOST") and "203-0-113" not in v.get("PUBLIC_HOST", "") else f"petcam.{ip.replace('.', '-')}.sslip.io"
+    v["PUBLIC_HOST"] = ask("Web address (any DNS name for the server; this one needs no setup)", host_default)
+    v["TZ"] = ask("Time zone", v.get("TZ") if v.get("TZ") not in (None, "", "America/New_York") else local_tz())
+    v["PET_NAME"] = ask("Your pet's name (you can also set it in the app)", v.get("PET_NAME", "") if v.get("PET_NAME") != "Biscuit" else "")
+    if v["PET_NAME"]:
+        v["PET_PRONOUN"] = ask("she / he / they", v.get("PET_PRONOUN", "they"), lambda p: None if p in ("she", "he", "they") else "she, he or they")
+        v["PET_DESCRIPTION"] = ask("One line about how they look (helps it learn them)", v.get("PET_DESCRIPTION", f"{v['PET_NAME']}, a dog"))
+    write_conf(v)
+    say(f"  {G}✓{X} saved {os.path.relpath(CONF, ROOT)} {D}(git-ignored, stays on this computer){X}")
+    say(f"  {Y}!{X} In your cloud firewall open TCP 22, 80, 443 and UDP 51820, 8189.")
+
+    step(3, total, "Install on the server (about 3 minutes)")
+    if subprocess.call([os.path.join(ROOT, "deploy.sh")], cwd=ROOT) != 0:
+        say(f"  {R}The install stopped.{X} The lines above say why; fix it and run ./setup again.")
+        sys.exit(1)
+    pub = ssh(v, "sudo wg pubkey < /etc/wireguard/server.key").stdout.strip()
+
+    step(4, total, "Connect the camera")
+    if v.get("CAMERA_WG_PUBKEY"):
+        say(f"  {G}✓{X} camera key already set; skip this step unless you replaced the camera.")
+    say("  In the camera's web page (Thingino) open WireGuard and fill in exactly:")
+    say(f"     Address        {B}{v.get('CAMERA_WG_IP', '10.77.0.2')}/24{X}")
+    say(f"     Endpoint       {B}{ip}:51820{X}")
+    say(f"     Peer key       {B}{pub}{X}")
+    say(f"     Allowed IPs    {B}{v.get('SERVER_WG_IP', '10.77.0.1')}/32{X}")
+    say(f"     Keepalive      {B}25{X}")
+    say("  Save, then copy the camera's own public key from the same page.")
+    ck = ask("Camera's WireGuard public key", v.get("CAMERA_WG_PUBKEY", ""),
+             lambda k: None if re.fullmatch(r"[A-Za-z0-9+/]{42,43}=", k) else "That doesn't look like a WireGuard key (44 characters, ends with =)")
+    if ck != v.get("CAMERA_WG_PUBKEY"):
+        v["CAMERA_WG_PUBKEY"] = ck
+        write_conf(v)
+        if subprocess.call([os.path.join(ROOT, "deploy.sh")], cwd=ROOT) != 0:
+            sys.exit(1)
+    say("  Waiting for the camera to connect…")
+    for _ in range(24):
+        if ssh(v, f"ping -c1 -W2 {v.get('CAMERA_WG_IP', '10.77.0.2')} >/dev/null && echo up").stdout.strip() == "up":
+            say(f"  {G}✓{X} the camera is connected"); break
+        time.sleep(5)
+    else:
+        say(f"  {Y}!{X} The camera hasn't connected yet. Check the values above in Thingino; you can continue meanwhile.")
+
+    step(5, total, "Passwords (typed on the server, never stored on this computer)")
+    say(f"  {D}You'll be asked for: a password for the app, and the camera's root password from Thingino setup.{X}")
+    ssh(v, "sudo /opt/petcam/set-secrets.sh", tty=True)
+
+    step(6, total, "Check")
+    ok = False
+    for _ in range(12):
+        try:
+            with urllib.request.urlopen(f"https://{v['PUBLIC_HOST']}/healthz", timeout=10) as r:
+                ok = r.status == 200
+        except OSError:
+            pass
+        if ok:
+            break
+        time.sleep(5)
+    say(f"  {G if ok else Y}{'✓' if ok else '!'}{X} the app {'answers' if ok else 'is not answering yet (the HTTPS certificate can take a minute)'}")
+    url = f"https://{v['PUBLIC_HOST']}"
+    say(f"\n{B}Done. On your phone open:{X}\n\n      {B}{url}{X}\n")
+    say("  Sign in once, then Share → Add to Home Screen. Invite family from Settings.")
+    say(f"  {D}It updates itself from GitHub releases every night. Re-run ./setup any time.{X}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (KeyboardInterrupt, EOFError):
+        say("\nStopped. Run ./setup again to continue; it remembers your answers.")
+        sys.exit(130)

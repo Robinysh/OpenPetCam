@@ -304,7 +304,7 @@ def healthy(t_deploy):
     except (OSError, ValueError, KeyError):
         return False, "models/verifier.json missing or unreadable"
     vl = ssh(f"journalctl -u petcam-watch --since @{int(t_deploy)} --no-pager | grep 'verifier:' | tail -1").stdout
-    if want not in vl or v["mode"] != "logreg":
+    if want not in vl or v["mode"] not in ("logreg", "finetuned"):
         return False, f"watcher loaded '{vl.strip()[-60:]}', expected the trained '{want}'"
     lines = r.stdout.split()
     ok = len(lines) >= 4 and lines[:1] == ["active"] and "hb" in lines and int(lines[lines.index("hb") + 1]) < 30 \

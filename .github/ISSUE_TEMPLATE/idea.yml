@@ -1,0 +1,9 @@
+name: Idea or feature
+description: Something that would make OpenPetCam better for your pet
+labels: [idea]
+body:
+  - type: textarea
+    attributes: {label: What would help, description: "What you want to know or do, and why"}
+    validations: {required: true}
+  - type: textarea
+    attributes: {label: Anything you've tried}

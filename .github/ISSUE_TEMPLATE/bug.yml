@@ -1,0 +1,13 @@
+name: Something isn't working
+description: A bug in the app, the camera behaviour, install or updates
+labels: [bug]
+body:
+  - type: textarea
+    attributes: {label: What happened, description: "In words. Please don't paste frames or clips from your home unless you mean to share them."}
+    validations: {required: true}
+  - type: textarea
+    attributes: {label: What you expected}
+  - type: input
+    attributes: {label: Version, description: "Settings → OpenPetCam in the app shows it"}
+  - type: input
+    attributes: {label: Camera model, placeholder: "e.g. Cinnado D1 (Ingenic T23N)"}

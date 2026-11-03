@@ -314,7 +314,7 @@ def _():
 @check("pipeline", "verifier loaded", "the watcher runs the trained verifier (logreg), not a fallback")
 def _():
     v = remote()["verifier"]
-    return ("PASS" if "logreg" in v else "FAIL"), v or "no 'verifier:' line in 48 h"
+    return ("PASS" if ("logreg" in v or "finetuned" in v) else "FAIL"), v or "no 'verifier:' line in 48 h"
 
 
 @check("pipeline", "presence flapping", "comings and goings are real: few left->appeared pairs within 2 min (a flapping detector)")

@@ -130,7 +130,9 @@ def train_and_gate():
     total = lambda e: sum(e.values())   # noqa: E731
     c_all, d_all = total(res["candidate"]["errors_all_out_of_fold"]), total(res["deployed"]["errors_all_in_sample"])
     c_new, d_new = total(res["candidate"]["errors_newest_day"]), total(res["deployed"]["errors_newest_day"])
-    better = cand["mode"] == "logreg" and c_all <= d_all and c_new <= d_new and (c_all < d_all or c_new < d_new or
+    # A fine-tuned verifier (tools/finetune_pet.py) is judged by tools/replay.py, not by this logreg comparison,
+    # which would read it as the zero-shot default and replace it overnight.
+    better = cur["mode"] != "finetuned" and cand["mode"] == "logreg" and c_all <= d_all and c_new <= d_new and (c_all < d_all or c_new < d_new or
                                                                                cand.get("report", {}).get("items", 0) >= 1.1 * cur.get("report", {}).get("items", 0))
     res["decision"] = "deploy" if better else "keep"
     res["why"] = (f"candidate errors {c_all} (held-out) / {c_new} on {newest} vs deployed {d_all} / {d_new}")

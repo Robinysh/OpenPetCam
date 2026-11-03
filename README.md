@@ -5,75 +5,37 @@
   </picture>
 </p>
 
-**A pet camera that knows your pet, runs on a $5 server you own, and keeps getting better on its own.**
+<p align="center"><b>The open-source pet camera that knows your pet.</b><br>
+Live video, your pet's day at a glance, and a camera that goes looking when they wander off.<br>
+On a $5 server you own. No subscription. No vendor cloud.</p>
 
-Flash a cheap Wi-Fi pan/tilt camera with open firmware ([Thingino](https://thingino.com)), point it at a small
-server, and you get a phone app with live video, your pet's day at a glance, and alerts. The camera finds and
-follows your pet, tells it apart from its toys, and an agent you run on your own computer fixes what goes wrong.
-Video never goes through a vendor's cloud.
+<p align="center">
+  <a href="https://github.com/crimeacs/OpenPetCam/actions/workflows/ci.yml"><img src="https://github.com/crimeacs/OpenPetCam/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-355BEB" alt="Apache-2.0"></a>
+  <a href="https://github.com/crimeacs/OpenPetCam/releases"><img src="https://img.shields.io/github/v/release/crimeacs/OpenPetCam?color=355BEB&include_prereleases" alt="Release"></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-CDD6FF" alt="PRs welcome"></a>
+</p>
 
-It was built for one golden retriever and then generalized: everything specific to a home lives in one
-git-ignored config file, and the pet's name is set in the app.
+<p align="center"><img src="docs/media/hero.gif" width="720" alt="The camera searches the room and finds the dog on the rug; the verifier rejects her toy"></p>
 
-<!-- docs/assets/openpetcam.gif is a cut of the demo film (docs/demo/). -->
+## Install in three steps
 
-## What you get
+You need a [Thingino](https://thingino.com)-flashed pan/tilt camera on your Wi-Fi (the reference is a Cinnado D1)
+and any Ubuntu 24.04 server with a public IP (an AWS Lightsail nano at $5/month is plenty).
 
-**See her, always**
-- **Live on your phone.** WebRTC video with sound, low latency, full screen in landscape. Tap the picture to aim,
-  or use the joystick. It installs to the Home Screen like an app, with no App Store and no developer account.
-- **What she's doing, over the picture.** Resting, moving, at the water bowl, out of view, with how long.
-- **Find her.** When she's out of view, one tap sweeps the room and stops on her. It looks where the camera
-  already points first, so it doesn't move the motor when she is already there.
-- **Follow.** The camera turns after her when she walks out of the picture. Automatic moves use a quieter motor
-  speed, and any move you make pauses following for 3 minutes.
-- **Hold to talk.** Your voice plays on the camera's speaker.
-
-**Her day, without reading**
-- **Today:** a photo mosaic of the moments she was in view, a day split (active, resting, away), a scrubbable
-  timeline with barking marked on it, and clips.
-- **Diary:** two weeks of days, a nightly highlights reel and a daily timelapse.
-- **Wellbeing:** active minutes, naps, restless nights and water visits, compared with her own normal.
-- **Zones:** draw the bowls and the bed; visits are counted and bowl visits get a clip.
-- **Alerts** as web push: barking, distress sounds, camera offline, view blocked, video stopped.
-
-**It's really her**
-- Two-stage detection: YOLOX-nano proposes, and a verifier trained on *your* camera's crops decides. On the
-  reference install the plush toy fooled the detector all morning; the verifier rejects it.
-- `tools/bootstrap_pet.py` collects crops, has Claude label them, trains, and tests on held-out days before
-  anything replaces the default.
-
-**Yours, and private**
-- One pause button turns off the picture **and** the microphone.
-- The camera dials out over WireGuard, so no ports are open at home. Every video and media path is behind the
-  app's login. Family joins with a one-time invite link, not a shared password.
-
-**It looks after itself**
-- **Self-healing:** freeze watchdog, streamer and audio self-heal, blocked-view check, day/night flap protection
-  and a separate absence alerter that pages when something goes quiet.
-- **Updates itself** from GitHub releases once a day, checks it came back healthy, and rolls back if not.
-- **Improves itself** (optional): an agent on your computer turns "Something wrong?" reports and missed goals
-  into tested fixes. See [The agent](#the-agent-optional).
-
-**Cheap.** It runs on a 512 MB AWS Lightsail nano at about 5% of one CPU core, keeps 6 hours of video and keeps
-clips, photos and per-minute stats much longer.
-
-## How it fits together
-
-```
-camera (Thingino, home Wi-Fi) ──WireGuard (camera dials out; no ports open at home)──▶ server
-server: MediaMTX (RTSP in, WebRTC out, rolling 6 h recording)
-        petcam-watch   detection, sounds, zones, clips, watchdogs, search and follow
-        petcam-app     web app, auth, camera control, the agent dashboard
-        petcam-alert   absence alerter and web push        petcam-update   daily release check
-        Caddy          HTTPS; every video and media path is behind the app's login
-your computer (optional): the agent, which proposes, tests and ships fixes
+```bash
+git clone https://github.com/crimeacs/OpenPetCam.git && cd OpenPetCam
+git checkout "$(git describe --tags --abbrev=0 2>/dev/null || echo main)"   # the latest release
+./setup
 ```
 
-Details: [docs/architecture.md](docs/architecture.md). Camera quirks: [docs/camera-thingino.md](docs/camera-thingino.md).
-CPU budget: [docs/performance.md](docs/performance.md).
+`./setup` asks for the server's IP and SSH key, installs everything, tells you exactly what to type into the
+camera's WireGuard page, has you set a password on the server, and prints the address to open on your phone.
+Then *Share → Add to Home Screen*: it runs full screen like an app, with no App Store. It updates itself every night.
 
-## Set it up
+<details><summary>Prefer to do it by hand?</summary>
+
+### Set it up by hand
 
 You need:
 - a Thingino-supported pan/tilt camera (reference: Cinnado D1, Ingenic T23N);
@@ -102,6 +64,56 @@ You need:
    default `thingino`/`thingino`).
 7. **Open** `https://<PUBLIC_HOST>` on your phone, sign in once, and *Share → Add to Home Screen*. Opened from
    the Home Screen it runs full screen and can send notifications. Invite others from Settings.
+
+</details>
+
+## What you get
+
+<table><tr>
+<td width="300"><img src="docs/media/app-tour.gif" width="280" alt="The app: live view finding the dog, Today, the agent dashboard, themes"></td>
+<td>
+
+**See them, always.** Live video with sound on your phone; what they're doing (resting, active, out of view)
+over the picture.
+
+**It finds them.** Out of view for a while? The camera sweeps the room and stops on them, looking where it
+already points first so it doesn't move for nothing. Or tap **Find**.
+
+**It knows them from their toys.** A second model trained on *your* camera's pictures checks every sighting.
+
+**Their day at a glance.** Today shows the moments they were in view, naps, activity and every bark; the Diary
+keeps two weeks with a nightly highlight reel and timelapse.
+
+**Alerts.** Barking, distress sounds, camera offline, view blocked.
+
+**Private by design.** Video goes from your camera to your server and nowhere else. One tap turns the picture
+**and** the microphone off. Family joins with an invite link, not a shared password.
+
+**Yours to theme.** Cobalt, Golden or Meadow, light or dark.
+
+</td></tr></table>
+
+## It fixes itself, and shares the fix
+
+Tap **Something wrong?** in the app and say what happened. If you run the optional agent on your computer
+(`bash tools/install_autopilot.sh`, uses [Claude Code](https://claude.com/claude-code)), it reads your report and
+the video around it, writes a fix with a test, checks it against held-out data, ships it to your server and answers
+you in the app. The **Agent** tab shows its goals, what it's working on and every decision.
+
+Because it's open source, a fix proven on one camera is offered here as a pull request, and once it's released
+every camera installs it overnight. **[Join the open-source pet community →](CONTRIBUTING.md)**
+
+## How it fits together
+
+```
+camera (Thingino, home Wi-Fi) ──WireGuard (the camera dials out; no ports open at home)──▶ your server
+server: MediaMTX (video in, WebRTC out, 6 h rolling recording) · petcam-watch (detection, search, follow, sounds)
+        petcam-app (the web app) · petcam-alert (push alerts) · petcam-update (nightly releases) · Caddy (HTTPS)
+your computer (optional): the agent, which proposes, tests and ships fixes
+```
+
+It runs at about 5% of one CPU core on a 512 MB server. Details: [architecture](docs/architecture.md) ·
+[camera notes](docs/camera-thingino.md) · [performance](docs/performance.md) · [the agent](docs/superagent.md).
 
 ## Updates
 
