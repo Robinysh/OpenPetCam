@@ -151,6 +151,10 @@ computer that treats what goes wrong as feedback and fixes it:
 - **Every change is judged by things it can't edit:** tests, a guard against removed assertions, a held-out replay
   of detection and search, a shadow run for anything that changes how frames become "your pet", a health check
   with rollback, and a check 24 h later. Rejected attempts are kept and shown to the next attempt.
+- **Fixes are shared.** When a fix has run live and healthy on your install, the agent opens a pull request to this
+  repository so every install gets it. The PR carries a public summary and the checks it passed; nothing from your
+  home (frames, clips, times, names, addresses) goes in, and the public-repo guard and your pet's name are checked
+  again before anything is pushed. Needs a fork as `origin` and `gh` signed in; `CONTRIBUTE=off` keeps fixes local.
 - **Watch it** in the app's **Agent** tab: goals with 7-day trends, what it's working on, every decision.
   **Steer it** in plain words: edit `agent/steer.md`, or tell Claude Code.
 

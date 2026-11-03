@@ -27,5 +27,6 @@ moves or sounds near the dog, privacy), propose it instead.
 Write {out}, exactly:
 {{"summary": "what you found, with numbers", "baseline": "metric before, how measured", "fixed": true|false,
  "fix_summary": "", "tests_run": "", "expected_after": "what the metric should become", "needs_owner": "",
+ "public_summary": "if you changed code: 2-4 sentences for an open-source pull request read by strangers, no names, times, places or anything about this home",
  "reply": "to the owners, at most 100 words, only if something changed for them; else empty"}}
 Every value is one string except "fixed", which is the boolean true or false.

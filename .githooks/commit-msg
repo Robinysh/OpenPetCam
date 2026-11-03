@@ -7,7 +7,11 @@ if [ -f config/site.env ]; then
   while IFS='=' read -r k v; do
     v=${v%\"}; v=${v#\"}
     case "$k" in PUBLIC_IP|PUBLIC_HOST|SSH_HOST|CAMERA_LAN_IP) [ -n "$v" ] && pats+=("${v#*@}") ;; esac
+    [ "$k" = PET_NAME ] && [ ${#v} -gt 2 ] && pet="$v"
   done < <(grep -E '^[A-Z_]+=' config/site.env)
+fi
+if [ -n "${pet:-}" ] && printf '%s' "$msg" | grep -qiwF -- "$pet"; then
+  echo "commit-msg: refusing, the message names your pet. Say 'the pet'."; exit 1
 fi
 for p in "${pats[@]}"; do
   if printf '%s' "$msg" | grep -qF -- "$p"; then

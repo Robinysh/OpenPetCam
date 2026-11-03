@@ -257,6 +257,17 @@ META_BRIEF = ("Improve the agent's own prompts (agent/prompts/router.md, agent/p
               "{placeholder}. Your change ships only if it scores at least as well on agent/evals/router_cases.json, which you cannot change.")
 
 
+def offer_upstream(thread, commit, res):
+    """A fix that is live and healthy here is offered to everyone as a pull request (tools/contribute.py)."""
+    import contribute
+    st, det = contribute.contribute(thread.replace(":", "-"), commit, res.get("fix_summary") or "Agent improvement",
+                                    res.get("public_summary") or res.get("fix_summary") or "",
+                                    evidence=json.dumps((res.get("replay") or {}).get("candidate", ""))[:300],
+                                    tests=res.get("tests_run", ""), gates=ra.gates)
+    note("harness", f"upstream: {st} {det[:200]}", thread, "result")
+    return f"{st} {det[:150]}"
+
+
 def retry_queued():
     """Fixes that waited because the code moved on: rebase, replay against held-out data, ship (one per tick)."""
     if ra.git("status", "--porcelain") or running_workers():
@@ -273,6 +284,8 @@ def retry_queued():
             st = ra.load_state()
             status, detail = ra.ship(q["thread"], q["wt"], q["branch"], st)
             ra.save_state(st)
+        if status == "live" and q.get("commit"):
+            detail += " | upstream: " + offer_upstream(q["thread"], q["commit"], q.get("res") or {})
         note("harness", f"retried a queued fix ({q.get('commit')}): {status} {detail[:300]}", q["thread"], "result")
         if q.get("report") and status in ("live", "rolled_back", "failed_checks", "replay_worse"):
             # The owner was told "goes live shortly": say what actually happened.
@@ -377,6 +390,7 @@ moves or sounds near the dog, privacy), propose it instead.
 Write {out}, exactly:
 {{"summary": "what you found, with numbers", "baseline": "metric before, how measured", "fixed": true|false,
  "fix_summary": "", "tests_run": "", "expected_after": "what the metric should become", "needs_owner": "",
+ "public_summary": "if you changed code: 2-4 sentences for an open-source pull request read by strangers, no names, times, places or anything about this home",
  "reply": "to the owners, at most 100 words, only if something changed for them; else empty"}}"""
 
 
@@ -393,8 +407,13 @@ def work(thread):
             for rid, branch in list(st.get("pending", {}).items()):
                 wt = os.path.join(ROOT, "eval", "agent-worktrees", rid)
                 if os.path.exists(wt):
+                    try:
+                        res = json.load(open(os.path.join(ROOT, "eval", "reports", rid, "agent_result.json")))
+                    except (OSError, ValueError):
+                        res = {}
                     json.dump({"thread": f"report:{rid}", "wt": wt, "branch": branch, "report": rid,
-                               "commit": ra.git("rev-parse", "--short", "HEAD", cwd=wt)},
+                               "commit": ra.git("rev-parse", "--short", "HEAD", cwd=wt),
+                               "res": {k: res.get(k) for k in ("fix_summary", "public_summary", "tests_run")}},
                               open(os.path.join(RUN, f"queued_report_{rid}.json"), "w"))
                 st["pending"].pop(rid)
             ra.save_state(st)
@@ -453,6 +472,8 @@ def work(thread):
                     st = ra.load_state()
                     status, detail = ra.ship(thread, wt, branch, st)
                     ra.save_state(st)
+                    if status == "live":
+                        detail += " | upstream: " + offer_upstream(thread, commit, res)
             elif not ok:
                 status, detail = "failed_checks", why
             else:
@@ -463,7 +484,8 @@ def work(thread):
                                 "baseline": res.get("baseline", "")[:300], "expected_after": res.get("expected_after", "")[:300],
                                 "fix_summary": res.get("fix_summary", "")[:300], "replay": res.get("replay")}) + "\n")
         if status == "queued":
-            json.dump({"thread": thread, "wt": wt, "branch": branch, "commit": commit},
+            json.dump({"thread": thread, "wt": wt, "branch": branch, "commit": commit,
+                       "res": {k: res.get(k) for k in ("fix_summary", "public_summary", "tests_run")}},
                       open(os.path.join(RUN, f"queued_{safe}.json"), "w"))
         if status == "live" and thread.startswith("goal:"):
             json.dump({"thread": thread, "shipped": time.time(), "commit": commit},

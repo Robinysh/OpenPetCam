@@ -68,7 +68,10 @@ def ssh(cmd, timeout=120):
 def public_text(t):
     """Commit messages are public: worktree and home paths become repo-relative (the commit-msg hook refuses them)."""
     t = re.sub(re.escape(ROOT) + r"/eval/agent-worktrees/[^/\s]+/", "", t)
-    return t.replace(ROOT + "/", "").replace(os.path.expanduser("~") + "/", "~/")
+    t = t.replace(ROOT + "/", "").replace(os.path.expanduser("~") + "/", "~/")
+    if PET and len(PET) > 2 and PET.lower() not in ("the pet", "your pet"):
+        t = re.sub(rf"\b{re.escape(PET)}\b", "the pet", t, flags=re.IGNORECASE)   # the commit-msg hook refuses it
+    return t
 
 
 def git(*a, cwd=ROOT, check=True, timeout=60):
@@ -192,6 +195,7 @@ Do, in order:
 4. Write {d}/agent_result.json, exactly this shape:
    {{"labels": [{{"n": 0, "label": "toy"}}], "diagnosis": "...", "fixed": true|false,
     "fix_summary": "one sentence or empty", "tests_run": "command and result or empty",
+    "public_summary": "if fixed: 2-4 sentences for an open-source pull request read by strangers: the general problem and what changed. No names, times, places, or anything about this home",
     "reply": "to the owner, at most 280 characters, plain words, no jargon: what happened and what you did or propose",
     "needs_owner": "a decision you need from them, or empty"}}
 """
@@ -247,7 +251,7 @@ def apply_labels(rid, d, res):
 ALLOWED = ("server/", "tools/", "tests/", "docs/", "README.md")
 # The evaluator stays out of the proposer's reach (DGM faked its test logs; METR saw models edit scoring code): the gates,
 # goal metrics, QA, the agent itself, goals, steering and policies change only through the owner.
-NEVER = ("tools/report_agent.py", "tools/superagent.py", "tools/qa.py", "tools/check_public.sh", "tools/noise_study.py", "tools/replay.py",
+NEVER = ("tools/report_agent.py", "tools/contribute.py", "tools/superagent.py", "tools/qa.py", "tools/check_public.sh", "tools/noise_study.py", "tools/replay.py",
          "deploy.sh", "server/install.sh", "server/set-secrets.sh", "server/agentdb.py")
 NEVER_PREFIX = ("agent/",)
 
@@ -381,6 +385,17 @@ def handle(rid, st):
             "dry": "", "no_change": ""}[status]
     if res.get("needs_owner"):
         tail += f" Your call: {res['needs_owner']}"
+    contrib = ""
+    if status == "live" and commit:
+        import contribute                      # offer the proven fix upstream (tools/contribute.py)
+        cst, cdet = contribute.contribute(f"report-{rid}", commit, res.get("fix_summary") or "Fix from an owner's report",
+                                          res.get("public_summary") or res.get("fix_summary") or "",
+                                          tests=res.get("tests_run", ""), gates=gates)
+        log(rid, "contribute:", cst, cdet[:200])
+        if cst == "pr_opened":
+            contrib = " Shared with everyone as a pull request."
+        detail = f"{detail} | upstream: {cst} {cdet[:150]}"
+    tail += contrib
     write_reply(rid, "answered", (reply + tail)[:600],
                 {"status": status, "commit": commit, "labels": n_labels, "detail": detail[:300]})
     notify(rep.get("device"), "About your report", reply + tail)
