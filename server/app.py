@@ -14,6 +14,7 @@ import hmac
 import http.client
 import json
 import os
+import sys
 import threading
 import time
 import urllib.error
@@ -33,6 +34,15 @@ COOKIE = "petcam_session"
 ENV = petconf.load_env("/etc/petcam/app.env", unquote=False)   # secrets: values taken verbatim
 SECRET = ENV.get("APP_SECRET", "").encode()
 CAM_HOST = ENV.get("CAM_HOST") or petconf.CAM_HOST
+
+
+class AppServer(ThreadingHTTPServer):
+    """A phone or Caddy hanging up mid-request is normal, not a crash: don't print a traceback
+    for it (qa.py counts tracebacks as crashes). Any other exception is still reported in full."""
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
 
 
 def with_deadline(fn, seconds):
@@ -1097,7 +1107,7 @@ def serve_talk_files():
     """Bind to the WireGuard address; retry until wg0 is up (it may come up after us at boot)."""
     while True:
         try:
-            ThreadingHTTPServer(TALK_BIND, TalkFiles).serve_forever()
+            AppServer(TALK_BIND, TalkFiles).serve_forever()
         except OSError as e:
             print(f"talk file server: {e}; retrying in 15 s", flush=True)
             time.sleep(15)
@@ -1825,4 +1835,4 @@ if __name__ == "__main__":
     init_auth_db()
     threading.Thread(target=serve_talk_files, daemon=True).start()
     threading.Thread(target=ensure_cam_ssh, daemon=True).start()
-    ThreadingHTTPServer(("127.0.0.1", 8080), Handler).serve_forever()
+    AppServer(("127.0.0.1", 8080), Handler).serve_forever()
