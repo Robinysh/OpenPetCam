@@ -33,6 +33,7 @@ from siteconf import PET, ROOT, SITE, SSH  # noqa: E402
 
 AGENT = os.path.join(ROOT, "agent")
 RUN = os.path.join(ROOT, "eval", "superagent")
+ARCHIVE = os.path.join(RUN, "archive.jsonl")
 ROUTER_TIMEOUT = 300
 WORKER_TIMEOUT = 40 * 60
 MAX_WORKERS = 2
@@ -271,11 +272,17 @@ WORKER_PROMPT = """You are a worker of {pet}'s pet-cam super-agent, in your own 
 thread: {thread}. Your task ({kind}):
 {brief}
 
+Earlier attempts on this thread (the archive; learn from what failed, don't repeat it):
+{archive}
+
 Context: the router's view of this thread (recall more with: python3 {tools}/superagent.py recall <id>):
 {recall}
 Goals: {goals}
 Owner steering (obey): {steer}
 
+Rules that the harness enforces: you may not edit the evaluator (tools/qa.py, tools/superagent.py, tools/report_agent.py,
+agent/*, server/agentdb.py, deploy and install scripts) or remove test assertions; such changes are rejected. One hypothesis
+per change, small diff.
 How to work: measure first (the current value and how you measured it, with ground truth from outside the system),
 then change, then measure the same way again. Small change, with a test that fails without it. Never deploy, push,
 commit or ssh to change anything: the harness decides what ships. Read-only checks on the server are fine through
@@ -308,7 +315,10 @@ def work(thread):
         out = os.path.join(RUN, f"result_{safe}.json")
         if os.path.exists(out):
             os.remove(out)
+        past = [json.loads(x) for x in open(ARCHIVE)] if os.path.exists(ARCHIVE) else []
+        mine = [x for x in past if x.get("thread") == thread][-8:]
         prompt = WORKER_PROMPT.format(pet=PET, thread=thread, kind=b["kind"], brief=b["brief"], tools=HERE,
+                                      archive=json.dumps(mine, indent=0)[:4000] or "none yet",
                                       recall=json.dumps(adb("recall", {"ref": thread}), default=str)[:8000],
                                       goals=read("goals.json", 3000), steer=read("steer.md", 3000), out=out)
         r = subprocess.run(["timeout", "-k", "10", str(WORKER_TIMEOUT), "claude", "-p", prompt, "--output-format", "json",
@@ -334,6 +344,14 @@ def work(thread):
                 status, detail = "failed_checks", why
             else:
                 status = "proposal"              # investigate workers never ship
+        with open(ARCHIVE, "a") as f:            # append-only lineage of every attempt, kept or not
+            f.write(json.dumps({"ts": time.time(), "thread": thread, "kind": b["kind"], "parent": ra.git("rev-parse", "--short", "HEAD"),
+                                "commit": commit, "verdict": status, "detail": detail[:300], "summary": res.get("summary", "")[:500],
+                                "baseline": res.get("baseline", "")[:300], "expected_after": res.get("expected_after", "")[:300],
+                                "fix_summary": res.get("fix_summary", "")[:300]}) + "\n")
+        if status == "live" and thread.startswith("goal:"):
+            json.dump({"thread": thread, "shipped": time.time(), "commit": commit},
+                      open(os.path.join(RUN, f"watch_{safe}.json"), "w"))
         text = f"[{status}] {res.get('summary', '')[:600]} | baseline: {res.get('baseline', '')[:200]} | " \
                f"expected: {res.get('expected_after', '')[:200]}" + (f" | commit {commit}" if commit else "") + (f" | {detail[:200]}" if detail else "")
         note(f"worker:{b['kind']}", text, thread, "result")
@@ -438,6 +456,18 @@ def metrics():
     except (OSError, ValueError):
         pass
     adb("metric", {"metrics": rows})
+    by = {r["goal"]: r for r in rows}
+    for f in [x for x in os.listdir(RUN) if x.startswith("watch_")]:
+        w = json.load(open(os.path.join(RUN, f)))
+        goal = w["thread"].split(":", 1)[1]
+        if time.time() - w["shipped"] > 86400:
+            r = by.get(goal)
+            verdict = "kept: goal on target" if r and r["ok"] else "did not reach the goal"
+            note("metrics", f"post-ship check of {w.get('commit')}: {verdict} (now {r['value'] if r else '?'})", w["thread"], "result")
+            if r and not r["ok"]:
+                adb("add_trigger", {"source": "metrics", "kind": "post_ship_miss", "thread": w["thread"], "dedupe": f"postship:{w.get('commit')}",
+                                    "summary": f"shipped {w.get('commit')} 24 h ago, goal {goal} still misses ({r['value']} vs {r['target']})"})
+            os.remove(os.path.join(RUN, f))
     beat("metrics", {"n": len(rows)})
     return rows
 

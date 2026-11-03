@@ -236,7 +236,20 @@ def apply_labels(rid, d, res):
 # ---------------------------------------------------------------- fix -> gated deploy
 
 ALLOWED = ("server/", "tools/", "tests/", "docs/", "README.md")
-NEVER = ("tools/report_agent.py", "tools/check_public.sh", "deploy.sh", "server/install.sh", "server/set-secrets.sh")
+# The evaluator stays out of the proposer's reach (DGM faked its test logs; METR saw models edit scoring code): the gates,
+# goal metrics, QA, the agent itself, goals, steering and policies change only through the owner.
+NEVER = ("tools/report_agent.py", "tools/superagent.py", "tools/qa.py", "tools/check_public.sh", "tools/noise_study.py",
+         "deploy.sh", "server/install.sh", "server/set-secrets.sh", "server/agentdb.py")
+NEVER_PREFIX = ("agent/",)
+
+
+def assert_count(root):
+    n = 0
+    for dirpath, _, files in os.walk(os.path.join(root, "tests")):
+        for f in files:
+            if f.endswith(".py"):
+                n += open(os.path.join(dirpath, f), errors="replace").read().count("assert ")
+    return n
 
 
 def gates(wt):
@@ -244,9 +257,11 @@ def gates(wt):
     git("add", "-A", cwd=wt)
     changed = git("diff", "--cached", "--name-only", cwd=wt).split()
     kinds = git("diff", "--cached", "--summary", cwd=wt)
-    bad = [f for f in changed if not f.startswith(ALLOWED) or f in NEVER]
+    bad = [f for f in changed if not f.startswith(ALLOWED) or f in NEVER or f.startswith(NEVER_PREFIX)]
     if bad or "120000" in kinds:                                # 120000 = a symlink
         return False, f"the change touches files the agent may not ship: {bad or 'a symlink'}"
+    if assert_count(wt) < assert_count(ROOT):
+        return False, f"the change removes test assertions ({assert_count(ROOT)} -> {assert_count(wt)})"
     # Only tests that run on this computer: the others import the live install (/opt/petcam) and run in tools/qa.py.
     checks = [[sys.executable, "tests/server/tracker_test.py"], [sys.executable, "tests/server/events_test.py"],
               [sys.executable, "tests/server/presence_test.py"], [sys.executable, "tests/server/stall_test.py"],
