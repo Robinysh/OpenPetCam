@@ -1649,6 +1649,29 @@ petForm("pet-name", "pet-pron", "pet-save", "pet-note");
 petForm("pet-sheet-name", "pet-sheet-pron", "pet-sheet-save", "pet-sheet-err");
 if (!PET.named) setTimeout(() => { $("pet-sheet").classList.remove("hidden"); track("sheet", { name: "pet" }); }, 600);
 
+// Stay current: a Home Screen app on iOS resumes the old page for days, so it never sees a deploy. When the server's
+// build differs from the one this page loaded, reload, but only while visible and never mid-talk.
+const BUILD = "{{BUILD}}";
+async function checkBuild() {
+  if (document.visibilityState !== "visible" || holding || (rec && rec.state === "recording")) return;
+  try {
+    const r = await fetch("/api/build", { credentials: "same-origin", cache: "no-store" });
+    if (!r.ok) return;
+    const { build } = await r.json();
+    const last = Number(recall("petcam.reloaded") || 0);          // never loop: at most one reload a minute
+    if (build && build !== BUILD && Date.now() - last > 60000) { store("petcam.reloaded", Date.now()); store("petcam.updated", Date.now()); location.reload(); }
+  } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkBuild(); });
+window.addEventListener("pageshow", (e) => { if (e.persisted) checkBuild(); });
+setInterval(checkBuild, 5 * 60 * 1000);
+if (Date.now() - Number(recall("petcam.updated") || 0) < 15000) {
+  store("petcam.updated", 0);
+  const n = document.createElement("div"); n.textContent = "Updated"; n.setAttribute("role", "status");
+  n.style.cssText = "position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 10px);transform:translateX(-50%);z-index:99;padding:8px 16px;border-radius:20px;background:var(--opc-video-scrim,rgba(10,14,23,.82));color:#fff;font:600 14px -apple-system,sans-serif";
+  document.body.appendChild(n); setTimeout(() => n.remove(), 2500);
+}
+
 (function onboarding() {
   const iOS = /iPhone|iPad/.test(navigator.userAgent);
   const recent = (k, days) => { const v = Number(recall(k) || 0); return Date.now() - v < days * 864e5; };

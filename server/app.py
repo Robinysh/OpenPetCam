@@ -1537,10 +1537,24 @@ def read_file(name):
 PUBLIC_HOST = ENV.get("PUBLIC_HOST") or petconf.PUBLIC_HOST
 
 
+def build_id():
+    """Changes whenever the app's code changes (every deploy restarts the app). Open phones compare it with the
+    build they loaded and reload themselves: a Home Screen app on iOS can stay resident for days otherwise."""
+    h = hashlib.sha1()
+    for n in sorted(os.listdir(HERE)):
+        if n.endswith((".html", ".js", ".css", ".py")):
+            with open(os.path.join(HERE, n), "rb") as f:
+                h.update(n.encode() + f.read())
+    return h.hexdigest()[:12]
+
+
+BUILD = build_id()
+
+
 def page(name, **subs):
     """A page or asset with its {{PLACEHOLDERS}} filled: the pet's name and pronouns, plus subs."""
     body = read_file(name)
-    for k, v in (petconf.template_vars() | subs).items():
+    for k, v in (petconf.template_vars() | {"BUILD": BUILD} | subs).items():
         body = body.replace(f"{{{{{k}}}}}".encode(), v.encode())
     return body
 
@@ -1716,6 +1730,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, agent_dashboard())
         if path == "/api/version":
             return self.send_json(200, version_info())
+        if path == "/api/build":
+            return self.send_json(200, {"build": BUILD})
         if path == "/agent":
             return self.send(200, page("agent.html"), "text/html; charset=utf-8")
         if path == "/api/wellbeing":
