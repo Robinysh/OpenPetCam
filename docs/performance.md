@@ -105,3 +105,29 @@ Only 250 is clearly quieter. Automatic moves (follow, chase, search) use it (`ap
 joystick stays at 900 so it feels instant. The mic sits on the camera body, so these numbers overstate
 what the pet hears through the air; the comparison between speeds is what counts. `/etc/thingino.json`
 has `accel_pan`/`accel_tilt` = 0 (no ramp); whether the legacy motor driver honours a ramp is untested.
+
+## CPU budget on the $5 Lightsail plan (measured 2026-11-02)
+
+The nano plan allows about 5% of its 2 vCPUs sustained, roughly 10% of one core; above that it runs on burst
+credits. Those ran out at 18:18 on 2 Nov (balance 0.01%, CPU pinned at 5.0%, steal over 100%), and detection, the
+search's looks and the app's status all slowed to a crawl. Measured per service over 5–10 minute windows
+(systemd CPUUsageNSec, plus py-spy on the watcher):
+
+| | before | adaptive detection + idle mode | + same-source motion |
+|---|---|---|---|
+| watcher incl. its ffmpeg decoders | ~37% of a core | 9.0% | 2.2% |
+| MediaMTX (relay + 1080p recording) | 9.9% | 3.9% | 2.5% |
+| total | ~47% | ~13% | **~4.8%** |
+| steal | 105% | 16% | **0.4%** |
+
+What made the difference:
+- **Idle mode.** The substream decoder runs only while something needs live frames: motion, an active or
+  recently seen pet, a follow move, a search look. Otherwise the watcher takes the camera's JPEG snapshot every 3 s,
+  and MediaMTX pulls the substream only while it is read.
+- **Adaptive detection.** The detector runs every 30 s on a still picture and every 8 s while she is active; any
+  motion still triggers a run at once.
+- **Motion only between frames from the same source.** A snapshot compared with a stream frame looked like motion and
+  restarted the decoder within 3 s of every switch to idle.
+
+The last window was mostly quiet. An active dog, live viewing and searches cost more and spend the banked credits.
+Run `tools/qa.py` and the CPU measurement from this section after changes to the watcher.
