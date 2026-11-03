@@ -100,6 +100,7 @@
   .chips { display:flex; flex-wrap:wrap; gap:8px; }
   .chip { min-height:40px; border:1px solid var(--line); background:var(--card2); border-radius:999px; padding:8px 14px; font-size:14px; font-weight:650;
           cursor:pointer; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; position:relative; }
+  .chip.spot[aria-pressed="true"] { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
   .chip.add { color:var(--muted); border-style:dashed; background:transparent; }
   .editing .chip.spot { padding-right:34px; }
   .chip .x { display:none; position:absolute; right:8px; top:50%; transform:translateY(-50%); width:20px; height:20px; border-radius:50%;
@@ -1259,16 +1260,31 @@ function renderPan() {
   const span = cam.x_max + cam.frame[0], wv = cam.frame[0] / span, left = (cam.x_max - cam.x) / span;
   Object.assign($("pan-view").style, { left: `${(left * 100).toFixed(1)}%`, width: `${(wv * 100).toFixed(1)}%` });
 }
+function currentSpot(cam) {
+  // The saved view the camera is at now: the nearest one within a quarter of a frame. Follow nudges the camera
+  // after a search or a goto, so an exact match almost never holds; it is still "that view" to the owner.
+  if (!cam || cam.x == null || cam.y == null || !cam.frame) return null;
+  let best = null, bestD = Infinity;
+  for (const p of cam.presets || []) {
+    const dx = Math.abs(cam.x - p.x) / cam.frame[0], dy = Math.abs(cam.y - p.y) / cam.frame[1];
+    if (dx > 0.25 || dy > 0.25) continue;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) { bestD = d; best = p.name; }
+  }
+  return best;
+}
 function renderSpots() {
   const box = $("spots"); box.innerHTML = "";
+  const here = currentSpot(cam);
   for (const p of (cam && cam.presets) || []) {
     const b = document.createElement("button");
     b.className = "chip spot"; b.type = "button"; b.textContent = p.name;
+    b.setAttribute("aria-pressed", p.name === here);
     const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; b.appendChild(x);
     b.onclick = async () => {
       if ($("tab-live").classList.contains("editing")) {
         try { cam.presets = await api("/api/presets/delete", { name: p.name }); renderSpots(); } catch (e) { $("move-note").textContent = e.message; }
-      } else { try { await api("/api/goto", { x: p.x, y: p.y }); } catch (e) { $("move-note").textContent = e.message; } }
+      } else { try { await api("/api/goto", { x: p.x, y: p.y }); setTimeout(refreshCam, 3000); } catch (e) { $("move-note").textContent = e.message; } }
     };
     box.appendChild(b);
   }
