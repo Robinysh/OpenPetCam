@@ -23,7 +23,6 @@ b{font-weight:700}
 code{font:0.92em var(--mono)}
 h1,h2{font-family:var(--snout);font-weight:400;line-height:1.02;letter-spacing:-.01em;margin:0}
 h2{font-size:clamp(40px,6.4vw,84px)}
-.felt{filter:url(#felt)}
 .mono{font-family:var(--mono);letter-spacing:.02em}
 .small{font-size:14px;color:var(--ink-2)}
 .tag{font-size:14px;text-transform:uppercase;letter-spacing:.14em;color:var(--blue);margin:0 0 22px}
@@ -205,3 +204,4 @@ footer p{margin:6px 0}
 @media (max-width:560px){h2{font-size:36px}.sticker{width:88px;font-size:15px;bottom:-26px}.vf figcaption{padding-right:96px}}
 .doc h2{font-family:var(--snout-t)}
 .center{text-align:center}.center img{margin:0 auto}
+.join{background:#355BEB}

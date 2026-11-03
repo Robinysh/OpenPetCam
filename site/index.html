@@ -53,17 +53,11 @@
 <script src="analytics.js" defer></script>
 </head>
 <body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <filter id="felt" x="-5%" y="-5%" width="110%" height="110%">
-    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="4" result="n"/>
-    <feDisplacementMap in="SourceGraphic" in2="n" scale="3.2" xChannelSelector="R" yChannelSelector="G"/>
-  </filter>
-</svg>
 
 <nav class="nav">
   <a class="word" href="./" aria-label="OpenPetCam home"><img src="media/openpetcam-mark-color.svg" width="34" height="34" alt="">OpenPetCam</a>
   <div class="links">
-    <a href="#search">How it finds her</a><a href="#setup">Set up</a><a href="#faq">FAQ</a>
+    <a href="#search">The search</a><a href="#setup">Set up</a><a href="#faq">FAQ</a>
     <a class="star" href="https://github.com/crimeacs/OpenPetCam" data-track="nav">★ <span data-stars>Star</span></a>
   </div>
 </nav>
@@ -72,8 +66,8 @@
   <h1 class="mega felt">The pet cam that<br>finds your dog.</h1>
   <div class="hero-row">
     <p class="lede">OpenPetCam is free, open-source software for a cheap pan/tilt Wi-Fi camera.
-      When your dog wanders out of view, the camera turns and looks for her, and it can tell her from her toys.
-      It all runs on a $5 server you own, so there's nothing to subscribe to.</p>
+      When your dog wanders out of view, the camera turns and goes looking for her, and the detector knows her from her toys.
+      Everything runs on a $5 server you own, so there's nothing to subscribe to.</p>
     <div class="get">
       <div class="term" data-section="hero">
         <code id="cmd-hero">git clone https://github.com/crimeacs/OpenPetCam.git &amp;&amp; cd OpenPetCam &amp;&amp; ./setup</code>
@@ -93,7 +87,7 @@
     </div>
     </div>
     <span class="sticker felt" aria-hidden="true">free &amp;<br>open<br>source</span>
-    <figcaption class="mono small">A real frame from the reference camera, with the scores the detector gave it.</figcaption>
+    <figcaption class="mono small">A real frame from the reference camera, with the detector's real scores.</figcaption>
   </figure>
 </header>
 
@@ -101,9 +95,10 @@
 <section id="search" class="search" data-section="search">
   <div class="head">
     <p class="mono tag">01 / the search</p>
-    <h2 class="felt">She wandered off.<br>So it went looking.</h2>
-    <p>Out of view for a while? The camera sweeps the room by itself, starting where it already points so it doesn't
-      swing around for nothing, and stops the moment it sees her. You can also tap <b>Find</b>. This search took 12 seconds.</p>
+    <h2 class="felt">She wandered off.<br>The camera went looking.</h2>
+    <p>Out of view for a while? The camera sweeps the room on its own. The sweep starts where the lens already points,
+      so the motor doesn't swing around for nothing, and stops the moment she's back in frame. Or tap <b>Find</b>.
+      This search took 12 seconds.</p>
   </div>
   <ol class="frames">
     <li><picture><source srcset="media/photos/search-1.webp" type="image/webp"><img src="media/photos/search-1.jpg" width="960" height="516" alt="The camera pointed at the food bowls" loading="lazy"></picture><span class="mono">out of view</span></li>
@@ -120,7 +115,7 @@
   <p class="mono tag">02 / the toy problem</p>
   <h2 class="felt">Dog-shaped isn't the same as <em>your dog</em>.</h2>
   <p class="why">A small detector flags anything that looks like a dog. Then a second model, trained on pictures from
-      <em>your</em> camera, decides whether it's actually her. Same frame, two answers. Plush toys don't set off the search,
+      <em>your</em> camera, decides whether that's actually her. Same frame, two answers. Plush toys don't set off the search,
       and they don't get counted in her day.</p>
   <div class="vs">
     <figure class="zoom"><img src="media/photos/crop-toy.jpg" width="297" height="216" alt="Close-up of the black plush toy, enlarged from the camera frame" loading="lazy"><figcaption><span class="num felt">0.00</span><span class="mono">her toy · 4× zoom</span></figcaption></figure>
@@ -129,7 +124,7 @@
 </section>
 
 <section class="ledger" data-section="numbers">
-  <p class="mono tag">03 / what it costs to run</p>
+  <p class="mono tag">03 / running costs</p>
   <dl>
     <div><dt class="felt">$5</dt><dd>a month for the server. That's the whole bill.</dd></div>
     <div><dt class="felt">5%</dt><dd>of one CPU core, on a 512 MB machine.</dd></div>
@@ -143,7 +138,7 @@
     <p class="mono tag">04 / her day</p>
     <h2 class="felt">Her whole day,<br>minus the boring parts.</h2>
     <p><b>Today</b> lists the moments she was in view, her naps, when she was up and about, and every bark.
-      The <b>Diary</b> keeps two weeks, with a highlight reel each night. It pings your phone when she barks or sounds
+      The <b>Diary</b> keeps two weeks, with a highlight reel each night. Your phone gets a ping when she barks or sounds
       upset, and when the camera goes offline or something blocks the view.</p>
   </div>
   <div class="strip">
@@ -156,19 +151,19 @@
 
 <section class="fixes" data-section="agent">
   <div class="head">
-    <p class="mono tag">05 / when it gets something wrong</p>
-    <h2 class="felt">Tell it what went wrong. It fixes it.</h2>
+    <p class="mono tag">05 / when the camera gets something wrong</p>
+    <h2 class="felt">Report the mistake.<br>Get a fix by morning.</h2>
   </div>
   <ol class="comic">
     <li><img src="media/photos/felt-a.jpg" width="1600" height="898" alt="" loading="lazy">
-      <p><b>1.</b> In the app, tap <b>Something wrong?</b> and say it in plain words: <i>"the camera moved but didn't say why."</i></p></li>
+      <p><b>1.</b> In the app, tap <b>Something wrong?</b> and describe what happened in plain words: <i>"the camera moved but didn't say why."</i></p></li>
     <li><img src="media/photos/felt-b.jpg" width="1600" height="898" alt="" loading="lazy">
-      <p><b>2.</b> An optional agent on your computer reads the report and the video around it, writes a fix and a test,
-        and ships it only if checks it can't edit pass. Then it answers you in the app.</p></li>
+      <p><b>2.</b> An optional agent on your computer reads the report and the video from that moment, then writes a fix and a test.
+        The fix ships only if checks the agent can't edit all pass, and the agent replies to you in the app.</p></li>
     <li><img src="media/photos/felt-c.jpg" width="1600" height="898" alt="" loading="lazy">
-      <p><b>3.</b> Once the fix has run fine on your camera, it's sent here as a pull request. After it's released, every camera installs it overnight.</p></li>
+      <p><b>3.</b> A fix that has run well on your camera goes upstream as a pull request. Once that fix is in a release, every OpenPetCam installs the update overnight.</p></li>
   </ol>
-  <p class="mono small">Felt scenes are illustrations. The agent runs with <a href="https://claude.com/claude-code">Claude Code</a>, and everything else works without it.</p>
+  <p class="mono small">Felt scenes are illustrations. The agent runs with <a href="https://claude.com/claude-code">Claude Code</a>. The camera, app and alerts don't need the agent.</p>
 </section>
 
 <section id="film" class="film" data-section="film">
@@ -182,7 +177,7 @@
 <section id="setup" class="setup" data-section="how">
   <div class="cam"><img src="media/photos/camera.jpg" width="1280" height="720" alt="The reference camera, a small white pan/tilt camera mounted under a counter" loading="lazy"></div>
   <div>
-    <p class="mono tag">07 / set it up</p>
+    <p class="mono tag">07 / setup</p>
     <h2 class="felt">One evening, one camera, one command.</h2>
     <ul class="need">
       <li><b>A pan/tilt camera</b> that runs <a href="https://thingino.com">Thingino</a>, the open firmware. We use a Cinnado D1.</li>
@@ -196,8 +191,8 @@ cd OpenPetCam
       <button type="button" data-copy="#cmd-how">Copy</button>
     </div>
     <p><code>./setup</code> asks for the server and its SSH key, installs everything, and tells you exactly what to type into
-      the camera's WireGuard page. Then open the address on your phone and add it to the Home Screen.
-      It updates itself every night and rolls back if an update goes wrong.
+      the camera's WireGuard page. Then open the address on your phone and choose Add to Home Screen.
+      The server installs new releases every night and rolls back if an update goes wrong.
       Step by step: <a href="guide/thingino-pet-camera.html">the Thingino guide</a>.</p>
   </div>
 </section>
@@ -216,10 +211,10 @@ cd OpenPetCam
   <p class="mono tag">09 / questions</p>
   <details data-faq><summary>Is there a pet camera without a subscription?</summary><p>Yes, this one. The software is free and open source. You pay for a small server you own (an AWS Lightsail nano is about $5 a month) and a Thingino-compatible camera, once.</p></details>
   <details data-faq><summary>Which cameras work?</summary><p>Pan/tilt Wi-Fi cameras supported by <a href="https://thingino.com">Thingino</a>. Ours is a Cinnado D1 (Ingenic T23N). Other models may need their pan and tilt calibrated once with <code>tools/calibrate.py</code>. See the <a href="guide/thingino-pet-camera.html">Thingino guide</a>.</p></details>
-  <details data-faq><summary>Does it work on iPhone and Android?</summary><p>Yes. Open the address in Safari or Chrome and add it to the Home Screen. It runs full screen and sends notifications. There's no App Store step.</p></details>
-  <details data-faq><summary>How does it tell my dog from a toy?</summary><p>A small detector (YOLOX-nano) proposes anything dog-like. A second model, trained on pictures from your own camera, decides whether it's your pet. On our camera it gave the plush toy 0.00 and the dog 0.99 in the same frame.</p></details>
+  <details data-faq><summary>iPhone or Android?</summary><p>Both. Open the address in Safari or Chrome and choose Add to Home Screen. The app then runs full screen and sends notifications, with no App Store step.</p></details>
+  <details data-faq><summary>How does the camera tell my dog from a toy?</summary><p>A small detector (YOLOX-nano) proposes anything dog-like. A second model, trained on pictures from your own camera, decides whether that's your pet. On our camera the verifier gave the plush toy 0.00 and the dog 0.99 in the same frame.</p></details>
   <details data-faq><summary>Who can see my video?</summary><p>You, and the people you invite. Video goes from the camera to your server over WireGuard and nowhere else. One tap turns off the picture and the microphone. This website uses anonymous, cookieless analytics.</p></details>
-  <details data-faq><summary>What about cats?</summary><p>It's built and tested on a dog so far. Cats need different classes in the detector and sound model. If you have a cat and some patience, that's a great first contribution.</p></details>
+  <details data-faq><summary>What about cats?</summary><p>So far OpenPetCam is built and tested on a dog. Cats need different classes in the detector and sound model. If you have a cat and some patience, that's a great first contribution.</p></details>
   <details data-faq><summary>Do I need the agent?</summary><p>No. The camera, app and alerts work on their own. The agent is optional, runs on your computer with Claude Code, and turns your reports into tested fixes.</p></details>
 </section>
 
@@ -227,7 +222,7 @@ cd OpenPetCam
   <h2 class="mega felt">Bring your dog.</h2>
   <p>OpenPetCam gets better every time someone tells us what their pet did that the camera got wrong. You don't need a camera or code to help.</p>
   <div class="cta">
-    <a href="https://github.com/crimeacs/OpenPetCam" data-track="join-star">★ Star it on GitHub</a>
+    <a href="https://github.com/crimeacs/OpenPetCam" data-track="join-star">★ Star on GitHub</a>
     <a href="https://github.com/crimeacs/OpenPetCam/issues/new/choose" data-track="join-issue">Tell us what went wrong</a>
     <a href="https://github.com/crimeacs/OpenPetCam/blob/main/CONTRIBUTING.md" data-track="join-contribute">Add your camera, or a cat mode</a>
   </div>

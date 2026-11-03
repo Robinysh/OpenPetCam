@@ -4,9 +4,10 @@
     python3 tools/fonts/build_fonts.py        writes site/fonts/{snout,snout-mono}.{ttf,woff2} + a specimen PNG
 
 Every letter is a centreline (lines and elliptical arcs) on a 1000-unit grid. The same skeletons are stroked twice:
-  Snout       heavy rounded strokes, proportional; the dots of i and j are paw prints and g, j, y end in a curled tail.
+  Snout       heavy rounded strokes drawn with an oval pen (verticals 1.6x the horizontals), proportional;
+              the dots of i and j are paw prints.
   Snout Mono  thin strokes, every glyph the same width; the camera-readout face (labels, timestamps, scores).
-Round caps and joins come from buffering the centreline (shapely), so the type is soft like a felt toy.
+Round caps and joins come from buffering the centreline (shapely); round letters get tighter sidebearings.
 Needs: fonttools, shapely, brotli, pillow.
 """
 import math
@@ -37,14 +38,18 @@ def ell(cx, cy, rx, ry):
 
 
 class K:
-    """Metrics for one stroke weight: centreline positions so the OUTER edge lands on the grid line."""
-    def __init__(self, s):
-        self.s = s
+    """Metrics for one stroke weight: centreline positions so the OUTER edge lands on the grid line.
+    pen > 1 is an oval pen, wider than tall: verticals come out heavier than horizontals, which keeps joins
+    and counters open at heavy weights (what a hand-drawn rounded face does by eye)."""
+    def __init__(self, s, pen=1.0):
+        self.s, self.pen = s, pen
         h = s / 2
         self.b, self.x, self.c, self.a, self.d = h, XH - h, CH - h, ASC - h, DSC + h
         self.m, self.cm = (self.b + self.x) / 2, (self.b + self.c) / 2
 
 
+ROUND_L = set("acdeogqCGOQS0368@")
+ROUND_R = set("bcdeopDOQS0369@")
 R = 210          # lowercase bowl half-width
 RC = 250         # capital bowl half-width
 
@@ -69,7 +74,7 @@ def glyphs(k, paw):
     g["p"] = [bowl, [(0, x), (0, d)]]
     g["q"] = [bowl, [(2 * R, x), (2 * R, d)]]
     g["c"] = [arc(R, m, R, ry, 42, 318)]
-    g["e"] = [[(0, m + s * 0.08), (2 * R, m + s * 0.08)], arc(R, m, R, ry, 8, 305)]
+    g["e"] = [[(0, m + s * 0.02), (2 * R, m + s * 0.02)], arc(R, m, R, ry, 4, 300)]
     na = [(0, b)] + arc(R, x - arch, R, arch, 180, 0) + [(2 * R, b)]
     g["n"] = [[(0, x), (0, b)], na]
     g["h"] = [[(0, a), (0, b)], na]
@@ -81,9 +86,9 @@ def glyphs(k, paw):
     g["r"] = [[(0, x), (0, b)], [(0, b + 10)] + arc(R * 0.9, x - arch, R * 0.9, arch, 180, 55)]
     g["i"] = [[(0, x), (0, b)], dot(0, idot, True)]
     hook = arc(2 * R - tail, d + tail, tail, tail, 0, -200)
-    g["j"] = [[(0, x), (0, d + tail)] + arc(-tail, d + tail, tail, tail, 0, -200), dot(0, idot, True)]
-    g["g"] = [bowl, [(2 * R, x), (2 * R, d + tail)] + arc(R, d + tail, R, tail, 0, -195)]
-    g["y"] = [ua, [(2 * R, x), (2 * R, d + tail)] + arc(R, d + tail, R, tail, 0, -195)]
+    g["j"] = [[(0, x), (0, d + tail)] + arc(-tail * 0.9, d + tail, tail * 0.9, tail, 0, -165), dot(0, idot, True)]
+    g["g"] = [bowl, [(2 * R, x), (2 * R, d + tail)] + arc(R, d + tail, R, tail, 0, -158)]
+    g["y"] = [ua, [(2 * R, x), (2 * R, d + tail)] + arc(R, d + tail, R, tail, 0, -158)]
     q = 120
     g["l"] = [[(0, a), (0, b + q)] + arc(q, b + q, q, q, 180, 270) + [(q + 20, b)]]
     g["t"] = [[(0, a - 70), (0, b + q)] + arc(q, b + q, q, q, 180, 270) + [(q + 40, b)], [(-115, x), (2 * R * 0.62, x)]]
@@ -214,11 +219,14 @@ def shape(k, item, paw):
             toes = [Point(px + s * 0.9 * math.cos(math.radians(t)), py + s * 0.12 + s * 0.8 * math.sin(math.radians(t)))
                     .buffer(s * 0.24, quad_segs=12) for t in (158, 113, 67, 22)]
             return unary_union([pad] + toes)
-    return LineString(item).buffer(s / 2, cap_style="round", join_style="round", quad_segs=16)
+    kp = k.pen
+    line = LineString([(px / kp, py) for px, py in item])
+    return sscale(line.buffer(s / 2, cap_style="round", join_style="round", quad_segs=16), kp, 1, origin=(0, 0))
 
 
-def build(name, s, paw, mono, sp, wobble=0.0):
-    k = K(s)
+
+def build(name, s, paw, mono, sp, wobble=0.0, pen=1.0):
+    k = K(s, pen)
     defs = glyphs(k, paw)
     order = [".notdef", "space"] + [f"u{ord(ch):04X}" for ch in defs]
     fb = FontBuilder(1000, isTTF=True)
@@ -249,8 +257,10 @@ def build(name, s, paw, mono, sp, wobble=0.0):
             geo = translate(geo, (ADV - (maxx - minx)) / 2 - minx, 0)
             adv = ADV
         else:
-            geo = translate(geo, sp - minx, 0)
-            adv = int(round(maxx - minx + 2 * sp))
+            lsb = sp * (0.62 if ch in ROUND_L else 1.0)      # round sides sit closer: optical spacing
+            rsb = sp * (0.62 if ch in ROUND_R else 1.0)
+            geo = translate(geo, lsb - minx, 0)
+            adv = int(round(maxx - minx + lsb + rsb))
         geo = geo.simplify(0.6)
         pen = TTGlyphPen(None)
         polys = getattr(geo, "geoms", [geo])
@@ -311,6 +321,9 @@ def specimen(ttf_display, ttf_mono):
     M = lambda n: ImageFont.truetype(ttf_mono, n)
     dr.text((60, 40), "OpenPetCam", font=D(190), fill="#202332")
     dr.text((60, 270), "Where's the dog? Found her.", font=D(96), fill="#355BEB")
+    dk = Image.new("RGB", (1800, 330), "#1B1D2A"); dd = ImageDraw.Draw(dk)
+    dd.text((50, 20), "The pet cam that", font=D(130), fill="#F1EBDF"); dd.text((50, 170), "finds your dog.", font=D(130), fill="#F1EBDF")
+    dk.save(os.path.join(ROOT, "docs", "brand", "fonts-headline.png"))
     dr.text((60, 410), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", font=D(78), fill="#202332")
     dr.text((60, 520), "abcdefghijklmnopqrstuvwxyz", font=D(78), fill="#202332")
     dr.text((60, 630), "0123456789 $5 0.99 5% → ✓ ! ? & @ #", font=D(78), fill="#202332")
@@ -323,8 +336,8 @@ def specimen(ttf_display, ttf_mono):
 
 
 if __name__ == "__main__":
-    a = build("Snout", 165, paw=True, mono=False, sp=34, wobble=2.6)
-    build("Snout Text", 150, paw=False, mono=False, sp=40, wobble=1.6)   # for sizes under ~48px: plain dots
+    a = build("Snout", 128, paw=True, mono=False, sp=24, pen=1.62)
+    build("Snout Text", 118, paw=False, mono=False, sp=30, pen=1.5)   # for sizes under ~48px: plain dots
     b = build("Snout Mono", 64, paw=False, mono=True, sp=0)
     if "--no-specimen" not in sys.argv:
         specimen(a, b)
