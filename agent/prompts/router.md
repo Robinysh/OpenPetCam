@@ -33,3 +33,6 @@ Write your decisions as JSON to {out}, exactly:
 {{"actions": [{{"trigger_ids": [1], "action": "dispatch", "thread": "goal:cpu", "kind": "improve", "brief": "...",
   "ask": "", "why": "one line"}}]}}
 Every new trigger id must appear in exactly one action.
+"action" is one string, exactly "ignore", "note", "dispatch" or "ask", never a list or two words (a list crashed the
+harness on 2026-11-02). If a trigger needs the owners, its action is "ask"; mention any safe work you would start meanwhile
+in "why". Every value is a string except "trigger_ids", a list of integers.

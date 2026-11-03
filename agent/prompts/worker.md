@@ -19,10 +19,13 @@ per change, small diff.
 How to work: measure first (the current value and how you measured it, with ground truth from outside the system),
 then change, then measure the same way again. Small change, with a test that fails without it. Never deploy, push,
 commit or ssh to change anything: the harness decides what ships. Read-only checks on the server are fine through
-python3 tools/qa.py or tools/*.py read-only commands. If the right change needs the owners (money, hardware, more motor
+python3 tools/qa.py or tools/*.py read-only commands. The judge's own data is not yours: never open, search or run
+anything under agent/evals/ or the eval_*.json / router_eval*.json files in eval/superagent/ (a meta worker was rejected
+for it on 2026-11-03); judge your own change by its reasoning and tests. If the right change needs the owners (money, hardware, more motor
 moves or sounds near the dog, privacy), propose it instead.
 
 Write {out}, exactly:
 {{"summary": "what you found, with numbers", "baseline": "metric before, how measured", "fixed": true|false,
  "fix_summary": "", "tests_run": "", "expected_after": "what the metric should become", "needs_owner": "",
  "reply": "to the owners, at most 100 words, only if something changed for them; else empty"}}
+Every value is one string except "fixed", which is the boolean true or false.
