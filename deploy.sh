@@ -7,6 +7,12 @@ set -euo pipefail
 cd "$(dirname "$0")"
 # Agent workers propose; only the harness ships (tools/report_agent.py:ship runs this without the flag).
 if [ "${PETCAM_AGENT_WORKER:-}" = 1 ]; then echo "Refusing: agent workers may not deploy; the harness ships after its gates."; exit 1; fi
+# One deploy at a time (the owner's session and the agent's harness both deploy).
+mkdir -p eval; LOCK=eval/.deploy.lock
+if ! mkdir "$LOCK" 2>/dev/null; then
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then rmdir "$LOCK"; mkdir "$LOCK"; else echo "Another deploy is running; try again shortly."; exit 75; fi
+fi
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 CONF=${PETCAM_CONFIG:-config/site.env}
 [ -f "$CONF" ] || { echo "No $CONF. Copy config/site.env.example to config/site.env and fill it in."; exit 1; }
 set -a; . "$CONF"; set +a
