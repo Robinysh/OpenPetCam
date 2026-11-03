@@ -694,6 +694,8 @@ const KIND = {
 function petText(l) {
   if (!l || l.status === "starting") return [`Looking for ${PET.name}…`, ""];
   if (l.status === "privacy") return ["Camera paused", ""];
+  // Watcher silent >20 s: whatever it last said is stale, so don't claim she's away (report 2026-11-02 20:04).
+  if (l.status === "watcher_down") return [`Can't tell where ${PET.name} is right now`, ""];
   if (l.present) {
     const unseen = l.last_seen ? Date.now() / 1000 - l.last_seen : 0;
     if (unseen > 30) return [`${PET.name} · out of sight, seen ${unseen < 90 ? Math.round(unseen) + " s ago" : ago(l.last_seen)}`, ""];
