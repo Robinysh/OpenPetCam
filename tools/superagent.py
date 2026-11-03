@@ -325,7 +325,7 @@ def work(thread):
                             "--add-dir", RUN, "--add-dir", os.path.join(ROOT, "models"), "--add-dir", os.path.join(ROOT, "eval"),
                             "--allowedTools", "Read", "Grep", "Glob", "Edit", "Write", "Bash(python3:*)", "Bash(git diff:*)",
                             "Bash(git status:*)", "Bash(ls:*)", "Bash(ffmpeg:*)", "Bash(ffprobe:*)"],
-                           cwd=wt, capture_output=True, text=True, timeout=WORKER_TIMEOUT + 60, env=ENV)
+                           cwd=wt, capture_output=True, text=True, timeout=WORKER_TIMEOUT + 60, env=dict(ENV, PETCAM_AGENT_WORKER="1"))
         if not os.path.exists(out):
             raise RuntimeError(f"worker wrote no result (rc {r.returncode}): {(r.stderr or r.stdout)[-300:]}")
         res = json.load(open(out))

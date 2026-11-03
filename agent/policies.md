@@ -7,3 +7,4 @@
 - Ask the owners (reply with needs_owner) only for: money, hardware, anything that moves the camera more often or
   plays sounds, privacy, deleting data. Everything else: decide.
 - Replies to the owners: at most 100 words, plain words, only when something changed for them or a decision is needed.
+- Never tell a worker to deploy, commit, push or ssh: workers propose, the harness ships after its gates.

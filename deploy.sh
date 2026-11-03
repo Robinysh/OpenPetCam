@@ -5,6 +5,8 @@
 #   PETCAM_CONFIG=x.env ./deploy.sh
 set -euo pipefail
 cd "$(dirname "$0")"
+# Agent workers propose; only the harness ships (tools/report_agent.py:ship runs this without the flag).
+if [ "${PETCAM_AGENT_WORKER:-}" = 1 ]; then echo "Refusing: agent workers may not deploy; the harness ships after its gates."; exit 1; fi
 CONF=${PETCAM_CONFIG:-config/site.env}
 [ -f "$CONF" ] || { echo "No $CONF. Copy config/site.env.example to config/site.env and fill it in."; exit 1; }
 set -a; . "$CONF"; set +a

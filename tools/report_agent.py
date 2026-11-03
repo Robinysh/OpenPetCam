@@ -53,8 +53,8 @@ def log(*a):
         f.write(line + "\n")
 
 
-def run(cmd, timeout=120, cwd=None, check=False, **kw):
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd, env=ENV, **kw)
+def run(cmd, timeout=120, cwd=None, check=False, env=None, **kw):
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd, env=env or ENV, **kw)
     if check and r.returncode != 0:
         raise RuntimeError(f"{cmd if isinstance(cmd, str) else ' '.join(cmd)[:120]} -> {r.returncode}: {(r.stderr or r.stdout)[-400:]}")
     return r
@@ -195,7 +195,7 @@ def run_agent(rid, d, wt, rep):
     cmd = ["timeout", "-k", "10", str(AGENT_TIMEOUT), "claude", "-p", prompt, "--add-dir", d, "--add-dir", OUT, "--add-dir", os.path.join(ROOT, "models"),
            "--allowedTools", "Read", "Grep", "Glob", "Edit", "Write", "Bash(python3:*)", "Bash(ffmpeg:*)", "Bash(ffprobe:*)",
            "Bash(git diff:*)", "Bash(git status:*)", "Bash(ls:*)", "--output-format", "json"]
-    r = run(cmd, cwd=wt, timeout=AGENT_TIMEOUT + 60)
+    r = run(cmd, cwd=wt, timeout=AGENT_TIMEOUT + 60, env=dict(ENV, PETCAM_AGENT_WORKER="1"))
     with open(os.path.join(d, "agent_transcript.json"), "w") as f:
         f.write(r.stdout or "")
     res_path = os.path.join(d, "agent_result.json")
