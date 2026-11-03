@@ -49,7 +49,7 @@ paths:
     recordFormat: fmp4
     recordPartDuration: 1s
     recordSegmentDuration: 10m   # each segment boundary drops ~0.4 s of Opus audio ("too late"); fewer boundaries
-    recordDeleteAfter: 1h
+    recordDeleteAfter: 6h   # ~690 MB/h at 1080p: ~4.1 GB, disk stays near 55% (2026-11-02; 12 h would pass 80%)
   # The camera's 640x360 substream, for petcam-watch (decoded there at 5 fps). Not recorded.
   # Source URL (with the RTSP login) from MTX_PATHS_SUB_SOURCE in /etc/petcam/camera.env.
   sub:

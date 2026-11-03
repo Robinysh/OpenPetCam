@@ -202,7 +202,7 @@ def _():
     return ("FAIL" if bad else "PASS"), f"{len(gets)} GET + {len(posts)} POST routes checked; not 401: {bad or 'none'}; /login={login}"
 
 
-@check("server", "retention", "snapshots 14 d, candidates 30 d, recordings ~24 h, usage 90 d: storage stays bounded")
+@check("server", "retention", "snapshots 14 d, candidates 30 d, recordings ~6 h, usage 90 d: storage stays bounded")
 def _():
     r = remote()
     notes, st = [], "PASS"
@@ -216,7 +216,7 @@ def _():
                 st = "FAIL"
     rec = r["rec"]
     notes.append(f"recordings: {rec['n']} files, oldest {rec['oldest_age_h']} h, {rec['mb']} MB")
-    if rec["oldest_age_h"] and rec["oldest_age_h"] > 30:
+    if rec["oldest_age_h"] and rec["oldest_age_h"] > 7:          # recordDeleteAfter 6h
         st = "WARN"
     notes.append(f"db {r['db_mb']} MB, journal {r['journal_mb']}; rows {r['tables']}")
     return st, "; ".join(notes)
