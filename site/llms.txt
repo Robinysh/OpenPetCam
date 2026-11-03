@@ -1,0 +1,28 @@
+# OpenPetCam
+
+> OpenPetCam is a free, open-source (Apache-2.0), self-hosted pet camera. It runs on a Thingino-flashed pan/tilt Wi-Fi camera and a small Ubuntu server you own (an AWS Lightsail nano at about $5/month is enough). It gives live video on your phone, searches the room with the camera's motors when your pet is out of view, tells your pet from toys with a model trained on your own camera, and sends alerts. No subscription and no vendor cloud. Current release: v0.1.0. Built and tested for dogs first.
+
+Key facts:
+- Camera: any Thingino-supported pan/tilt camera; reference Cinnado D1 (Ingenic T23N).
+- Server: Ubuntu 24.04, 512 MB RAM; uses about 5% of one CPU core; 6-hour rolling recording.
+- Phone: web app added to the Home Screen (iPhone and Android); push notifications; no App Store.
+- Privacy: video goes camera → your server over WireGuard only; the camera dials out so no ports open at home; one tap turns off picture and microphone.
+- Detection: YOLOX-nano proposes dog-like boxes; a second verifier model trained on your camera's footage decides whether it is your pet.
+- Updates: the server installs new GitHub releases nightly, health-checks them and rolls back on failure.
+- Optional agent (Claude Code) turns in-app reports into tested fixes and offers proven fixes upstream as pull requests.
+- Install: `git clone https://github.com/crimeacs/OpenPetCam.git && cd OpenPetCam && ./setup`
+
+## Docs
+- [README](https://github.com/crimeacs/OpenPetCam/blob/main/README.md): install, features, updates, privacy
+- [Architecture](https://github.com/crimeacs/OpenPetCam/blob/main/docs/architecture.md)
+- [Camera notes (Thingino)](https://github.com/crimeacs/OpenPetCam/blob/main/docs/camera-thingino.md)
+- [The self-improving agent](https://github.com/crimeacs/OpenPetCam/blob/main/docs/superagent.md)
+- [Contributing](https://github.com/crimeacs/OpenPetCam/blob/main/CONTRIBUTING.md)
+
+## Guides
+- [Build a pet camera with Thingino firmware](https://crimeacs.github.io/OpenPetCam/guide/thingino-pet-camera.html)
+- [A pet camera without a subscription](https://crimeacs.github.io/OpenPetCam/guide/pet-camera-without-subscription.html)
+
+## Optional
+- [Releases](https://github.com/crimeacs/OpenPetCam/releases)
+- [60-second film](https://crimeacs.github.io/OpenPetCam/media/openpetcam-film-720p.mp4)

@@ -7,7 +7,8 @@
 
 <p align="center"><b>The open-source pet camera that knows your pet.</b><br>
 Live video, your pet's day at a glance, and a camera that goes looking when they wander off.<br>
-On a $5 server you own. No subscription. No vendor cloud.</p>
+On a $5 server you own. No subscription. No vendor cloud.<br>
+<a href="https://crimeacs.github.io/OpenPetCam/"><b>Website &amp; 60-second film →</b></a></p>
 
 <p align="center">
   <a href="https://github.com/crimeacs/OpenPetCam/actions/workflows/ci.yml"><img src="https://github.com/crimeacs/OpenPetCam/actions/workflows/ci.yml/badge.svg" alt="CI"></a>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build a pet camera with Thingino firmware (step by step) | OpenPetCam</title><meta name="description" content="Turn a cheap Thingino-supported pan/tilt Wi-Fi camera into a private pet camera that finds your dog, with OpenPetCam and a $5 server. Cameras, firewall ports, WireGuard settings.">
+<link rel="canonical" href="https://crimeacs.github.io/OpenPetCam/guide/thingino-pet-camera.html">
+<meta property="og:type" content="article"><meta property="og:site_name" content="OpenPetCam">
+<meta property="og:title" content="Build a pet camera with Thingino firmware (step by step) | OpenPetCam"><meta property="og:description" content="Turn a cheap Thingino-supported pan/tilt Wi-Fi camera into a private pet camera that finds your dog, with OpenPetCam and a $5 server. Cameras, firewall ports, WireGuard settings.">
+<meta property="og:url" content="https://crimeacs.github.io/OpenPetCam/guide/thingino-pet-camera.html">
+<meta property="og:image" content="https://crimeacs.github.io/OpenPetCam/media/share.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#355BEB">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../site.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Build a pet camera with Thingino firmware (step by step)", "description": "Turn a cheap Thingino-supported pan/tilt Wi-Fi camera into a private pet camera that finds your dog, with OpenPetCam and a $5 server. Cameras, firewall ports, WireGuard settings.", "datePublished": "2026-11-03", "dateModified": "2026-11-03", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/guide/thingino-pet-camera.html", "image": "https://crimeacs.github.io/OpenPetCam/media/share.png"}</script>
+<script src="../analytics.js" defer></script></head>
+<body><header class="topbar"><nav class="nav"><a class="brand" href="../"><img src="../media/openpetcam-logo-horizontal-white.svg" alt="OpenPetCam" width="160" height="34"></a>
+<div class="navlinks"><a href="../#film">Film</a><a href="../#faq">FAQ</a><a href="./">Guides</a><a class="gh" href="https://github.com/crimeacs/OpenPetCam" data-track="nav">GitHub ★</a></div></nav></header>
+<main class="doc" data-section="guide">
+<p class="crumbs"><a href="../">OpenPetCam</a> / <a href="./">Guides</a></p>
+<h1>Build a pet camera with Thingino firmware</h1>
+<p><strong>Short answer:</strong> flash a supported pan/tilt camera with <a href="https://thingino.com">Thingino</a>, rent a small Ubuntu 24.04 server (an AWS Lightsail nano is about $5 a month), and run OpenPetCam's <code>./setup</code>. The camera connects out to your server over WireGuard; your phone opens the app from the server. About 30 minutes, no coding.</p>
+
+<h2>What Thingino is, and why it suits a pet camera</h2>
+<p>Thingino is open-source firmware for cameras built on Ingenic chips. It replaces the vendor firmware, so the camera stops talking to the vendor's cloud and gives you RTSP video, a web page, motor control and WireGuard. OpenPetCam uses all four: video for live view and detection, the motors to go looking for your pet, and WireGuard so nothing at home has to be opened to the internet.</p>
+
+<h2>What you need</h2>
+<table><tr><th>Part</th><th>What works</th></tr>
+<tr><td>Camera</td><td>A Thingino-supported <strong>pan/tilt</strong> camera. Reference: Cinnado D1 (Ingenic T23N). Fixed cameras give live view and alerts but can't search.</td></tr>
+<tr><td>Server</td><td>Ubuntu 24.04 with a public IP. 512 MB RAM is enough; OpenPetCam uses about 5% of one CPU core.</td></tr>
+<tr><td>Computer</td><td>Mac or Linux with <code>git</code>, <code>ssh</code> and <code>rsync</code>, for the installer.</td></tr>
+<tr><td>Phone</td><td>Any iPhone or Android browser. The app installs to the Home Screen.</td></tr></table>
+
+<h2>Step 1: flash the camera</h2>
+<p>Follow the instructions for your model on <a href="https://thingino.com">thingino.com</a>. Join the camera to your Wi-Fi and set its root password in the setup portal. Keep that password; you'll type it on the server later.</p>
+
+<h2>Step 2: create the server</h2>
+<p>Create the server and open these ports in its cloud firewall: TCP 22, 80, 443, and UDP 51820 (WireGuard) and UDP 8189 (WebRTC video). Note its public IP and SSH key.</p>
+
+<h2>Step 3: run the installer</h2>
+<pre><code>git clone https://github.com/crimeacs/OpenPetCam.git && cd OpenPetCam
+git checkout "$(git describe --tags --abbrev=0)"
+./setup</code></pre>
+<p>It asks for the server's IP, SSH key, time zone and your pet's name, installs MediaMTX, Caddy, WireGuard and the detector, and prints the values for the next step.</p>
+
+<h2>Step 4: connect the camera with WireGuard</h2>
+<p>In the camera's Thingino web page, open WireGuard and enter what <code>./setup</code> printed:</p>
+<table><tr><th>Field</th><th>Value</th></tr>
+<tr><td>Address</td><td><code>10.77.0.2/24</code></td></tr>
+<tr><td>Endpoint</td><td><code>&lt;server IP&gt;:51820</code></td></tr>
+<tr><td>Peer public key</td><td>the server key <code>./setup</code> printed</td></tr>
+<tr><td>Allowed IPs</td><td><code>10.77.0.1/32</code></td></tr>
+<tr><td>Keepalive</td><td><code>25</code></td></tr></table>
+<p>Paste the camera's own public key back into <code>./setup</code>. Because the camera dials out, your router needs no port forwarding.</p>
+
+<h2>Step 5: open it on your phone</h2>
+<p>Set the app password when <code>./setup</code> asks (it's typed on the server and never stored on your computer), then open the address it prints. In Safari choose Share → Add to Home Screen. It runs full screen and can send alerts.</p>
+
+<h2>Another camera model?</h2>
+<p>Most Thingino pan/tilt cameras work. Motor ranges differ, so run <code>tools/calibrate.py</code> once. If yours works (or doesn't), <a href="https://github.com/crimeacs/OpenPetCam/issues/new/choose" data-track="guide-issue">tell us in an issue</a>: it's the most useful thing you can share.</p>
+
+<p style="margin-top:48px"><a class="btn primary" style="background:var(--blue);color:#fff" href="https://github.com/crimeacs/OpenPetCam" data-track="guide-star">Get OpenPetCam on GitHub</a></p>
+</main>
+<footer><p>OpenPetCam is Apache-2.0 open source. <a href="https://github.com/crimeacs/OpenPetCam">GitHub</a> · <a href="../">Home</a> · <a href="../llms.txt">llms.txt</a></p></footer>
+</body></html>
