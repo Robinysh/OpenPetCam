@@ -132,7 +132,12 @@ for speed in (100, 150, 250, 400, 900):
             marks.append([speed, a - t0, b - t0])
             time.sleep(3)
 time.sleep(1)
-rec.terminate(); rec.wait(5)
+import signal
+rec.send_signal(signal.SIGINT)          # ffmpeg closes the file cleanly on Ctrl-C; SIGTERM was ignored for 5 s+
+try:
+    rec.wait(20)
+except subprocess.TimeoutExpired:
+    rec.kill(); rec.wait(5)
 w = wave.open(wav); fr = w.getframerate(); raw = w.readframes(w.getnframes()); w.close(); os.remove(wav)
 import array
 pcm = array.array("h", raw)
