@@ -69,29 +69,19 @@ You need:
 
 ## What you get
 
-<table><tr>
-<td width="300"><img src="docs/media/app-tour.gif" width="280" alt="The app: live view finding the dog, Today, the agent dashboard, themes"></td>
-<td>
+<p align="center"><img src="docs/media/app-tour.gif" width="300" alt="The app: live view finding the dog, Today, the agent dashboard, themes"></p>
 
-**See them, always.** Live video with sound on your phone; what they're doing (resting, active, out of view)
-over the picture.
-
-**It finds them.** Out of view for a while? The camera sweeps the room and stops on them, looking where it
-already points first so it doesn't move for nothing. Or tap **Find**.
-
-**It knows them from their toys.** A second model trained on *your* camera's pictures checks every sighting.
-
-**Their day at a glance.** Today shows the moments they were in view, naps, activity and every bark; the Diary
-keeps two weeks with a nightly highlight reel and timelapse.
-
-**Alerts.** Barking, distress sounds, camera offline, view blocked.
-
-**Private by design.** Video goes from your camera to your server and nowhere else. One tap turns the picture
-**and** the microphone off. Family joins with an invite link, not a shared password.
-
-**Yours to theme.** Cobalt, Golden or Meadow, light or dark.
-
-</td></tr></table>
+- **See them, always.** Live video with sound on your phone, and what they're doing (resting, active, out of
+  view) over the picture.
+- **It finds them.** Out of view for a while? The camera sweeps the room and stops on them, looking where it
+  already points first so it doesn't move for nothing. Or tap **Find**.
+- **It knows them from their toys.** A second model, trained on *your* camera's pictures, checks every sighting.
+- **Their day at a glance.** Today shows the moments they were in view, naps, activity and every bark. The Diary
+  keeps two weeks, with a nightly highlight reel and a timelapse.
+- **Alerts.** Barking, distress sounds, camera offline, view blocked.
+- **Private by design.** Video goes from your camera to your server and nowhere else. One tap turns off the
+  picture **and** the microphone. Family joins with an invite link, not a shared password.
+- **Yours to theme.** Cobalt, Golden or Meadow, light or dark.
 
 ## It fixes itself, and shares the fix
 
