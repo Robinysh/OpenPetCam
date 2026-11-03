@@ -676,6 +676,7 @@ class Watch:
         self.events = queue.Queue()
         self.audio = Audio(self.events)
         self.last_audio_fix = 0.0
+        self.audio_watch_from = now()
         self.clips = Clips()
         self.frames = FrameSource()
         self.source = None
@@ -763,7 +764,7 @@ class Watch:
         back after a restart (2026-11-02: after pause/resume the stream carried an empty audio track for
         20 min until restarted by hand). Restart after AUDIO_LOST s; at most once per 10 min."""
         t = now()
-        lost = t - self.audio.last_ok
+        lost = t - max(self.audio.last_ok, self.audio_watch_from)   # no reading yet after a start is not silence
         if privacy or imaging.get("mic_enabled") == 0 or lost < AUDIO_LOST or t - self.last_audio_fix < 600:
             return
         self.last_audio_fix = t

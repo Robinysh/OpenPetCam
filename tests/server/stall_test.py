@@ -33,8 +33,12 @@ print("stall watchdog ok:", [round(t - 1000) for t, _ in actions], events[0])
 
 # Sound lost while the mic is on (2026-11-02 18:30: after pause/resume the audio track stayed empty for 20 min).
 actions.clear()
-w.audio = type("A", (), {"last_ok": clock[0]})()
-w.last_audio_fix = 0.0
+# just started: no audio reading yet (last_ok 0) must not count as 1.8 billion seconds of silence
+w.audio = type("A", (), {"last_ok": 0.0})()
+w.last_audio_fix, w.audio_watch_from = 0.0, clock[0]
+w.check_audio_lost(False, {"mic_enabled": 1})
+assert not actions, ("restarted on startup", actions)
+w.audio.last_ok = clock[0]
 for _ in range(20):                       # 60 s without sound: nothing yet
     clock[0] += 3; w.check_audio_lost(False, {"mic_enabled": 1})
 assert not actions, actions
