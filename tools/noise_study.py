@@ -98,10 +98,85 @@ def history(days):
     return out
 
 
+LOUD = r"""
+import json, math, os, subprocess, sys, time, wave
+sys.path.insert(0, "/opt/petcam")
+import app
+S = "/var/lib/petcam"
+def safe():
+    if open(f"{S}/privacy").read().strip() == "1":
+        return "paused"
+    d = json.load(open(f"{S}/live.json"))
+    if d.get("status") != "ok" or not d.get("audio_ok"):
+        return "watcher/audio not ok"
+    if time.time() - (d.get("last_seen") or 0) < 600:
+        return "the dog seen in the last 10 min"
+    return None
+why = safe()
+if why:
+    print(json.dumps({"skipped": why})); sys.exit(0)
+wav = "/tmp/noise_study.wav"
+rec = subprocess.Popen(["ffmpeg", "-nostdin", "-v", "error", "-y", "-rtsp_transport", "tcp", "-allowed_media_types", "audio",
+                        "-i", "rtsp://127.0.0.1:8554/cam", "-ac", "1", "-ar", "16000", wav], stdin=subprocess.DEVNULL)
+time.sleep(4)
+t0 = time.time()
+x0, y0 = app.position()
+dx = 300 if x0 + 300 <= 3600 else -300
+marks = []
+for speed in (100, 150, 250, 400, 900):
+    for rep in range(3):
+        for tx in (x0 + dx, x0):
+            if safe():
+                break
+            a = time.time(); app.goto(tx, y0, speed); app.wait_idle(); b = time.time()
+            marks.append([speed, a - t0, b - t0])
+            time.sleep(3)
+time.sleep(1)
+rec.terminate(); rec.wait(5)
+w = wave.open(wav); fr = w.getframerate(); raw = w.readframes(w.getnframes()); w.close(); os.remove(wav)
+import array
+pcm = array.array("h", raw)
+lag = 4.0   # recording started 4 s before t0
+def db(a, b):
+    i, k = int((a + lag) * fr), int((b + lag) * fr)
+    seg = pcm[max(0, i):max(0, k)]
+    if len(seg) < fr // 10:
+        return None
+    blocks = [seg[j:j + fr // 10] for j in range(0, len(seg) - fr // 10 + 1, fr // 10)]
+    vals = [20 * math.log10(max(1e-9, math.sqrt(sum(v * v for v in bl) / len(bl)) / 32768)) for bl in blocks]
+    return vals
+out = []
+for speed, a, b in marks:
+    move, before = db(a, b), db(a - 2.0, a - 0.2)
+    if move and before:
+        floor = sorted(before)[len(before) // 2]
+        out.append({"speed": speed, "secs": round(b - a, 1), "excess_mean": round(sum(move) / len(move) - floor, 1),
+                    "excess_peak": round(max(move) - floor, 1), "floor": round(floor, 1)})
+print(json.dumps({"x0": x0, "moves": out}))
+"""
+
+
+def loudness():
+    r = subprocess.run(SSH + ["sudo -u petcam /opt/petcam/venv/bin/python -"], input=LOUD, capture_output=True, text=True, timeout=900)
+    if r.returncode != 0:
+        raise SystemExit(r.stderr[-400:])
+    d = json.loads(r.stdout.strip().splitlines()[-1])
+    if "skipped" in d:
+        return d
+    import statistics
+    by = {}
+    for m in d["moves"]:
+        by.setdefault(m["speed"], []).append(m)
+    d["summary"] = {sp: {"n": len(v), "excess_mean_db": round(statistics.median(x["excess_mean"] for x in v), 1),
+                         "excess_peak_db": round(statistics.median(x["excess_peak"] for x in v), 1),
+                         "secs_per_300_steps": round(statistics.median(x["secs"] for x in v), 1)} for sp, v in sorted(by.items())}
+    return d
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "history"
     days = float(sys.argv[sys.argv.index("--days") + 1]) if "--days" in sys.argv else 7
     if cmd == "history":
         print(json.dumps(history(days), indent=1))
-    else:
-        print("loudness: not run yet (needs her out of view; see docs/TODO.md)")
+    elif cmd == "loudness":
+        print(json.dumps(loudness(), indent=1))
