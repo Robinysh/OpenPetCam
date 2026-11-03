@@ -274,6 +274,8 @@ def retry_queued():
         return
     for f in sorted(x for x in os.listdir(RUN) if x.startswith("queued_")):
         q = json.load(open(os.path.join(RUN, f)))
+        if time.time() < q.get("not_before", 0):       # waiting for tomorrow's deploy budget: don't re-run the replay
+            continue
         os.remove(os.path.join(RUN, f))
         if not os.path.exists(q["wt"]):
             continue
@@ -305,6 +307,8 @@ def retry_queued():
             fa.write(json.dumps({"ts": time.time(), "thread": q["thread"], "kind": "retry", "commit": q.get("commit"),
                                  "verdict": status, "detail": detail[:300], "replay": rep}) + "\n")
         if status == "queued":
+            if "tomorrow" in detail:                   # the daily deploy cap: try again after midnight, not every tick
+                t = time.localtime(); q["not_before"] = time.mktime((t.tm_year, t.tm_mon, t.tm_mday + 1, 0, 5, 0, 0, 0, -1))
             json.dump(q, open(os.path.join(RUN, f), "w"))
         else:
             subprocess.run(["git", "worktree", "remove", "--force", q["wt"]], cwd=ROOT, capture_output=True)
