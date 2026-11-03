@@ -274,6 +274,20 @@ def retry_queued():
             status, detail = ra.ship(q["thread"], q["wt"], q["branch"], st)
             ra.save_state(st)
         note("harness", f"retried a queued fix ({q.get('commit')}): {status} {detail[:300]}", q["thread"], "result")
+        if q.get("report") and status in ("live", "rolled_back", "failed_checks", "replay_worse"):
+            # The owner was told "goes live shortly": say what actually happened.
+            msg = {"live": "The fix for your report is live now.",
+                   "rolled_back": "The fix for your report was tried but undone because the server didn't look healthy.",
+                   }.get(status, "The fix for your report didn't pass its checks on the latest code, so nothing changed yet.")
+            try:
+                r = ra.ssh(f"cat {ra.REMOTE}/{q['report']}/reply.json")
+                before = json.loads(r.stdout).get("text", "") if r.returncode == 0 and r.stdout.strip() else ""
+                ra.write_reply(q["report"], "answered", (before + "\n\n" + msg).strip()[:900],
+                               {"status": status, "commit": q.get("commit"), "detail": detail[:300]})
+            except Exception as e:      # noqa: BLE001  the fix stands either way; the reply is best effort
+                log("report follow-up failed:", e)
+        if status != "queued":
+            subprocess.run(["git", "worktree", "remove", "--force", q["wt"]], cwd=ROOT, capture_output=True)
         with open(ARCHIVE, "a") as fa:
             fa.write(json.dumps({"ts": time.time(), "thread": q["thread"], "kind": "retry", "commit": q.get("commit"),
                                  "verdict": status, "detail": detail[:300], "replay": rep}) + "\n")
@@ -374,6 +388,15 @@ def work(thread):
         if b["kind"] == "report":                         # the specialised report worker (labels, reply in the app)
             st = ra.load_state()
             ra.handle(thread.split(":", 1)[1], st)
+            # A fix that had to wait (the code was being edited, or today's deploys were used up) joins the retry
+            # queue; before 2026-11-03 it sat in report state and nothing ever shipped it.
+            for rid, branch in list(st.get("pending", {}).items()):
+                wt = os.path.join(ROOT, "eval", "agent-worktrees", rid)
+                if os.path.exists(wt):
+                    json.dump({"thread": f"report:{rid}", "wt": wt, "branch": branch, "report": rid,
+                               "commit": ra.git("rev-parse", "--short", "HEAD", cwd=wt)},
+                              open(os.path.join(RUN, f"queued_report_{rid}.json"), "w"))
+                st["pending"].pop(rid)
             ra.save_state(st)
             adb("thread", {"id": thread, "worker": "", "status": "closed", "summary": "answered"})
             return
