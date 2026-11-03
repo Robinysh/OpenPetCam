@@ -54,6 +54,10 @@ What we apply:
    - The candidate ships only if it is right at least as often as the current version.
 4. **Ship**: the existing deploy, health check and rollback.
 5. **Post-ship check**: 24 h later the goal is measured again; a miss goes back to the router.
+6. **Share it**: a fix that is live and healthy is offered upstream as a pull request (`tools/contribute.py`): cherry-picked
+   onto upstream main, checked again there, scrubbed of anything private (paths, the pet's name; the public guard runs on the
+   diff with this install's values) and described by the worker's `public_summary`. On the maintainer's own install it is
+   skipped, because the fix is already on main. Open source in the age of agents: every install's agent is a contributor.
 
 ### Lessons and the agent's own prompts
 - **Lessons:** each night a deterministic pass over the archive writes `agent/lessons.md`. A failure class seen twice becomes a lesson that cites its archive rows, and the router and workers read the file.
