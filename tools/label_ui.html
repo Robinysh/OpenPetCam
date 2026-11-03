@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenPetCam labelling</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#14151C;--panel:#1E2029;--line:#2E3140;--ink:#ECEEF4;--dim:#9497A8;--blue:#5B7BFF;--pet:#F2B33D;--toy:#E8573A;--person:#7FD1AE;--nothing:#9497A8}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif}
+.app{display:grid;grid-template-columns:1fr 340px;grid-template-rows:52px 1fr 92px;height:100vh}
+header{grid-column:1/-1;display:flex;align-items:center;gap:16px;padding:0 16px;border-bottom:1px solid var(--line)}
+header b{font-size:16px}
+select,button{font:inherit;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.prog{flex:1;height:8px;background:var(--panel);border-radius:4px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--blue);width:0}
+.count{color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+.stage{position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:12px}
+.wrap{position:relative;width:100%;display:flex;justify-content:center;line-height:0}
+.wrap img{width:min(100%,calc((100vh - 176px)*16/9));height:auto;max-height:calc(100vh - 176px);object-fit:contain;display:block;user-select:none;-webkit-user-drag:none;border-radius:6px}
+.box{position:absolute;border:3px solid var(--pet);border-radius:4px;cursor:move;box-shadow:0 0 0 9999px rgba(0,0,0,.35)}
+.box.edited{border-style:dashed}
+.box .h{position:absolute;width:16px;height:16px;background:#fff;border:2px solid #000;border-radius:3px}
+.h.nw{left:-9px;top:-9px;cursor:nwse-resize}.h.ne{right:-9px;top:-9px;cursor:nesw-resize}
+.h.sw{left:-9px;bottom:-9px;cursor:nesw-resize}.h.se{right:-9px;bottom:-9px;cursor:nwse-resize}
+.draw{position:absolute;border:2px dashed #fff;pointer-events:none}
+.flash{position:absolute;inset:0;display:grid;place-items:center;font:700 64px system-ui;pointer-events:none;opacity:0;transition:opacity .25s}
+aside{border-left:1px solid var(--line);padding:16px;overflow:auto;display:flex;flex-direction:column;gap:14px}
+.crop{background:#000;border-radius:8px;aspect-ratio:1;display:grid;place-items:center;overflow:hidden}
+.crop img{width:100%;height:100%;object-fit:contain;image-rendering:auto}
+.meta{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;color:var(--dim)}
+.meta span:nth-child(even){color:var(--ink);font-variant-numeric:tabular-nums}
+.keys{display:grid;gap:6px}
+.k{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;background:var(--panel);border:2px solid transparent;cursor:pointer}
+.k kbd{min-width:28px;text-align:center;font:600 13px ui-monospace,monospace;background:#0006;border-radius:6px;padding:3px 6px}
+.k.sel{border-color:currentColor}
+.k.pet{color:var(--pet)}.k.toy{color:var(--toy)}.k.person{color:var(--person)}.k.nothing{color:var(--nothing)}
+.k span{color:var(--ink)}
+.help{color:var(--dim);font-size:12.5px;line-height:1.6}
+.help kbd{font:600 11.5px ui-monospace,monospace;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--ink)}
+.strip{grid-column:1/-1;border-top:1px solid var(--line);display:flex;gap:6px;padding:8px 12px;overflow-x:auto}
+.strip div{flex:none;width:72px;height:72px;border-radius:6px;overflow:hidden;border:3px solid transparent;position:relative;cursor:pointer;background:#000}
+.strip img{width:100%;height:100%;object-fit:cover}
+.strip div.cur{border-color:#fff}
+.strip div b{position:absolute;left:0;right:0;bottom:0;height:5px}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--panel)}
+.empty{color:var(--dim);text-align:center;padding:40px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <b>Labelling</b>
+    <select id="queue" title="Which pictures to go through">
+      <option value="review">Review first: likely mistakes, then night, then the rest</option>
+      <option value="unlabelled">Not yet labelled by you</option>
+      <option value="night">Night (infrared) only</option>
+      <option value="all">All candidate boxes</option>
+      <option value="frames">Frames with no box: did the detector miss your pet?</option>
+    </select>
+    <div class="prog"><i id="bar"></i></div>
+    <span class="count" id="count"></span>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="wrap" id="wrap"><img id="img" alt=""><div class="flash" id="flash"></div></div>
+  </div>
+
+  <aside>
+    <div class="crop"><img id="crop" alt="What the verifier sees"></div>
+    <div class="meta" id="meta"></div>
+    <div class="keys" id="keys"></div>
+    <div class="help">
+      <kbd>Space</kbd> keep the current label and go on · <kbd>←</kbd><kbd>→</kbd> previous / next without labelling ·
+      <kbd>Z</kbd> undo the last answer · <kbd>R</kbd> reset the box<br>
+      <b>Box:</b> drag it to move, drag a corner to resize. The crop on the right updates when you label.<br>
+      <b>Missed pet:</b> drag on an empty part of the picture to draw a new box, then press a label key.
+      In "Frames with no box", <kbd>4</kbd> or <kbd>N</kbd> means "no pet here".
+    </div>
+  </aside>
+
+  <div class="strip" id="strip"></div>
+</div>
+<script>
+const KEYS=[["pet","1","P","Your pet"],["toy","2","T","A toy or lookalike"],["person","3","H","A person"],["nothing","4","N","Something else, or nothing"]];
+let S=null, queue=[], i=0, box=null, drawn=null, history=[];
+const $=id=>document.getElementById(id);
+
+async function load(){ S=await (await fetch("/api/state")).json(); build(); }
+function isNight(it){ const h=+it.hour; return h>=19||h<7; }
+function build(){
+  const q=$("queue").value;
+  if(q==="frames"){ const done=new Set(S.frames_marked); queue=S.empty_frames.filter(f=>!done.has(f)).map(f=>({frameOnly:true,frame:f,id:"frame:"+f})); }
+  else{
+    let it=S.items.slice();
+    if(q==="unlabelled") it=it.filter(x=>!x.owner);
+    if(q==="night") it=it.filter(isNight);
+    if(q==="review"){
+      const doubt=x=>x.score==null?0.5:(x.label==="pet"?1-x.score:x.score);   // how much the held-out model disagrees with the label
+      it=it.filter(x=>!x.owner).sort((a,b)=>(doubt(b)-doubt(a))||((isNight(b)?1:0)-(isNight(a)?1:0)));
+    }
+    queue=it;
+  }
+  i=Math.min(i,Math.max(0,queue.length-1)); show();
+}
+function cur(){ return queue[i]; }
+function show(){
+  const it=cur(); drawn=null; document.querySelectorAll(".draw,.box").forEach(e=>e.remove());
+  const total=queue.length; $("count").textContent=total?`${i+1} / ${total}`:"all done";
+  $("bar").style.width=total?`${(i/total)*100}%`:"100%";
+  if(!it){ $("img").removeAttribute("src"); $("meta").innerHTML='<span class="empty">Nothing left in this queue.</span>'; $("keys").innerHTML=""; strip(); return; }
+  const noFrame=!it.frameOnly&&!it.has_frame;
+  $("img").src=noFrame?"/crop?id="+it.id+"&t="+Date.now():"/frame?f="+encodeURIComponent(it.frame);
+  $("crop").style.visibility=it.frameOnly?"hidden":"visible";
+  if(!it.frameOnly) $("crop").src="/crop?id="+it.id+"&t="+Date.now();
+  box=(it.frameOnly||noFrame)?null:it.box.slice();
+  if(box) drawBox();
+  const lab=it.owner||it.label;
+  $("meta").innerHTML=it.frameOnly
+    ?`<span>Frame</span><span>${it.frame}</span><span>Boxes</span><span>none found</span>`
+    :`<span>Frame</span><span>${noFrame?"crop only (from a report): no box to edit":it.frame}</span><span>Night</span><span>${isNight(it)?"yes (infrared)":"no"}</span>`+
+     `<span>Detector</span><span>${it.yolo==null?"drawn by you":it.yolo.toFixed(2)}</span>`+
+     `<span>Verifier</span><span>${it.score==null?"–":it.score.toFixed(2)} (held-out)</span>`+
+     `<span>Label</span><span>${lab?`<span class="tag" style="color:var(--${lab})">${lab}</span> ${it.owner?"by you":"by "+it.source}`:"none"}</span>`;
+  $("keys").innerHTML=KEYS.map(([k,a,b,t])=>`<div class="k ${k} ${lab===k?"sel":""}" data-k="${k}"><kbd>${a}</kbd><kbd>${b}</kbd><span>${t}</span></div>`).join("");
+  document.querySelectorAll(".k").forEach(e=>e.onclick=()=>answer(e.dataset.k));
+  strip();
+}
+function strip(){
+  const s=$("strip"); s.innerHTML="";
+  for(let j=Math.max(0,i-4);j<Math.min(queue.length,i+18);j++){
+    const it=queue[j], d=document.createElement("div"); if(j===i) d.className="cur";
+    const lab=it.owner||it.label;
+    d.innerHTML=it.frameOnly?`<img src="/frame?f=${encodeURIComponent(it.frame)}" loading="lazy">`:`<img src="/crop?id=${it.id}" loading="lazy"><b style="background:var(--${lab||"line"})"></b>`;
+    d.onclick=()=>{i=j;show()}; s.appendChild(d);
+  }
+  const c=s.querySelector(".cur"); if(c) c.scrollIntoView({inline:"center",block:"nearest"});
+}
+// ---- box editing
+function rect(){ return $("img").getBoundingClientRect(); }
+function drawBox(){
+  document.querySelectorAll(".box").forEach(e=>e.remove());
+  const b=document.createElement("div"); b.className="box"+(changed()?" edited":"");
+  ["nw","ne","sw","se"].forEach(h=>{const e=document.createElement("i");e.className="h "+h;e.dataset.h=h;b.appendChild(e)});
+  $("wrap").appendChild(b); place(b);
+  b.onpointerdown=e=>drag(e, e.target.dataset.h||"move");
+}
+function place(b){ const r=rect(), w=$("wrap").getBoundingClientRect(), [x0,y0,x1,y1]=box;
+  Object.assign(b.style,{left:(r.left-w.left+x0*r.width)+"px",top:(r.top-w.top+y0*r.height)+"px",width:((x1-x0)*r.width)+"px",height:((y1-y0)*r.height)+"px"}); }
+function changed(){ const it=cur(); return it&&box&&!it.frameOnly&&box.some((v,k)=>Math.abs(v-it.box_orig[k])>1e-4); }
+function drag(e,mode){
+  e.preventDefault(); e.stopPropagation(); const r=rect(), sx=e.clientX, sy=e.clientY, b0=box.slice(), el=document.querySelector(".box");
+  el.setPointerCapture(e.pointerId);
+  el.onpointermove=m=>{ const dx=(m.clientX-sx)/r.width, dy=(m.clientY-sy)/r.height; let [x0,y0,x1,y1]=b0;
+    if(mode==="move"){ const w=x1-x0,h=y1-y0; x0=Math.min(1-w,Math.max(0,x0+dx)); y0=Math.min(1-h,Math.max(0,y0+dy)); x1=x0+w; y1=y0+h; }
+    else{ if(mode.includes("w")) x0+=dx; if(mode.includes("e")) x1+=dx; if(mode.includes("n")) y0+=dy; if(mode.includes("s")) y1+=dy; }
+    box=[x0,y0,x1,y1].map(v=>Math.min(1,Math.max(0,v))); place(el); el.classList.toggle("edited",changed()); };
+  el.onpointerup=()=>{ el.onpointermove=null; };
+}
+$("stage").addEventListener("pointerdown",e=>{   // draw a new box on an empty part of the frame
+  if(e.target.closest(".box")||!cur()||(!cur().frameOnly&&!cur().has_frame)) return; const r=rect(); if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom) return;
+  e.preventDefault(); const w=$("wrap").getBoundingClientRect(), sx=(e.clientX-r.left)/r.width, sy=(e.clientY-r.top)/r.height;
+  document.querySelectorAll(".draw").forEach(x=>x.remove()); const d=document.createElement("div"); d.className="draw"; $("wrap").appendChild(d);
+  const mv=m=>{ const x=Math.min(1,Math.max(0,(m.clientX-r.left)/r.width)), y=Math.min(1,Math.max(0,(m.clientY-r.top)/r.height));
+    drawn=[Math.min(sx,x),Math.min(sy,y),Math.max(sx,x),Math.max(sy,y)];
+    Object.assign(d.style,{left:(r.left-w.left+drawn[0]*r.width)+"px",top:(r.top-w.top+drawn[1]*r.height)+"px",width:((drawn[2]-drawn[0])*r.width)+"px",height:((drawn[3]-drawn[1])*r.height)+"px"}); };
+  const up=()=>{ window.removeEventListener("pointermove",mv); window.removeEventListener("pointerup",up);
+    if(!drawn||drawn[2]-drawn[0]<0.01||drawn[3]-drawn[1]<0.01){ drawn=null; d.remove(); } };
+  window.addEventListener("pointermove",mv); window.addEventListener("pointerup",up);
+});
+window.addEventListener("resize",()=>{ const b=document.querySelector(".box"); if(b) place(b); });
+$("img").onload=()=>{ const b=document.querySelector(".box"); if(b) place(b); };
+// ---- answers
+async function post(url,body){ const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); const j=await r.json(); if(!r.ok) throw new Error(j.error); return j; }
+function flash(label){ const f=$("flash"); f.textContent=label; f.style.color=`var(--${label})`; f.style.opacity=1; setTimeout(()=>f.style.opacity=0,220); }
+async function answer(label){
+  const it=cur(); if(!it) return;
+  try{
+    if(drawn){ const r=await post("/api/new",{frame:it.frame,box:drawn,label}); history.push({kind:"new",id:r.id}); flash(label); drawn=null; await load(); return; }
+    if(it.frameOnly){ if(label!=="nothing"){ flash("draw a box first"); return; } await post("/api/frame",{frame:it.frame}); S.frames_marked.push(it.frame); history.push({kind:"frame"}); }
+    else{ const body={id:it.id,frame:it.frame,label}; if(changed()) body.box=box; await post("/api/label",body);
+      history.push({kind:"label",i,prev:it.owner}); it.owner=label; if(body.box){ it.box=box.slice(); } }
+    flash(label); next(true);
+  }catch(err){ flash("⚠"); console.error(err); alertless(err.message); }
+}
+function alertless(m){ $("count").textContent="error: "+m; }
+function next(fromAnswer){ if($("queue").value==="unlabelled"||$("queue").value==="review"||$("queue").value==="frames"){ if(fromAnswer){ queue.splice(i,1); } else i++; } else i++; i=Math.min(i,Math.max(0,queue.length-1)); show(); }
+function prev(){ i=Math.max(0,i-1); show(); }
+async function undo(){ // the label file is append-only, so undo re-opens the picture: answer again and the newest answer wins
+  const h=history.pop(); if(!h){ flash("·"); return; } await load(); if(h.kind==="label") i=Math.min(h.i,queue.length-1); show();
+  $("count").textContent+=" · undo: answer this one again";
+}
+document.addEventListener("keydown",e=>{
+  if(e.target.tagName==="SELECT"||e.metaKey||e.ctrlKey) return;
+  const k=e.key.toLowerCase();
+  const hit=KEYS.find(([n,a,b])=>k===a||k===b.toLowerCase()); if(hit){ e.preventDefault(); return answer(hit[0]); }
+  if(k===" "||k==="enter"){ e.preventDefault(); const it=cur(); if(!it) return; const lab=it.frameOnly?"nothing":(it.owner||it.label); if(lab) answer(lab); return; }
+  if(k==="arrowright"||k==="l"){ e.preventDefault(); next(false); }
+  if(k==="arrowleft"||k==="j"){ e.preventDefault(); prev(); }
+  if(k==="z"){ e.preventDefault(); undo(); }
+  if(k==="r"){ const it=cur(); if(it&&!it.frameOnly){ box=it.box_orig.slice(); drawBox(); } }
+});
+$("queue").onchange=()=>{ i=0; build(); };
+load();
+</script>
+</body>
+</html>
