@@ -11,6 +11,7 @@
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   main { max-width:720px; margin:0 auto; padding:calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 30px); }
+  .embed main { padding-bottom:24px; }
   header { display:flex; justify-content:space-between; align-items:center; gap:10px; }
   h1 { margin:0; font-size:28px; font-weight:800; letter-spacing:-.02em; }
   h2 { font-size:13px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:22px 0 8px; }
@@ -62,7 +63,7 @@
   <h2>Your steering</h2>
   <pre id="steer">…</pre>
   <p class="north">To steer: tell Claude Code in your chat. It edits this list, the goals and the policies, and the agent reads them every turn.
-    <a href="/">Back to the camera</a></p>
+    <a href="/" id="back">Back to the camera</a></p>
 </main>
 <script>
 "use strict";
@@ -81,7 +82,7 @@ function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.
 function text(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
 async function load() {
   let d;
-  try { const r = await fetch("/api/agent", { credentials: "same-origin" }); if (r.status === 401) { location.href = "/login"; return; } d = await r.json(); }
+  try { const r = await fetch("/api/agent", { credentials: "same-origin" }); if (r.status === 401) { top.location.href = "/login"; return; } d = await r.json(); }
   catch (e) { $("alive").querySelector("span").textContent = "Server unreachable"; return; }
   const beats = Object.fromEntries((d.beats || []).map((b) => [b.name, b]));
   const tick = beats.tick, wd = beats.watchdog;
@@ -121,6 +122,8 @@ async function load() {
   if (!d.log.length) f.appendChild(el("div", "empty", "No decisions yet."));
   $("steer").textContent = d.steer || "(none yet)";
 }
+// Inside the app's Agent tab: the tab bar is the way back, and the top safe area belongs to the frame.
+if (new URLSearchParams(location.search).has("embed")) { $("back").remove(); document.documentElement.classList.add("embed"); }
 load(); setInterval(load, 20000);
 </script>
 </body>

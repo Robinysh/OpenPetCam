@@ -167,6 +167,8 @@
   .day .acts { display:flex; gap:8px; padding:0 14px 14px; }
 
   /* ---------- tab bar, sheets ---------- */
+  #tab-agent { padding:0; max-width:none; }
+  #agent-frame { position:fixed; left:0; right:0; top:0; bottom:calc(env(safe-area-inset-bottom) + var(--tabbar)); width:100%; height:calc(100% - env(safe-area-inset-bottom) - var(--tabbar)); border:0; background:var(--bg, #0b0b0c); }
   .tabbar { position:fixed; left:0; right:0; bottom:0; z-index:20; display:flex; justify-content:center;
             padding:6px 10px calc(env(safe-area-inset-bottom) + 6px); background:rgba(11,11,12,.86);
             -webkit-backdrop-filter:blur(18px); backdrop-filter:blur(18px); border-top:1px solid #1e1e21; }
@@ -456,10 +458,13 @@
   <div id="days"></div>
 </main>
 
+<main class="view hidden" id="tab-agent"><iframe id="agent-frame" title="Agent dashboard"></iframe></main>
+
 <nav class="tabbar"><div>
   <button data-tab="live" aria-current="page"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="M16 10l5-3v10l-5-3"/></svg>Live</button>
   <button data-tab="today"><svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>Today</button>
   <button data-tab="diary"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Diary</button>
+  <button data-tab="agent"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-8"/><path d="M15 8h5v5"/></svg>Agent</button>
 </div></nav>
 
 
@@ -513,7 +518,7 @@
   <div class="sheet" role="dialog" aria-label="Settings">
     <div class="grab"></div>
     <h3>Settings</h3>
-    <a class="btn" href="/agent" style="display:block;text-align:center;text-decoration:none;margin:0 0 10px">Agent dashboard: goals and what it is doing</a>
+    <a class="btn" href="/agent" id="open-agent" style="display:block;text-align:center;text-decoration:none;margin:0 0 10px">Agent dashboard: goals and what it is doing</a>
     <div class="section" style="margin-top:4px">
       <h2>Invite someone</h2>
       <div class="namebox" style="margin-top:0">
@@ -725,7 +730,7 @@ function ago(ts) {
 function showTab(tab) {
   if (tab !== curTab) track("tab", { tab });
   curTab = tab;
-  for (const t of ["live", "today", "diary"]) $(`tab-${t}`).classList.toggle("hidden", t !== tab);
+  for (const t of ["live", "today", "diary", "agent"]) $(`tab-${t}`).classList.toggle("hidden", t !== tab);
   document.querySelectorAll(".tabbar button").forEach((b) => b.toggleAttribute("aria-current", b.dataset.tab === tab));
   document.querySelectorAll(".tabbar button[aria-current]").forEach((b) => b.setAttribute("aria-current", "page"));
   document.body.className = `tab-${tab}`;
@@ -734,6 +739,10 @@ function showTab(tab) {
   else { pauseLive(); stopLiveStream(); $("live").muted = true; showSound(false); }
   if (tab === "today") loadDay();
   if (tab === "diary") loadDiary();
+  // The dashboard loads only while its tab is open, so it stops polling the server when you leave.
+  const af = $("agent-frame");
+  if (tab === "agent") { if (!af.src.includes("/agent")) af.src = "/agent?embed=1"; }
+  else if (af.src) af.removeAttribute("src");
   store("petcam.tab", tab);
 }
 document.querySelectorAll(".tabbar button").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
@@ -1492,6 +1501,7 @@ async function loadDevices() {
 }
 $("open-settings").onclick = () => { track("sheet", { name: "settings" }); $("settings").classList.remove("hidden"); loadDevices(); loadPush(); };
 $("close-settings").onclick = () => $("settings").classList.add("hidden");
+$("open-agent").onclick = (e) => { e.preventDefault(); $("settings").classList.add("hidden"); showTab("agent"); };
 $("settings").addEventListener("click", (e) => { if (e.target === $("settings")) $("settings").classList.add("hidden"); });
 $("invite-go").onclick = async () => {
   const name = $("invite-name").value.trim() || "Guest";
