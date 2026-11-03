@@ -38,7 +38,8 @@ GIVE_UP_AFTER = 2       # this many unprompted searches in a row found nothing: 
 MOTION_CHASE_QUIET = 180.0  # after a chase set off by motion alone, no new motion chase for this long unless
                         # she is seen (2026-11-02 16:44-16:48: people moving about while she slept on the rug
                         # set off 6 motion chases, 18 motor moves in 4 min; the owner wants fewer, quieter moves)
-USER_PAUSE = 180.0      # a move by a person pauses following/searching this long
+REST_NAMES = ("default", "corridor")   # a saved view named with one of these is where a failed search waits
+USER_PAUSE = 180.0     # a move by a person pauses following/searching this long
 SETTLE = 0.9            # seconds after a move before a frame is trusted (motion blur, stream latency)
 ROW_STEP = 0.55         # the second search row is this many frame heights toward the floor
 LOOK_FRAMES = 3         # frames judged when stopped (one frame can miss her)
@@ -289,6 +290,19 @@ class Tracker:
             return self._found(box, t0, f"at ({b}, {y})", reason)
         return None
 
+    def rest_view(self):
+        """The saved view a failed search parks at: the first one whose name contains a REST_NAMES word
+        (the owner saves it from the app, e.g. "Corridor" or "Default"), else None (stay where it was)."""
+        try:
+            presets = self.cam.presets()
+        except Exception:  # noqa: BLE001
+            return None
+        for word in REST_NAMES:
+            for p in presets:
+                if word in str(p.get("name", "")).lower():
+                    return p
+        return None
+
     def search(self, reason):
         """The current view first (no move), then saved views (stop and look), then a zigzag over the tilt rows. Along each row the
         camera pans slowly (quiet speed) and EVERY frame is checked while it moves, instead of only
@@ -339,7 +353,15 @@ class Tracker:
                 res = self._scan_to(tx, ty, t0, reason)
                 if res:
                     return res
-            self._move(self.cam.goto, x0, y0)
-            return f"search ({reason}): not found on {len(self.rows(y0))} rows, back to ({x0}, {y0})"
+            # Not found: wait at the view that sees the most (owner, report 2026-11-03 08:31: "make default
+            # position the one with the most view (corridor)"). A chase had left the camera at the pan end stop
+            # (0, 471), so "back to where it was" parked it on a corner of the living room until the next motion.
+            rest = self.rest_view()
+            if rest:
+                bx, by, label = rest["x"], rest["y"], f"the saved view '{rest['name']}'"
+            else:
+                bx, by, label = x0, y0, "where it was"
+            self._move(self.cam.goto, bx, by)
+            return f"search ({reason}): not found on {len(self.rows(y0))} rows, back to {label} ({bx}, {by})"
         finally:
             self.searching = False

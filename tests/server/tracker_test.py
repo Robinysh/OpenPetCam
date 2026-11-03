@@ -247,4 +247,14 @@ res = tr.search("test")
 gaps = [b - a for a, b in zip(ticks, ticks[1:])]
 assert "not found" in res and ticks and max(gaps) < 3.5, (res, len(ticks), max(gaps) if gaps else None)
 print(f"long sweep keeps the watcher alive: {len(ticks)} ticks, longest gap {max(gaps):.1f} s")
+# 16. Report 2026-11-03 08:31: a chase left the camera at the pan end stop (0, 471); the empty search went
+#     "back to (0, 471)", a corner of the room. With a saved view named "Corridor", it waits there instead.
+#     Without one it still goes back to where it was (case 4).
+w = World(X=0, pet=99999)
+w.presets = lambda: [{"name": "Sofa", "x": 2900, "y": 600}, {"name": "Corridor", "x": 2252, "y": 704}]
+tr = tracker_for(w); tr.last_seen_t = w.t - 100
+res = tr.search("test")
+w.wait_idle()
+assert "not found" in res and "Corridor" in res and (w.X, w.Y) == (2252, 704), (res, w.X, w.Y)
+print("empty search parks at the corridor view:", res)
 print("tracker ok")
