@@ -1171,7 +1171,9 @@ function bucketKind(b) { return !b || !b.n ? null : b.present >= 0.15 ? (b.movin
 function renderDay() {
   const t = today, buckets = (t && t.buckets) || [];
   // --- mosaic: her latest moments with a picture (today: the live view first)
-  const pics = ((t && t.events) || []).filter((e) => e.thumb && !["camera_frozen", "camera_back", "camera_offline", "search"].includes(e.kind));
+  // only moments whose picture shows her: arrivals, getting up, zone visits, sounds made while she was in frame
+  const pics = ((t && t.events) || []).filter((e) => e.thumb && (["appeared", "active", "visit"].includes(e.kind) ||
+    (SOUND_KINDS.has(e.kind) && e.detail && e.detail.pet_in_frame)));
   const tiles = [];
   const inView = live && live.present && live.last_seen && Date.now() / 1000 - live.last_seen < 30;
   if (dayOffset === 0 && inView) tiles.push({ src: `/media/snaps/${dayString(0)}/${new Date(Date.now() - 60000).toTimeString().slice(0, 5).replace(":", "-")}.jpg`, ts: Date.now() / 1000 - 60, label: "now" });
