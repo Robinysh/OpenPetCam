@@ -945,7 +945,7 @@ class Watch:
 
         if not frozen:
             with open(HEARTBEAT, "w") as f:
-                f.write(str(t))
+                f.write(str(now()))          # not the cycle's start: a search inside it can take minutes
         self.publish(status="frozen" if frozen else "ok", score=score, moving=moving,
                      box=best["box"] if best else None, det_t=self.last_detect, motion=motion, person=person)
 

@@ -234,6 +234,14 @@ class Tracker:
                 rows.append(y)
         return sorted(rows, key=lambda r: abs(r - y0))
 
+    def _wait_idle(self, limit=20.0):
+        """Wait for the motor, ticking: a slow move can take 15 s, longer than the app tolerates silence."""
+        t0 = self.clock()
+        while self.cam.busy() and self.clock() - t0 < limit:
+            self.tick()
+            self.sleep(0.3)
+        self.cam.wait_idle()
+
     def look(self, frames=LOOK_FRAMES):
         """Judge a few fresh frames after the camera settled: one frame can miss a curled-up dog."""
         self.tick()
@@ -266,7 +274,7 @@ class Tracker:
             seen_t = self.clock()
             if box is not None:
                 self.cam.stop()
-                self.cam.wait_idle()
+                self._wait_idle()
                 self.sleep(SETTLE)
                 confirm = self.look()
                 if confirm is not None:
@@ -300,7 +308,7 @@ class Tracker:
                 if abs(p["x"] - x0) < fw * 0.4 and abs(p["y"] - y0) < fw * 0.25:
                     continue
                 self._move(self.cam.goto, p["x"], p["y"])
-                self.cam.wait_idle()
+                self._wait_idle()
                 self.sleep(SETTLE)
                 box = self.look()
                 if box is not None:

@@ -245,6 +245,6 @@ tr = T.Tracker(w, w.find_pet, clock=lambda: w.t, log=lambda m: None, sleep=w.sle
 tr.last_seen_t = w.t - 100
 res = tr.search("test")
 gaps = [b - a for a, b in zip(ticks, ticks[1:])]
-assert "not found" in res and ticks and max(gaps) < 5, (res, len(ticks), max(gaps) if gaps else None)
+assert "not found" in res and ticks and max(gaps) < 3.5, (res, len(ticks), max(gaps) if gaps else None)
 print(f"long sweep keeps the watcher alive: {len(ticks)} ticks, longest gap {max(gaps):.1f} s")
 print("tracker ok")
