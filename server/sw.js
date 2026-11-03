@@ -5,7 +5,7 @@ self.addEventListener("push", (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (err) { d = { title: "{{APP_NAME}}", body: e.data ? e.data.text() : "" }; }
   e.waitUntil(self.registration.showNotification(d.title || "{{APP_NAME}}", {
-    body: d.body || "", tag: d.tag || "petcam", icon: "/icon.png", badge: "/icon.png", data: { url: d.url || "/" },
+    body: d.body || "", tag: d.tag || "petcam", icon: "/icon.png", badge: "/badge.png", data: { url: d.url || "/" },
   }));
 });
 self.addEventListener("notificationclick", (e) => {

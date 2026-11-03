@@ -1673,8 +1673,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, page("manifest.webmanifest"), "application/manifest+json")
         if path == "/sw.js":
             return self.send(200, page("sw.js"), "text/javascript", {"Service-Worker-Allowed": "/"})
-        if path in ("/icon.png", "/apple-touch-icon.png", "/favicon.png", "/logo.png"):
+        if path in ("/icon.png", "/icon-maskable.png", "/badge.png", "/apple-touch-icon.png", "/favicon.png", "/logo.png"):
             return self.send(200, read_file(path[1:]), "image/png", {"Cache-Control": "max-age=86400"})
+        if path == "/favicon.svg":
+            return self.send(200, read_file("favicon.svg"), "image/svg+xml", {"Cache-Control": "max-age=86400"})
         if path == "/login":
             if self.authed():
                 return self.redirect("/")

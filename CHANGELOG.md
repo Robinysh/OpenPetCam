@@ -2,9 +2,9 @@
 
 Releases are published from version tags; servers on `UPDATE_CHANNEL=release` install them within a day.
 
-## [1.0.0] - 2026-11-03
+## [0.1.0] - 2026-11-03
 
-The first release. Everything below runs on the reference install (Cinnado D1 camera, AWS Lightsail nano).
+The first public release. Everything below runs on the reference install (Cinnado D1 camera, AWS Lightsail nano).
 
 ### Live
 - Camera-first live view: full-bleed WebRTC video with what she's doing laid over it, tap to aim, joystick,

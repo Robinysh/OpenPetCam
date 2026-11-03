@@ -1,6 +1,9 @@
-<p align="center"><img src="docs/assets/logo.png" width="140" alt="OpenPetCam logo"></p>
-
-<h1 align="center">OpenPetCam</h1>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/openpetcam-logo-horizontal-white.svg">
+    <img src="docs/brand/openpetcam-logo-horizontal-color.svg" width="420" alt="OpenPetCam">
+  </picture>
+</p>
 
 **A pet camera that knows your pet, runs on a $5 server you own, and keeps getting better on its own.**
 
@@ -117,7 +120,7 @@ recordings and history are not part of a release, so an update never touches the
   release is out.
 - **Your own fork:** `UPDATE_REPO=you/your-fork`.
 - **Running your own changes:** a server deployed from a checkout that is not exactly a release tag (for example
-  `v1.0.0-3-gabc1234`, or with uncommitted changes) is never overwritten automatically. `./deploy.sh` updates it.
+  `v0.1.0-3-gabc1234`, or with uncommitted changes) is never overwritten automatically. `./deploy.sh` updates it.
 - **Publishing a release** (maintainers): add a `## [X.Y.Z]` section to `CHANGELOG.md`, then
   `git tag vX.Y.Z && git push --tags`. The release workflow runs the checks and attaches the archive.
 
