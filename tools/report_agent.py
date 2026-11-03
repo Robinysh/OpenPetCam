@@ -25,6 +25,7 @@ import fcntl
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -64,7 +65,15 @@ def ssh(cmd, timeout=120):
     return run(SSH + [cmd], timeout=timeout)
 
 
+def public_text(t):
+    """Commit messages are public: worktree and home paths become repo-relative (the commit-msg hook refuses them)."""
+    t = re.sub(re.escape(ROOT) + r"/eval/agent-worktrees/[^/\s]+/", "", t)
+    return t.replace(ROOT + "/", "").replace(os.path.expanduser("~") + "/", "~/")
+
+
 def git(*a, cwd=ROOT, check=True, timeout=60):
+    if a and a[0] == "commit":
+        a = tuple(public_text(x) if i and a[i - 1] == "-m" else x for i, x in enumerate(a))
     return run(["git", *a], cwd=cwd, check=check, timeout=timeout).stdout.strip()
 
 
