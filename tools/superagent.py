@@ -733,6 +733,9 @@ for ts, d in ev:
         home += 1
         found += "found her" in d
 out["search"] = [found, home]
+import re
+secs = sorted(int(m.group(1)) for _, d in ev if "found her" in (d or "") for m in [re.search(r" in (\d+) s", d or "")] if m)
+out["find_s"] = [secs[len(secs) // 2] if secs else None, len(secs)]   # median seconds to "found her", 24 h
 reps = sorted(d for d in os.listdir(f"{S}/reports") if d[:8].isdigit())
 waiting = [now - os.path.getmtime(f"{S}/reports/{d}/report.json") for d in reps if not os.path.exists(f"{S}/reports/{d}/reply.json")]
 out["oldest_unanswered_min"] = round(max(waiting) / 60, 1) if waiting else 0
@@ -756,6 +759,9 @@ def metrics():
     f, h = m.get("search", [0, 0])
     if h:
         add("search_success", round(f / h, 2), ">= 0.8", f / h >= 0.8, f"{f} found of {h} searches when she was near (24 h, definition v2)")
+    fs, fn = m.get("find_s", [None, 0])
+    if fn:
+        add("find_time", fs, "<= 20", fs <= 20, f"median seconds from search start to 'found her', {fn} finds in 24 h")
     add("reports_answered", m.get("oldest_unanswered_min", 0), "<= 15", m.get("oldest_unanswered_min", 0) <= 15, "minutes")
     add("owner_reports", m.get("owner_reports_per_day", 0), "<= 1", m.get("owner_reports_per_day", 0) <= 1, "per day, 7-day average")
     try:
