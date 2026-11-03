@@ -8,3 +8,5 @@ config/*
 models/
 # Frames and crops from your home, labels, scratch.
 eval/
+# Release archives built by tools/make_release.sh
+dist/
