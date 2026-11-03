@@ -520,6 +520,7 @@ def recall(ref):
 
 
 if __name__ == "__main__":
+    os.makedirs(RUN, exist_ok=True)
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "tick":
         tick()
