@@ -3,14 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0b0c">
+<meta name="theme-color" content="#F6F8FF">
+<link rel="stylesheet" href="/themes.css">
+<script>/* the chosen theme before first paint; theme-app.js resolves the rest */try{var p=JSON.parse(localStorage.getItem("openpetcam.theme.preferences.v1")||"{}"),d=document.documentElement;d.setAttribute("data-opc-theme",{cobalt:1,golden:1,meadow:1}[p.theme]?p.theme:"cobalt");if(p.appearance==="light"||p.appearance==="dark")d.setAttribute("data-opc-mode",p.appearance)}catch(e){}</script>
+<script type="module" src="/theme-app.js"></script>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.png" sizes="96x96" type="image/png">
 <meta name="apple-mobile-web-app-title" content="{{APP_NAME}}">
 <title>{{APP_NAME}} · Agent</title>
 <style>
-  :root { color-scheme: dark; --bg:#0b0b0c; --card:#151517; --card2:#1c1c1f; --line:#2a2a2e; --text:#f2f2f3; --muted:#9a9aa2;
-          --dim:#5d5d64; --accent:#ffd60a; --ok:#30d158; --warn:#ff9f0a; --bad:#ff453a; }
+  :root { --bg:var(--opc-canvas); --card:var(--opc-surface); --card2:var(--opc-surface-raised); --line:var(--opc-border-subtle); --control:var(--opc-control-border); --text:var(--opc-text-primary); --muted:var(--opc-text-secondary); --dim:var(--opc-text-muted); --accent:var(--opc-accent-fill); --on-accent:var(--opc-on-accent); --accent-fg:var(--opc-accent-foreground); --accent-subtle:var(--opc-accent-subtle); --ok:var(--opc-success); --warn:var(--opc-warning); --bad:var(--opc-error); }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   main { max-width:720px; margin:0 auto; padding:calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 30px); }
@@ -18,7 +20,7 @@
   header { display:flex; justify-content:space-between; align-items:center; gap:10px; }
   h1 { margin:0; font-size:28px; font-weight:800; letter-spacing:-.02em; }
   h2 { font-size:13px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:22px 0 8px; }
-  a { color:var(--accent); }
+  a { color:var(--accent-fg); }
   .chip { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:12px; background:var(--card2); font-size:12px; font-weight:700; }
   .chip i { width:8px; height:8px; border-radius:4px; background:var(--dim); }
   .chip.ok i { background:var(--ok); } .chip.warn i { background:var(--warn); } .chip.bad i { background:var(--bad); }
@@ -27,7 +29,7 @@
   .goal { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:12px 14px; }
   .goal .top { display:flex; justify-content:space-between; align-items:center; font-size:13px; color:var(--muted); font-weight:650; }
   .goal .badge { font-size:11px; font-weight:800; padding:2px 8px; border-radius:9px; }
-  .badge.ok { background:rgba(48,209,88,.16); color:var(--ok); } .badge.miss { background:rgba(255,159,10,.18); color:var(--warn); }
+  .badge.ok { background:color-mix(in srgb, var(--ok) 16%, transparent); color:var(--ok); } .badge.miss { background:var(--opc-warning-surface); color:var(--opc-on-warning); }
   .goal b { display:block; font-size:24px; font-weight:800; margin-top:4px; font-variant-numeric:tabular-nums; }
   .goal .tgt { font-size:12px; color:var(--dim); }
   .goal svg { display:block; width:100%; height:34px; margin-top:6px; }
@@ -41,7 +43,7 @@
   @keyframes p { 50% { opacity:.25; } }
   .feed .item { padding:9px 12px; }
   .k { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); }
-  .k.result { color:var(--ok); } .k.ask, .k.alert { color:var(--warn); } .k.error { color:var(--bad); } .k.dispatch { color:var(--accent); }
+  .k.result { color:var(--ok); } .k.ask, .k.alert { color:var(--warn); } .k.error { color:var(--bad); } .k.dispatch { color:var(--accent-fg); }
   pre { white-space:pre-wrap; font:13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; background:var(--card); border:1px solid var(--line);
         border-radius:14px; padding:12px; color:var(--muted); margin:0; }
   .empty { color:var(--dim); font-size:13px; padding:8px 2px; }
