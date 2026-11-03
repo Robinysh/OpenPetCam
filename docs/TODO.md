@@ -33,5 +33,5 @@ Worked top to bottom. Each item moves to Done with the commit that shipped it.
 ## Done
 
 - QA suite tools/qa.py: 20 pass, 0 fail (2 Nov 19:10)
-- Pause = picture and mic off; sound self-heal; Find the dog button; searches keep the app fresh (2 Nov)
+- Pause = picture and mic off; sound self-heal; Find <pet> button; searches keep the app fresh (2 Nov)
 - Toy accepted as the dog, "moving" while asleep, searching an empty flat every 10 min: `1db6fba` (2 Nov)

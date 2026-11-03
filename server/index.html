@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="{{PET}}">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/favicon.png">
 <title>{{APP_NAME}}</title>
 <style>
   :root { color-scheme: dark; --bg:#0b0b0c; --card:#151517; --card2:#1c1c1f; --line:#2a2a2e; --text:#f2f2f3; --muted:#9a9aa2;
@@ -489,16 +490,31 @@
 </div>
 
 
+<!-- first open: who are we watching? (also in Settings) -->
+<div class="sheet-bg hidden" id="pet-sheet">
+  <div class="sheet" role="dialog" aria-label="Your pet">
+    <div class="grab"></div>
+    <h3>Who are we watching?</h3>
+    <div class="note" style="margin:0 0 12px">Their name shows across the app and in alerts. You can change it in Settings.</div>
+    <input class="field" id="pet-sheet-name" style="width:100%;box-sizing:border-box" maxlength="24" placeholder="Your pet's name" autocomplete="off" autocapitalize="words">
+    <div class="seg" id="pet-sheet-pron" role="group" aria-label="Pronoun" style="margin-top:10px">
+      <button type="button" data-p="she">She</button><button type="button" data-p="he">He</button><button type="button" data-p="they" aria-pressed="true">They</button>
+    </div>
+    <div class="note" id="pet-sheet-err" style="color:var(--bad)"></div>
+    <button class="btn primary" id="pet-sheet-save" type="button" style="width:100%;margin-top:6px">Save</button>
+  </div>
+</div>
+
 <!-- install on iPhone + turn on alerts (no App Store, no developer account: the web app, from the Home Screen) -->
 <div class="sheet-bg hidden" id="install-sheet">
   <div class="sheet" role="dialog" aria-label="Install on your iPhone">
     <div class="grab"></div>
-    <h3>Put {{PET}} on your Home Screen</h3>
+    <h3>Put {{APP_NAME}} on your Home Screen</h3>
     <div class="note" style="margin:0 0 12px">Opens full screen like an app, and can tell you when {{PET}} barks or your agent answers.</div>
     <ol class="steps">
       <li><b>1</b><span>Tap <svg class="ishare" viewBox="0 0 24 24" aria-label="Share"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M6 11v9h12v-9"/></svg> Share in Safari's bar</span></li>
       <li><b>2</b><span>Scroll and tap <em>Add to Home Screen</em></span></li>
-      <li><b>3</b><span>Open <em>{{PET}}</em> from your Home Screen</span></li>
+      <li><b>3</b><span>Open <em>{{APP_NAME}}</em> from your Home Screen</span></li>
     </ol>
     <button class="btn primary" id="install-ok" type="button" style="width:100%;margin-top:14px">Got it</button>
   </div>
@@ -507,7 +523,7 @@
   <div class="sheet" role="dialog" aria-label="Turn on alerts" style="text-align:center">
     <div class="grab"></div>
     <div class="bell"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg></div>
-    <h3>Let {{PET}} cam tell you</h3>
+    <h3>Let {{APP_NAME}} tell you</h3>
     <div class="note" style="margin:0 0 14px">When {{PET}} barks, when the camera has a problem, and when your agent answers a report.</div>
     <div class="row"><button class="btn" id="alerts-later" type="button">Not now</button><button class="btn primary" id="alerts-allow" type="button">Allow</button></div>
   </div>
@@ -520,6 +536,17 @@
     <h3>Settings</h3>
     <a class="btn" href="/agent" id="open-agent" style="display:block;text-align:center;text-decoration:none;margin:0 0 10px">Agent dashboard: goals and what it is doing</a>
     <div class="section" style="margin-top:4px">
+      <h2>Your pet</h2>
+      <div class="namebox" style="margin-top:0">
+        <input class="field" id="pet-name" maxlength="24" placeholder="Your pet's name" autocomplete="off" autocapitalize="words">
+        <button class="btn primary" id="pet-save" type="button">Save</button>
+      </div>
+      <div class="seg" id="pet-pron" role="group" aria-label="Pronoun" style="margin-top:8px">
+        <button type="button" data-p="she">She</button><button type="button" data-p="he">He</button><button type="button" data-p="they">They</button>
+      </div>
+      <div class="note" id="pet-note"></div>
+    </div>
+    <div class="section">
       <h2>Invite someone</h2>
       <div class="namebox" style="margin-top:0">
         <input class="field" id="invite-name" maxlength="40" placeholder="Their name, e.g. Sam">
@@ -915,7 +942,7 @@ async function refreshTrace() {
 }
 setInterval(refreshTrace, 15000);
 let privacyPending = 0, followPending = 0;
-// "Find the dog" (owner, 2026-11-02): runs the room search now. Shown whenever she isn't in view.
+// "Find <pet>" (owner, 2026-11-02): runs the room search now. Shown whenever she isn't in view.
 let findPending = 0;
 function renderFind(l) {
   const btn = $("find-btn");
@@ -964,7 +991,7 @@ $("privacy-btn").onclick = async () => {
   try { await api("/api/privacy", { on }); $("move-note").textContent = on ? "Camera paused. Tap the eye again to resume." : ""; }
   catch (e) { privacyPending = 0; showPrivacy(!on); $("move-note").textContent = e.message; }
 };
-// Where the 16:9 picture sits inside the stage. "Room" shows all of it (contain); "the dog" fills the stage (cover)
+// Where the 16:9 picture sits inside the stage. "Room" shows all of it (contain); "Pet" fills the stage (cover)
 // and slides sideways to keep her in frame (--fx = CSS object-position), so taps and her box map through this.
 let framePos = 0.5;
 function videoRect() {
@@ -1583,10 +1610,29 @@ document.querySelectorAll("[data-pref]").forEach((b) => b.onclick = async () => 
 // First open in iPhone Safari: how to install (the only way to get alerts on iPhone). From the Home Screen,
 // once: ask to turn alerts on (2026-11-02: both phones had only ever opened the app in Safari, so no alert
 // or agent reply could reach them).
+// The pet's name and pronoun (POST /api/pet). Pages are rendered with the name, so a change reloads them.
+function petForm(nameId, segId, saveId, noteId) {
+  const seg = $(segId);
+  const pick = (p) => seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.p === p)));
+  seg.querySelectorAll("button").forEach((b) => b.onclick = () => pick(b.dataset.p));
+  if (PET.named) { $(nameId).value = PET.name; pick(PET.pronoun || "they"); }
+  $(saveId).onclick = async () => {
+    const pron = (seg.querySelector('[aria-pressed="true"]') || {}).dataset?.p || "they";
+    const r = await fetch("/api/pet", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: $(nameId).value, pronoun: pron }) });
+    if (r.ok) { track("pet_named", {}); location.reload(); }
+    else $(noteId).textContent = (await r.json().catch(() => ({}))).error || "Couldn't save. Try again.";
+  };
+}
+petForm("pet-name", "pet-pron", "pet-save", "pet-note");
+petForm("pet-sheet-name", "pet-sheet-pron", "pet-sheet-save", "pet-sheet-err");
+if (!PET.named) setTimeout(() => { $("pet-sheet").classList.remove("hidden"); track("sheet", { name: "pet" }); }, 600);
+
 (function onboarding() {
   const iOS = /iPhone|iPad/.test(navigator.userAgent);
   const recent = (k, days) => { const v = Number(recall(k) || 0); return Date.now() - v < days * 864e5; };
   const close = (id) => $(id).classList.add("hidden");
+  if (!PET.named) return;          // the name comes first; saving it reloads the page, then these follow
   if (iOS && !standalone && !recent("petcam.install_seen", 3)) {
     setTimeout(() => { $("install-sheet").classList.remove("hidden"); track("sheet", { name: "install" }); }, 1500);
   }

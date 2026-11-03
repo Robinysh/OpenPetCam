@@ -1,6 +1,6 @@
 # Detector evaluation on the reference install
 
-The reference install watches the dog, the author's golden retriever. These are the numbers behind the
+The reference install watches the author's golden retriever. These are the numbers behind the
 defaults (thresholds, verifier) that ship with OpenPetCam; re-check them on your own camera with
 `tools/evaluate.py` and `tools/bootstrap_pet.py`.
 
@@ -17,7 +17,7 @@ first → score → report with a dev/test split by calendar hour).
 |---|---|---|---|---|
 | all | 276 | 0 | 0 | 0.000 |
 
-Labels: every frame inspected on 10 contact sheets before scoring. the dog was not in view all
+Labels: every frame inspected on 10 contact sheets before scoring. The dog was not in view all
 night. Scenes: living room in IR with her ball, rope toy and rug (22:57-00:46), then the camera
 tipped/sagged to face a wall at close range (00:47 →), including day/night flapping frames
 (dark, noisy, magenta).
@@ -25,7 +25,7 @@ tipped/sagged to face a wall at close range (00:47 →), including day/night fla
 **Result: 0 false alarms, max score 0.000.** The 0.30 threshold has a wide margin on this
 apartment's empty scenes, toys included.
 
-**Not measured: recall.** With no the dog frames tonight, how often the detector *misses* her is
+**Not measured: recall.** With no frames of the dog tonight, how often the detector *misses* her is
 unknown beyond the first spot-check (3 frames of the dog from 2026-11-01, IR and upside-down,
 scored 0.34-0.78, all >= 0.30; 7 empty frames all 0.00). Three positives is far too few to
 trust. Single annotator, so no inter-annotator agreement yet.
@@ -51,7 +51,7 @@ The loudness rule ("≥ 2 short bursts = barking") produced ~40 "barking" moment
 
 **Caveat: YAMNet is a second model, not ground truth.** Nobody has listened to these clips yet.
 Her sounds score high on "Squeak", "Bird", "Chicken": likely yelps/whines rather than deep barks.
-The threshold 0.55 is provisional. The app now asks "Was this the dog? 👍/👎" on every sound moment;
+The threshold 0.55 is provisional. The app now asks "Was this <pet>? 👍/👎" on every sound moment;
 those answers (`events.label`) are the labels to fit it on (dev/test split by day). Borderline
 example to label first: 07:21:01 "Squeak", dog 0.41, peak -12 dBFS.
 
@@ -65,7 +65,7 @@ YOLOX over 488 morning frames: 51 animal candidates; by eye 8 were the dog, 43 h
 (detected every minute from 07:26). `claude -p` labelled the same 51-crop sheet identically to my
 reading (I am also a Claude model, so this is consistency, not independent confirmation).
 
-After de-duplication, 16 unique crops (11 the dog incl. one IR night frame, 5 toy), labelled by `claude -p`:
+After de-duplication, 16 unique crops (11 of the dog incl. one IR night frame, 5 toy), labelled by `claude -p`:
 
 | scorer | separates toy from the dog? |
 |---|---|
@@ -75,10 +75,10 @@ After de-duplication, 16 unique crops (11 the dog incl. one IR night frame, 5 to
 
 Deployed: zero-shot at 0.34 (midpoint). Re-checked on frames: 07:30 toy-only -> rejected (0.09);
 08:03 and 08:12 the dog -> accepted (0.96-1.00), toy beside her at 08:12 rejected (0.04).
-Today's per-minute presence recomputed with it: the dog-present minutes 51 -> 9.
+Today's per-minute presence recomputed with it: pet-present minutes 51 -> 9.
 
 **Still owed:** a held-out test across days (needs more labelled days; the watcher now saves
-candidate frames), and human labels as the independent check (the dog moments' 👍/👎 in the app).
+candidate frames), and human labels as the independent check (the 👍/👎 on its moments in the app).
 
 ## The trained verifier only knows places it has seen (2026-11-02 afternoon)
 
@@ -102,7 +102,7 @@ worth it. Presence and identity were right; only the outline is wide.
 
 The backup above failed within hours. While the dog was out on a walk (14:28 to 15:45), the sun moved across the
 black octopus toy and its zero-shot "any dog breed" score swung between 0.03 and 0.72. That is above the 0.5 bar,
-so the app showed "the dog, seen 54 s ago", called it resting, and the search "found her while panning". The
+so the app showed "<pet>, seen 54 s ago", called it resting, and the search "found her while panning". The
 trained model scored the toy 0.00 in every one of those frames. One earlier sample (0.43) had been taken as
 the toy's worst case; it was not.
 

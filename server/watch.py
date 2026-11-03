@@ -934,7 +934,7 @@ class Watch:
                 c0 = ((self.prev_box[0] + self.prev_box[2]) / 2, (self.prev_box[1] + self.prev_box[3]) / 2)
                 c1 = ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
                 # Relative to her size: the detector's box on a dog lying still jitters by ~0.03 between
-                # runs (2026-11-02 14:00: "the dog is moving" while she slept and the owner walked past).
+                # runs (2026-11-02 14:00: "<pet> is moving" while she slept and the owner walked past).
                 moving = math.hypot(c1[0] - c0[0], c1[1] - c0[1]) > max(0.025, 0.15 * math.hypot(b[2] - b[0], b[3] - b[1]))
             if not moving and diff is not None:
                 # Pixel change inside her box: catches stretching, scratching, head lifts.
@@ -1378,7 +1378,7 @@ class Watch:
         a["motion"] += motion
 
     def find_requested(self, t):
-        """A 'Find the dog' tap from the app (find_request holds its time); each request is served once."""
+        """A 'Find <pet>' tap from the app (find_request holds its time); each request is served once."""
         try:
             req = float(open(f"{STATE}/find_request").read().strip() or 0)
         except (OSError, ValueError):

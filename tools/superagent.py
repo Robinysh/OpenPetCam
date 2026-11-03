@@ -488,7 +488,7 @@ def replay_compare(wt):
 
 
 def touches_detection(wt):
-    """A change to how frames become 'the dog' gets a shadow run on live frames before it ships."""
+    """A change to how frames become 'the pet' gets a shadow run on live frames before it ships."""
     changed = ra.git("diff", "--name-only", "HEAD~1", "HEAD", cwd=wt).split()
     if "server/detector.py" in changed:
         return True

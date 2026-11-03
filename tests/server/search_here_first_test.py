@@ -43,7 +43,7 @@ res = tr.search("test")
 assert "found her at the saved view (3200, 500)" in res, res
 print("elsewhere:", res)
 
-# 3. Owner's "Find the dog" while she is already in view but the cycle's detection missed: found, no move.
+# 3. Owner's "Find <pet>" while she is already in view but the cycle's detection missed: found, no move.
 w = SavedViews(X=1000, pet=1000)
 tr = tracker_for(w)
 res = tr.search("you asked")

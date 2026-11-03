@@ -21,7 +21,7 @@ jobs:
         env:
           PETCAM_SITE_ENV: config/site.env.example
         run: |
-          for t in tracker events presence stall disconnect pill search_here_first update; do
+          for t in tracker events presence stall disconnect pill search_here_first update pet_name; do
             timeout 300 python tests/server/${t}_test.py
           done
       - run: tools/make_release.sh "$GITHUB_REF_NAME"

@@ -43,7 +43,7 @@ SHEET_N = 40
 # afternoon sun moved across it, so a 0.5 backup let it through for over an hour (and kept "the dog" home
 # while she was out on a walk). The trained model scored it 0.00 in every frame.
 ZEROSHOT_BACKUP = None
-PROMPT_VERSION = "v2"   # v1 used the label "pet"; read as "pet"
+PROMPT_VERSION = "v2"
 
 sys.path.insert(0, os.path.join(ROOT, "server"))
 sys.path.insert(0, HERE)
@@ -182,7 +182,7 @@ def claude_label(sheet_path, n):
     text = out["result"].strip()
     text = text[text.index("{"): text.rindex("}") + 1]
     labels = json.loads(text)
-    return {int(k): ("pet" if v == "pet" else v) for k, v in labels.items() if v in LABELS + ("pet",)}, out.get("total_cost_usd")
+    return {int(k): v for k, v in labels.items() if v in LABELS}, out.get("total_cost_usd")
 
 
 def label():
@@ -264,7 +264,7 @@ def train():
         rank = {"owner": 2, "human": 2, "review": 1}
         if r["id"] not in labels or rank.get(r["source"], 0) >= rank.get(labels[r["id"]]["source"], 0):
             labels[r["id"]] = r
-    items = [(manifest[i], 1.0 if r["label"] in ("pet", "pet") else 0.0) for i, r in labels.items() if i in manifest]
+    items = [(manifest[i], 1.0 if r["label"] == "pet" else 0.0) for i, r in labels.items() if i in manifest]
     feats_path = os.path.join(WORK, "features.npz")
     cache = dict(np.load(feats_path)) if os.path.exists(feats_path) else {}
     fx = None

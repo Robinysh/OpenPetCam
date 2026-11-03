@@ -26,7 +26,7 @@ def extract(src, name):
 def pet_text(live):
     src = open(HTML).read()
     js = "\n".join([
-        'const PET = {"name": "the dog"};',
+        'const PET = {"name": "Biscuit"};',
         extract(src, "fmtDur"), extract(src, "ago"), extract(src, "petText"),
         f"console.log(JSON.stringify(petText({json.dumps(live)})));",
     ])
@@ -48,7 +48,7 @@ def main():
     text = pet_text(stale | {"last_seen": 1.0})
     assert "Not in view" not in text, f"stale watcher must not say she's away: {text!r}"
     # A working watcher that doesn't see her still says so.
-    assert pet_text({"status": "ok", "present": False, "last_seen": None}) == "the dog isn't in view"
+    assert pet_text({"status": "ok", "present": False, "last_seen": None}) == "Biscuit isn't in view"
     # Report 20261103-074105: Follow's automatic search swept the room while the pill said
     # "Not in view · seen 53 min ago", so the owner thought the camera was moving on its own.
     # The watcher publishes searching=True during a sweep; the pill must say so.

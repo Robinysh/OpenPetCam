@@ -9,7 +9,7 @@ workers may not edit). Two suites, each run on a source tree (the current code o
 
 Held-out data: labelled crops (eval/bootstrap) grouped by day+hour; a group is held out when its hash says so (about a
 third), so no hand-picking. Owner ground truth adds whole frames: the walk on 2 Nov 14:28-15:45 (owner: "we are not at
-home") is a set of frames where any "the dog" is a false alarm. Workers never get this folder; the harness also rejects a
+home") is a set of frames where any detection of the dog is a false alarm. Workers never get this folder; the harness also rejects a
 worker whose transcript touched it.
 """
 import glob
@@ -58,7 +58,7 @@ def build():
         src = os.path.join(BOOT, "crops", f"{cid}.jpg")
         if os.path.exists(src):
             shutil.copy(src, os.path.join(HELD, "crops", f"{cid}.jpg"))
-            crops.append({"id": cid, "pet": r["label"] in ("pet", "pet"), "label": r["label"], "group": m["day"] + m.get("hour", "")})
+            crops.append({"id": cid, "pet": r["label"] == "pet", "label": r["label"], "group": m["day"] + m.get("hour", "")})
     absent = []
     for day, a, b in ABSENT_WINDOWS:
         for f in sorted(glob.glob(os.path.join(BOOT, "frames", "cand", day, "*.jpg"))):
@@ -97,7 +97,7 @@ def detect(tree):
     ver = w.Verifier(os.path.join(MODELS, "verifier.json"))
     th = ver.threshold
     tp = fp = fn = tn = 0
-    for c in idx["crops"]:                       # verifier on labelled crops: is this the dog?
+    for c in idx["crops"]:                       # verifier on labelled crops: is this the pet?
         im = Image.open(os.path.join(HELD, "crops", f"{c['id']}.jpg")).convert("RGB")
         p = ver.prob(im, [0.0, 0.0, 1.0, 1.0], margin=0.0)
         yes = p >= th

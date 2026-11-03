@@ -947,7 +947,7 @@ def set_privacy(on):
 
 
 def request_find():
-    """'Find the dog': ask the watcher to run its room search now (owner, 2026-11-02). The watcher answers in
+    """'Find <pet>': ask the watcher to run its room search now (owner, 2026-11-02). The watcher answers in
     live.json ('find': {t, result, found}) and as a 'search' event."""
     try:
         if open(f"{STATE_DIR}/privacy").read().strip() == "1":
@@ -1664,6 +1664,7 @@ class Handler(BaseHTTPRequestHandler):
     # ---------- GET ----------
     def do_GET(self):
         path = self.path.split("?")[0]
+        petconf.refresh()
         if path == "/healthz":
             return self.send(200, b"ok")
         if path == "/auth":  # Caddy forward_auth for video and media
@@ -1672,8 +1673,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, page("manifest.webmanifest"), "application/manifest+json")
         if path == "/sw.js":
             return self.send(200, page("sw.js"), "text/javascript", {"Service-Worker-Allowed": "/"})
-        if path in ("/icon.png", "/apple-touch-icon.png"):
-            return self.send(200, read_file("icon.png"), "image/png", {"Cache-Control": "max-age=86400"})
+        if path in ("/icon.png", "/apple-touch-icon.png", "/favicon.png", "/logo.png"):
+            return self.send(200, read_file(path[1:]), "image/png", {"Cache-Control": "max-age=86400"})
         if path == "/login":
             if self.authed():
                 return self.redirect("/")
@@ -1740,6 +1741,7 @@ class Handler(BaseHTTPRequestHandler):
     # ---------- POST ----------
     def do_POST(self):
         path = self.path.split("?")[0]
+        petconf.refresh()
         limit = 2_000_000 if path == "/api/talk" else 10_000
         length = int(self.headers.get("Content-Length") or 0)
         if length > limit:
@@ -1785,6 +1787,11 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, AssertionError):
             return self.send_json(400, {"error": "bad json"})
         me = (self.device() or {}).get("id")
+        if path == "/api/pet":     # the pet's name and pronoun, set from the app (first open or Settings)
+            try:
+                return self.send_json(200, petconf.save_pet(body.get("name"), body.get("pronoun")))
+            except ValueError as e:
+                return self.send_json(400, {"error": str(e)})
         if path == "/api/usage":
             return self.send_json(200, record_ui_events(me, body))
         if path == "/api/clientlog":

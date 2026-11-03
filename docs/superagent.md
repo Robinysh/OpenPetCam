@@ -48,7 +48,7 @@ What we apply:
    - **Search:** the tracker over a fixed grid of 36 simulated rooms, with realistic detection costs and misses.
    - The candidate may not be worse on any metric beyond a small tolerance. Workers never get `eval/heldout`, and a transcript that touches it is rejected.
    - **Probe:** re-enabling the 2 Nov zero-shot backup and removing the tilt rows was caught (false alarms 0 -> 19.5%, found 0.89 -> 0.28).
-3. **Shadow run** for changes to how frames become "the dog":
+3. **Shadow run** for changes to how frames become "your pet":
    - For 6 h and at least 30 new live frames, both versions judge the same live candidate frames on the owner's computer, so the server's CPU budget is untouched.
    - Disagreements go to an independent labeller that sees only the picture and the box.
    - The candidate ships only if it is right at least as often as the current version.

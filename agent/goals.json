@@ -3,7 +3,7 @@
   "goals": [
     {"id": "reports_answered", "what": "Every report gets an answer", "metric": "minutes the oldest unanswered report has waited", "target": "<= 15", "ground_truth": "reply.json on the server"},
     {"id": "owner_reports", "what": "Fewer things go wrong for the owners", "metric": "owner reports per day, 7-day average", "target": "<= 1", "ground_truth": "reports filed in the app"},
-    {"id": "search_success", "what": "Find the dog finds her when she is home", "metric": "share of searches that found her, among searches after which she was seen within 10 min (she was home)", "target": ">= 0.8", "ground_truth": "detections in the 10 min after the search, owner reports"},
+    {"id": "search_success", "what": "Find <pet> finds her when she is home", "metric": "share of searches that found her, among searches after which she was seen within 10 min (she was home)", "target": ">= 0.8", "ground_truth": "detections in the 10 min after the search, owner reports"},
     {"id": "cpu", "what": "Fits the $5 server", "metric": "% of one core used by the camera services, last hour", "target": "<= 8", "ground_truth": "systemd CPU accounting"},
     {"id": "burst_credits", "what": "CPU credits banked for live view and searches", "metric": "Lightsail burst capacity %", "target": ">= 20", "ground_truth": "AWS metric"},
     {"id": "qa", "what": "Nothing known-broken", "metric": "failing QA checks (tools/qa.py, nightly)", "target": "== 0", "ground_truth": "tools/qa.py"},

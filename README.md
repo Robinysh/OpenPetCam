@@ -1,4 +1,6 @@
-# OpenPetCam
+<p align="center"><img src="docs/assets/logo.png" width="140" alt="OpenPetCam logo"></p>
+
+<h1 align="center">OpenPetCam</h1>
 
 **A pet camera that knows your pet, runs on a $5 server you own, and keeps getting better on its own.**
 
@@ -7,8 +9,8 @@ server, and you get a phone app with live video, your pet's day at a glance, and
 follows your pet, tells it apart from its toys, and an agent you run on your own computer fixes what goes wrong.
 Video never goes through a vendor's cloud.
 
-It was built for one golden retriever, the dog, and then generalized: everything specific to a home lives in one
-git-ignored config file.
+It was built for one golden retriever and then generalized: everything specific to a home lives in one
+git-ignored config file, and the pet's name is set in the app.
 
 <!-- docs/assets/openpetcam.gif is a cut of the demo film (docs/demo/). -->
 
