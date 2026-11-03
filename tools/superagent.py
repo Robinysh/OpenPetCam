@@ -610,7 +610,11 @@ def eval_router(prompt_dir):
             acts = json.load(open(out))["actions"]
         except (OSError, ValueError, KeyError):
             continue
-        got = {a.get("action") for a in acts}
+        # An action may come back as a string, a list of strings, or malformed; none of that may crash the judge.
+        got = set()
+        for a in acts if isinstance(acts, list) else []:
+            v = a.get("action") if isinstance(a, dict) else None
+            got.update(x for x in (v if isinstance(v, list) else [v]) if isinstance(x, str))
         text = json.dumps(acts).lower()
         expect = c["expect"] if isinstance(c["expect"], list) else [c["expect"]]
         need = c.get("require")                            # phrases showing the decision kept the owner's limits
