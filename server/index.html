@@ -754,6 +754,8 @@ function petText(l) {
   if (l.status === "privacy") return ["Camera paused", ""];
   // Watcher silent >20 s: whatever it last said is stale, so don't claim she's away (report 2026-11-02 20:04).
   if (l.status === "watcher_down") return [`Can't tell where ${PET.name} is right now`, ""];
+  // A Follow search is sweeping the room: say so, or the camera seems to move on its own (report 2026-11-03 07:41).
+  if (l.searching) return [`${l.settings && l.settings.follow ? "Follow: l" : "L"}ooking for ${PET.name}…`, ""];
   if (l.present) {
     const unseen = l.last_seen ? Date.now() / 1000 - l.last_seen : 0;
     if (unseen > 30) return [`${PET.name} · out of sight, seen ${unseen < 90 ? Math.round(unseen) + " s ago" : ago(l.last_seen)}`, ""];
@@ -930,7 +932,7 @@ $("find-btn").onclick = async () => {
 function showFollow(on) {
   $("follow-toggle").setAttribute("aria-pressed", !!on);
   $("follow-label").textContent = on ? "Following" : "Follow";
-  $("follow-note").textContent = on ? `On: when ${PET.name} walks toward the edge, the camera turns to keep ${PET.obj} in view (at most every 10 s).`
+  $("follow-note").textContent = on ? `On: when ${PET.name} walks toward the edge, the camera turns to keep ${PET.obj} in view, and when ${PET.subj} has been out of sight for a while it sweeps the room to look (at most every 10 min).`
                                     : "Off: the camera only moves when you move it.";
 }
 $("follow-toggle").onclick = async () => {

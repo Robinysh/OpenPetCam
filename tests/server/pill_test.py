@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 HTML = os.path.join(os.path.dirname(__file__), "..", "..", "server", "index.html")
 
@@ -48,6 +49,12 @@ def main():
     assert "Not in view" not in text, f"stale watcher must not say she's away: {text!r}"
     # A working watcher that doesn't see her still says so.
     assert pet_text({"status": "ok", "present": False, "last_seen": None}) == "the dog isn't in view"
+    # Report 20261103-074105: Follow's automatic search swept the room while the pill said
+    # "Not in view · seen 53 min ago", so the owner thought the camera was moving on its own.
+    # The watcher publishes searching=True during a sweep; the pill must say so.
+    text = pet_text({"status": "ok", "present": False, "last_seen": time.time() - 600, "searching": True,
+                     "settings": {"follow": True}})
+    assert "Follow" in text and "looking" in text.lower(), f"a follow search must be visible: {text!r}"
     print("pill ok")
 
 
