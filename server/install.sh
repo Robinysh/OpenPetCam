@@ -242,7 +242,7 @@ cat > /etc/systemd/system/petcam-update.timer <<UNIT
 Description=Check for OpenPetCam releases once a day
 
 [Timer]
-OnCalendar=*-*-* 04:20
+OnCalendar=*-*-* 04:20 $TZ
 RandomizedDelaySec=40min
 Persistent=true
 
