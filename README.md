@@ -101,7 +101,20 @@ the video around it, writes a fix with a test, checks it against held-out data, 
 you in the app. The **Agent** tab shows its goals, what it's working on and every decision.
 
 Because it's open source, a fix proven on one camera is offered here as a pull request, and once it's released
-every camera installs it overnight. **[Join the open-source pet community →](CONTRIBUTING.md)**
+every camera installs it overnight. **[Join the open-source pet community →](#help-make-it-better)**
+
+## Help make it better
+
+OpenPetCam gets better every time a pet owner tells us what went wrong, and every fix reaches every camera
+overnight. You don't need a camera or any coding to help:
+
+- **Tried it?** Open an [issue](https://github.com/crimeacs/OpenPetCam/issues/new/choose) and say what your pet
+  did that the camera got wrong, or what you wish it did. That's the most useful thing there is.
+- **Have a different camera?** Tell us whether it works with Thingino and what you had to change.
+- **Like to code?** Pick an issue, add a test, open a pull request. Most of the code runs in simulations on a
+  laptop; [CONTRIBUTING.md](CONTRIBUTING.md) gets you running in five minutes.
+- **Running the agent?** Its proven fixes come here as pull requests on their own. Keep `CONTRIBUTE=pr` and your
+  camera helps everyone's.
 
 ## How it fits together
 
