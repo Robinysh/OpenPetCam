@@ -59,7 +59,7 @@ POST_MOVE_IGNORE = 1.6  # after our own aim, frames this young may predate the m
 
 
 class Tracker:
-    def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None, can_scan=None, tick=None):
+    def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None, can_scan=None, tick=None, cancelled=None):
         """cam: position() -> (x, y); home() -> (x, y); goto(x, y) (returns at once); aim(fx, fy); wait_idle(); busy(); stop();
                  limits() -> (xmax, ymax);
                  frame_steps() -> (pan steps per frame width, tilt steps per frame height);
@@ -75,6 +75,10 @@ class Tracker:
         # tick(): called every few seconds while a search holds the watcher's loop, so it can keep its heartbeat
         # and the app's status fresh (report 2026-11-02 16:51: a 2-min sweep showed 'Watcher not running').
         self.tick = tick or (lambda: None)
+        # cancelled(since) -> True once the owner pressed "Stop looking" after `since` (report 2026-11-03 07:31:
+        # a 2-min sweep they asked for could not be stopped). Checked wherever user_paused() is.
+        self.cancelled = cancelled or (lambda since: False)
+        self.search_t0 = None
         self.hist = collections.deque()
         self.last_seen_t = clock()     # starting up counts as "just lost": an unseen pet still gets searched for
         self.last_seen_c = None
@@ -118,6 +122,14 @@ class Tracker:
         except OSError:
             return False
         return m > max(self.own_move_t + 1.5, self.started_t) and self.clock() - m < USER_PAUSE
+
+    def _halt(self, reason):
+        """Why the running search must stop now (a person moved the camera, or the owner cancelled), or None."""
+        if self.search_t0 is not None and self.cancelled(self.search_t0):
+            return f"search ({reason}): stopped, you cancelled it"
+        if self.user_paused():
+            return f"search ({reason}): stopped, a person moved the camera"
+        return None
 
     def velocity(self):
         if len(self.hist) < 2:
@@ -284,6 +296,9 @@ class Tracker:
         t0 = self.clock()
         while self.cam.busy() and self.clock() - t0 < limit:
             self.tick()
+            if self.search_t0 is not None and self.cancelled(self.search_t0):
+                self.cam.stop()                      # the caller's next check returns 'you cancelled it'
+                break
             self.sleep(0.3)
         self.cam.wait_idle()
 
@@ -323,9 +338,10 @@ class Tracker:
         seen_t = self.clock()
         while self.cam.busy():
             self.tick()
-            if self.user_paused():
+            halt = self._halt(reason)
+            if halt:
                 self.cam.stop()
-                return f"search ({reason}): stopped, a person moved the camera"
+                return halt
             box = self.find_now(seen_t)
             seen_t = self.clock()
             if box is not None:
@@ -366,6 +382,7 @@ class Tracker:
         ~0.7 s, so she is now behind the centre) and confirms on fresh frames before aiming."""
         t0 = self.clock()
         self.last_search = t0
+        self.search_t0 = t0
         self.searching = True
         try:
             x0, y0 = self.cam.position()
@@ -379,12 +396,16 @@ class Tracker:
             if box is not None:
                 return self._found(box, t0, "where the camera already was", reason, centre=False)
             for p in self.cam.presets():
-                if self.user_paused():
-                    return f"search ({reason}): stopped, a person moved the camera"
+                halt = self._halt(reason)
+                if halt:
+                    return halt
                 if abs(p["x"] - x0) < fw * 0.4 and abs(p["y"] - y0) < fw * 0.25:
                     continue
                 self._move(self.cam.goto, p["x"], p["y"])
                 self._wait_idle()
+                halt = self._halt(reason)
+                if halt:
+                    return halt
                 self.sleep(SETTLE)
                 box = self.look()
                 if box is not None:
@@ -403,8 +424,9 @@ class Tracker:
                     plan += [(end, ry), (other, ry)]
                     end = other
             for (tx, ty) in plan:
-                if self.user_paused():
-                    return f"search ({reason}): stopped, a person moved the camera"
+                halt = self._halt(reason)
+                if halt:
+                    return halt
                 res = self._scan_to(tx, ty, t0, reason)
                 if res:
                     return res
@@ -420,3 +442,4 @@ class Tracker:
             return f"search ({reason}): not found on {len(self.rows(y0))} rows, back to {label} ({bx}, {by})"
         finally:
             self.searching = False
+            self.search_t0 = None

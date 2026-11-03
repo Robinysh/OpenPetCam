@@ -733,7 +733,7 @@ class Watch:
         self.move_box0 = None
         self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep,
                                find_now=self.find_pet_now, can_scan=lambda: self.source != "snapshot",   # idle is fine (frames start on demand); a broken stream is blind
-                               tick=self.search_tick)
+                               tick=self.search_tick, cancelled=self.find_cancelled)
         self.last_tick = 0.0
         self.last_motion_t = 0.0
         self.last_find_req = now()          # requests from before this process started are stale
@@ -1466,6 +1466,13 @@ class Watch:
             return False
         self.last_find_req = req
         return True
+
+    def find_cancelled(self, since):
+        """'Stop looking' in the app (find_cancel holds its time): true if pressed after the search started."""
+        try:
+            return float(open(f"{STATE}/find_cancel").read().strip() or 0) > since
+        except (OSError, ValueError):
+            return False
 
     def find(self, con, seen):
         """Run the room search because the owner asked, even with following off. Their tap is not 'a person

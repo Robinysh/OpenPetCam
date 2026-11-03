@@ -974,16 +974,28 @@ function renderFind(l) {
     findPending = 0;
     const r = l.find.result || "";
     $("move-note").textContent = l.find.found ? `Found ${PET.name}.` :
+      /you cancelled/.test(r) ? "Stopped looking. The camera stays where it is." :
       /stopped, a person moved/.test(r) ? "Search stopped because the camera was moved." :
       /failed/.test(r) ? "The search failed. Try again in a minute." : `Couldn't find ${PET.name} in the camera's reach.`;
     track("find_result", { found: !!l.find.found });
   } else if (findPending && Date.now() - findPending > 240000) {
     findPending = 0; $("move-note").textContent = "The search took too long. Try again in a minute.";
   }
-  btn.disabled = !!findPending;
-  btn.textContent = findPending ? `Looking for ${PET.name}…` : `Find ${PET.name}`;
+  // While any search runs (asked for, or the watcher's own), the button stops it (owner, report 2026-11-03).
+  const busy = !!findPending || !!(l && l.searching && l.t * 1000 > Date.now() - 15000);
+  if (busy) btn.classList.remove("hidden");
+  btn.disabled = false;
+  btn.textContent = busy ? "Stop looking" : `Find ${PET.name}`;
+  btn.dataset.busy = busy ? "1" : "";
 }
 $("find-btn").onclick = async () => {
+  if ($("find-btn").dataset.busy) {
+    track("find_cancel");
+    $("move-note").textContent = "Stopping…";
+    try { await api("/api/find/cancel", {}); } catch (e) { $("move-note").textContent = e.message; }
+    if (!findPending) $("move-note").textContent = "Stopped looking. The camera stays where it is.";
+    return;
+  }
   findPending = Date.now(); track("find");
   $("move-note").textContent = "The camera is sweeping the room slowly.";
   renderFind(live);

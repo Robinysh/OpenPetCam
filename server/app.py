@@ -960,6 +960,14 @@ def request_find():
     return {"requested": t}
 
 
+def cancel_find():
+    """'Stop looking' (owner, report 2026-11-03): ask the watcher to end the running search where the camera is."""
+    t = time.time()
+    with open(f"{STATE_DIR}/find_cancel", "w") as f:
+        f.write(str(t))
+    return {"cancelled": t}
+
+
 # ---------- small settings shared with the watcher ----------
 
 SETTING_KEYS = {"follow": bool, "talk_volume": int}
@@ -1821,6 +1829,7 @@ class Handler(BaseHTTPRequestHandler):
         routes = {
             "/api/report": lambda: file_report(me or "legacy", (self.device() or {}).get("name", "Someone"), body),
             "/api/find": lambda: request_find(),
+            "/api/find/cancel": lambda: cancel_find(),
             "/api/aim": lambda: aim(body.get("fx", 0), body.get("fy", 0)),
             "/api/nudge": lambda: nudge(body.get("vx", 0), body.get("vy", 0)),
             "/api/goto": lambda: goto(*start_pose()) if body.get("to") == "start" else goto(float(body["x"]), float(body["y"])),
