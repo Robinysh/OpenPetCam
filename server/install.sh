@@ -89,7 +89,7 @@ done
 echo "10c95ea3eb9a7bb4cb8bddf6feb023250381008177ac162ce169694d05c317de  /opt/petcam/models/yamnet.tflite" | sha256sum -c --quiet -
 
 render $SRC/mediamtx.yml > /etc/mediamtx/mediamtx.yml && chmod 644 /etc/mediamtx/mediamtx.yml
-install -m 644 $SRC/petconf.py $SRC/agentdb.py $SRC/tracker.py $SRC/app.py $SRC/watch.py $SRC/detector.py $SRC/alert.py $SRC/index.html $SRC/agent.html $SRC/login.html $SRC/join.html \
+install -m 644 $SRC/petconf.py $SRC/agentdb.py $SRC/tracker.py $SRC/app.py $SRC/watch.py $SRC/detector.py $SRC/alert.py $SRC/update.py $SRC/index.html $SRC/agent.html $SRC/login.html $SRC/join.html \
   $SRC/manifest.webmanifest $SRC/icon.png $SRC/sw.js /opt/petcam/
 render $SRC/Caddyfile > /etc/caddy/Caddyfile && chmod 644 /etc/caddy/Caddyfile
 install -m 750 -o root -g root $SRC/set-secrets.sh /opt/petcam/set-secrets.sh
@@ -223,8 +223,44 @@ AccuracySec=15s
 WantedBy=timers.target
 UNIT
 
+# Updates from GitHub releases (server/update.py): daily at a quiet hour, as root because it runs this script.
+cat > /etc/systemd/system/petcam-update.service <<UNIT
+[Unit]
+Description=petcam: install a newer OpenPetCam release if there is one
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=TZ=$TZ
+ExecStart=/usr/bin/timeout -k 30 2400 /usr/bin/python3 /opt/petcam/update.py
+TimeoutStartSec=2500
+Nice=10
+UNIT
+cat > /etc/systemd/system/petcam-update.timer <<UNIT
+[Unit]
+Description=Check for OpenPetCam releases once a day
+
+[Timer]
+OnCalendar=*-*-* 04:20
+RandomizedDelaySec=40min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+# The version this is, and a copy of the source (no settings, no models) so update.py can roll back exactly.
+if [ -f "$SRC/VERSION" ]; then install -m 644 "$SRC/VERSION" /opt/petcam/VERSION; fi
+if [ "$SRC" != /opt/petcam/source ]; then
+  rm -rf /opt/petcam/source.new && mkdir -p /opt/petcam/source.new
+  ( cd "$SRC" && tar --exclude=./site.env --exclude=./models --exclude=__pycache__ -cf - . ) | tar -xf - -C /opt/petcam/source.new
+  rm -rf /opt/petcam/source && mv /opt/petcam/source.new /opt/petcam/source && chmod -R go-w /opt/petcam/source
+fi
+
 systemctl daemon-reload
 systemctl enable --now petcam-alert.timer >/dev/null 2>&1
+systemctl enable --now petcam-update.timer >/dev/null 2>&1
 systemctl enable --now mediamtx petcam-app petcam-watch >/dev/null 2>&1
 systemctl restart mediamtx petcam-app petcam-watch
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile

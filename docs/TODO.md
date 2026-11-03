@@ -21,6 +21,15 @@ Worked top to bottom. Each item moves to Done with the commit that shipped it.
 7. Report agent: a fix queued because the code moved on is never retried; rebase it in its worktree, re-run the gates, ship.
 8. Motor loudness per speed (tools/noise_study.py loudness): waits for a safe moment; then decide resting moves and search style.
 
+9. **Weakness mining** (Self-Harness, arXiv 2606.09498): a nightly pass over worker and router transcripts, the
+   archive and owner reports that names recurring failure patterns before a goal misses, and opens threads for
+   them. Today only goal misses and reports start work.
+10. **Pairwise gate for changes with no metric** (`~/Documents/auto-improve`, after karpathy/autoresearch): app copy,
+   push wording, prompts. An independent judge compares champion and candidate in both orders and keeps the candidate
+   only on a 2-0 win; it never grades its own work. Router prompt changes would use it alongside the router cases.
+11. **Fixed budget per experiment** (autoresearch): every worker run gets the same wall-clock and token budget so attempts
+   in the archive are comparable, and the archive records cost per accepted change.
+
 ## Done
 
 - QA suite tools/qa.py: 20 pass, 0 fail (2 Nov 19:10)

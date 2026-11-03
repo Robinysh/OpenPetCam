@@ -559,6 +559,10 @@
       </div>
       <div class="note" id="cam-note">Recalibrating sweeps the camera to its end stops (about 15 s). Use it if moves look off.</div>
     </div>
+    <div class="section">
+      <h2>OpenPetCam</h2>
+      <div class="note" id="version-note" style="margin-top:0">…</div>
+    </div>
     <div class="row" style="margin-top:18px">
       <button class="btn" id="close-settings" type="button">Done</button>
       <form method="post" action="/logout" style="flex:1; display:flex"><button class="btn quiet" style="flex:1" type="submit">Sign out this device</button></form>
@@ -1499,7 +1503,26 @@ async function loadDevices() {
     box.appendChild(row);
   }
 }
-$("open-settings").onclick = () => { track("sheet", { name: "settings" }); $("settings").classList.remove("hidden"); loadDevices(); loadPush(); };
+$("open-settings").onclick = () => { track("sheet", { name: "settings" }); $("settings").classList.remove("hidden"); loadDevices(); loadPush(); loadVersion(); };
+// The installed version and what the daily update check found (server/update.py).
+async function loadVersion() {
+  const n = $("version-note");
+  try {
+    const v = await (await fetch("/api/version", { credentials: "same-origin" })).json();
+    const when = v.checked ? ago(v.checked) : "";
+    const msg = {
+      up_to_date: `Up to date. Checked ${when}.`,
+      updated: `Updated itself to ${v.current} ${v.updated_at ? ago(v.updated_at) : ""}.`,
+      available: `${v.latest} is available. Automatic updates are off (UPDATE_CHANNEL).`,
+      development: `Running code deployed from a checkout, so it isn't updated automatically. Latest release: ${v.latest || "?"}.`,
+      rolled_back: `${v.latest} didn't start cleanly, so it went back to ${v.current}. It will wait for the next release.`,
+      skipped: `Waiting for the release after ${v.latest}.`,
+      no_release: `No releases published yet. Checked ${when}.`,
+      error: `Couldn't check for updates ${when}.`,
+    }[v.result] || "Checks for new releases once a day.";
+    n.textContent = `Version ${v.current || "unknown"}. ${msg}`;
+  } catch { n.textContent = "Version unknown."; }
+}
 $("close-settings").onclick = () => $("settings").classList.add("hidden");
 $("open-agent").onclick = (e) => { e.preventDefault(); $("settings").classList.add("hidden"); showTab("agent"); };
 $("settings").addEventListener("click", (e) => { if (e.target === $("settings")) $("settings").classList.add("hidden"); });

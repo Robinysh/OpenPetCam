@@ -1,6 +1,6 @@
 """Recompute per-minute 'present' for a day from that minute's saved snapshot, using the
 detector + verifier (fixes minutes where the old logic counted a toy as the pet)."""
-import os, sqlite3, sys, time
+import os, sqlite3, sys
 sys.path.insert(0, "/opt/petcam")
 from PIL import Image
 import app  # noqa: E402

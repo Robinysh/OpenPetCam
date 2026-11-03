@@ -1478,6 +1478,19 @@ def list_reports(limit=20):
     return out
 
 
+def version_info():
+    """The installed version and the daily update check's outcome (server/update.py writes update.json)."""
+    try:
+        d = json.load(open(os.path.join(STATE_DIR, "update.json")))
+    except (OSError, ValueError):
+        d = {}
+    try:
+        d["current"] = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")).read().strip()
+    except OSError:
+        d.setdefault("current", "")
+    return {k: d.get(k) for k in ("current", "latest", "result", "checked", "updated_at", "url")}
+
+
 def agent_dashboard():
     """The super-agent's state for the owners' dashboard (/agent): goals, open threads, decisions, heartbeats,
     and the steering file the agent obeys (pushed here by tools/superagent.py on every tick)."""
@@ -1695,6 +1708,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, list_reports())
         if path == "/api/agent":
             return self.send_json(200, agent_dashboard())
+        if path == "/api/version":
+            return self.send_json(200, version_info())
         if path == "/agent":
             return self.send(200, page("agent.html"), "text/html; charset=utf-8")
         if path == "/api/wellbeing":

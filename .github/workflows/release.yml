@@ -1,0 +1,31 @@
+name: release
+# Push a tag like v1.2.3 (with a matching "## [1.2.3]" section in CHANGELOG.md) to publish a release.
+# Servers on UPDATE_CHANNEL=release install it within a day (server/update.py).
+on:
+  push:
+    tags: ["v*.*.*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyflakes==3.2.0 && python -m pyflakes server tools tests
+      - run: tools/check_public.sh --all
+      - name: Tests that need no camera or server
+        env:
+          PETCAM_SITE_ENV: config/site.env.example
+        run: |
+          for t in tracker events presence stall disconnect pill search_here_first update; do
+            timeout 300 python tests/server/${t}_test.py
+          done
+      - run: tools/make_release.sh "$GITHUB_REF_NAME"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/openpetcam-*.tar.gz dist/SHA256SUMS --title "OpenPetCam $GITHUB_REF_NAME" --notes-file dist/NOTES.md

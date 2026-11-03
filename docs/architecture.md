@@ -7,16 +7,17 @@
 | Camera | home Wi-Fi | Any Thingino pan/tilt camera (reference: Cinnado D1, see [camera-thingino.md](camera-thingino.md)). WireGuard client `CAMERA_WG_IP` (10.77.0.2) → server. |
 | Server | any Ubuntu 24.04 VM with a public IP (reference: AWS Lightsail `nano_3_0`, $5/month, 512 MB) | Set up and updated by `deploy.sh` → `server/install.sh`. |
 | `wg-quick@wg0` | server | WireGuard `10.77.0.1/24`, UDP 51820. Camera dials out; no home ports open. |
-| `mediamtx` | server | Pulls RTSP from the camera through the tunnel. WebRTC live view (UDP 8189), 1-minute fMP4 segments, **deletes anything older than 1 h**. Localhost only except WebRTC media. |
+| `mediamtx` | server | Pulls RTSP from the camera through the tunnel. WebRTC live view (UDP 8189), 1-minute fMP4 segments, **deletes anything older than 6 h**. Localhost only except WebRTC media. |
 | `petcam-app` | server, `127.0.0.1:8080` | Web app (stdlib Python): login, remembered devices, invites, pan/tilt, picture modes, pet status, day reports, diary, push subscriptions. |
 | `petcam-watch` | server | Every 3 s: camera JPEG snapshot → freeze watchdog → motion → YOLOX-nano dog detector (on motion or every 8 s) → pet state, events, clips. Audio → loud sound / barking. Nightly timelapse + retention. |
 | `petcam-alert.timer` | server, every 3 min | Absence alerter (separate from the watcher): watcher heartbeat, video relay + recording freshness, new events → iPhone web push. |
+| `petcam-update.timer` | server, daily ~04:20 | `update.py`: installs a newer GitHub release (checksum, snapshot, `install.sh`, health check, rollback). Leaves development installs alone. Status in `/var/lib/petcam/update.json`, shown in Settings. |
 | `caddy` | server | HTTPS (automatic certificate for PUBLIC_HOST). Every video/media/API path goes through `forward_auth` to the app. |
 
 Data on the server: `/var/lib/petcam/` (`petcam.db` SQLite, `snaps/` one per minute ×14 days,
 `clips/` 30 s event clips ×30 days / 4 GB cap, `timelapse/` one per day ×365 days,
 `highlights/` nightly reel of up to 8 clips ×90 days),
-`/var/lib/mediamtx/recordings/` (rolling hour). Per-minute stats in `minute` are kept forever.
+`/var/lib/mediamtx/recordings/` (rolling 6 h). Per-minute stats in `minute` are kept forever.
 
 Secrets (never in git): `/etc/petcam/app.env` (password hash, session secret, camera web login),
 `/etc/petcam/camera.env` (RTSP source URL), `/etc/petcam/vapid_*` (push keys).

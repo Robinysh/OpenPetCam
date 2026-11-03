@@ -11,7 +11,6 @@ Nothing here leaves your machines: the data lives on your server, this reads it 
 import collections
 import json
 import os
-import statistics
 import subprocess
 import sys
 

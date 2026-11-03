@@ -203,6 +203,15 @@ def check():
                      (f"{APP}: the agent is back", "It is working through what waited"))
     except sqlite3.Error:
         pass
+    # The daily release check (server/update.py), once it has ever run: silence for 3 days, or a failed
+    # update that could not roll back, pages.
+    try:
+        up = json.load(open(f"{STATE}/update.json"))
+        incident(st, "update", time.time() - up.get("checked", 0) > 3 * 86400 or up.get("result") == "broken",
+                 (f"{APP}: updates need a look", "The daily update check stopped, or an update could not undo itself. Run ./deploy.sh from your computer."),
+                 (f"{APP}: updates are fine again", "The daily update check is running"))
+    except (OSError, ValueError):
+        pass
     # 4. New events from the watcher. Some are stamped earlier than they are written ("left" uses
     #    the last sighting, sounds their start), and SQLite reuses ids after deletes, so neither
     #    an id nor a time watermark is safe: re-read the last 30 min, skip (id, ts) already handled.
