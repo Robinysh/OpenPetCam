@@ -85,7 +85,6 @@ def glyphs(k, paw):
     g["u"] = [ua, [(2 * R, x), (2 * R, b)]]
     g["r"] = [[(0, x), (0, b)], [(0, b + 10)] + arc(R * 0.9, x - arch, R * 0.9, arch, 180, 55)]
     g["i"] = [[(0, x), (0, b)], dot(0, idot, True)]
-    hook = arc(2 * R - tail, d + tail, tail, tail, 0, -200)
     g["j"] = [[(0, x), (0, d + tail)] + arc(-tail * 0.9, d + tail, tail * 0.9, tail, 0, -165), dot(0, idot, True)]
     g["g"] = [bowl, [(2 * R, x), (2 * R, d + tail)] + arc(R, d + tail, R, tail, 0, -158)]
     g["y"] = [ua, [(2 * R, x), (2 * R, d + tail)] + arc(R, d + tail, R, tail, 0, -158)]
