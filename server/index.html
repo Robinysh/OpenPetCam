@@ -224,7 +224,7 @@
   .rail .iconbtn { position:relative; }
   .rail .word { font-size:9px; font-weight:800; letter-spacing:.02em; }
   .rail .iconbtn[aria-pressed="true"] { background:var(--accent) !important; color:var(--on-accent); box-shadow:none; }
-  .rail .talk { touch-action:none; -webkit-user-select:none; user-select:none; }
+  .rail .talk { display:none; touch-action:none; -webkit-user-select:none; user-select:none; }
   .rail .talk span { display:none; }
   .rail .talk.rec { background:var(--live) !important; }
   .rail .talk.rec span { display:block; position:absolute; right:52px; top:8px; white-space:nowrap; background:var(--live); color:#fff;
@@ -249,6 +249,9 @@
            font-size:12px; font-weight:650; cursor:pointer; }
   .round .disc { width:56px; height:56px; border-radius:28px; background:var(--card2); display:grid; place-items:center; }
   .round svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+  .round.talk { width:auto; min-width:72px; white-space:nowrap; touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  .round.talk.rec { color:var(--live); }
+  .round.talk.rec .disc { background:var(--live); color:#fff; }
   .round[aria-pressed="true"] { color:var(--accent-fg); }
   .round[aria-pressed="true"] .disc { background:var(--accent-subtle); }
   .chips.strip { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; padding-bottom:2px; }
@@ -334,6 +337,7 @@
     body.tab-live .side { display:flex; position:fixed; z-index:6; left:calc(env(safe-area-inset-left) + 12px);
                           bottom:calc(env(safe-area-inset-bottom) + 100px); width:auto; }
     body.tab-live .side > :not(.talk) { display:none; }
+    body.tab-live .rail .talk { display:grid; }
     body.tab-live .btn.talk { min-height:48px; background:rgba(20,20,22,.55); border-color:var(--glass-line);
                               -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); }
     body.tab-live .btn.talk.rec { background:var(--live); }
@@ -382,9 +386,10 @@
       <button class="iconbtn glass" id="light-btn" type="button" aria-label="Light and picture mode">
         <svg viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg>
       </button>
-      <button class="iconbtn glass talk" id="talk-btn" type="button" aria-label="Hold to talk to {{PET}}">
+      <!-- landscape full-screen only; in portrait the talk button sits left of the joystick -->
+      <button class="iconbtn glass talk talk-hold" id="talk-rail" type="button" aria-label="Hold to talk to {{PET}}">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
-        <span id="talk-label">Hold to talk</span>
+        <span class="talk-label">Hold to talk</span>
       </button>
       <button class="iconbtn glass" id="full-btn" type="button" aria-label="Full screen">
         <svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
@@ -402,8 +407,8 @@
   <div class="note center" id="move-note"></div>
 
   <div class="controls">
-    <button class="round" id="go-start" type="button" aria-label="Center the camera">
-      <span class="disc"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></span>Center</button>
+    <button class="round talk talk-hold" id="talk-btn" type="button" aria-label="Hold to talk to {{PET}}">
+      <span class="disc"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><span class="talk-label">Hold to talk</span></button>
     <div class="stick" id="stick" role="application" aria-label="Move the camera: hold and drag">
       <i class="ar u"></i><i class="ar d"></i><i class="ar l"></i><i class="ar r"></i>
       <div class="knob" id="knob"></div>
@@ -1142,9 +1147,12 @@ document.addEventListener("keydown", (e) => {
 // ======================= push-to-talk =======================
 // Hold to record (max 15 s), release to send; the server adds a soft chime and the camera plays it.
 let rec = null, recChunks = [], recStream = null, recStart = 0, recTimer = null, holding = false, wasMuted = true;
-function talkLabel(t) { $("talk-label").textContent = t; }
+const talkBtns = [...document.querySelectorAll(".talk-hold")];
+let talkBtn = null;
+function talkLabel(t) { document.querySelectorAll(".talk-label").forEach((el) => { el.textContent = t; }); }
 async function talkDown(e) {
-  e.preventDefault(); holding = true;
+  e.preventDefault(); if (holding || rec) return;
+  holding = true; talkBtn = e.currentTarget;
   try {
     recStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
   } catch (err) { holding = false; $("move-note").textContent = "Microphone blocked: allow it in Settings → Safari → Microphone."; return; }
@@ -1156,13 +1164,13 @@ async function talkDown(e) {
   rec = new MediaRecorder(recStream, mime ? { mimeType: mime } : {});
   recChunks = []; rec.ondataavailable = (ev) => { if (ev.data.size) recChunks.push(ev.data); };
   wasMuted = $("live").muted; $("live").muted = true;            // no echo of the live sound into the recording
-  rec.start(); recStart = Date.now(); $("talk-btn").classList.add("rec");
+  rec.start(); recStart = Date.now(); talkBtn.classList.add("rec");
   recTimer = setInterval(() => { const s = (Date.now() - recStart) / 1000; talkLabel(`Recording… ${s.toFixed(0)}s`); if (s >= 15) talkUp(); }, 250);
 }
 async function talkUp() {
   holding = false;
   if (!rec) return;
-  clearInterval(recTimer); $("talk-btn").classList.remove("rec");
+  clearInterval(recTimer); talkBtns.forEach((b) => b.classList.remove("rec"));
   const r = rec; rec = null;
   const secs = (Date.now() - recStart) / 1000;
   await new Promise((res) => { r.onstop = res; r.stop(); });
@@ -1180,10 +1188,12 @@ async function talkUp() {
   } catch (err) { talkLabel("Hold to talk"); $("move-note").textContent = err.message; return; }
   setTimeout(() => talkLabel("Hold to talk"), 2500);
 }
-$("talk-btn").addEventListener("pointerdown", talkDown);
-$("talk-btn").addEventListener("pointerup", talkUp);
-$("talk-btn").addEventListener("pointercancel", talkUp);
-$("talk-btn").addEventListener("contextmenu", (e) => e.preventDefault());
+talkBtns.forEach((b) => {
+  b.addEventListener("pointerdown", talkDown);
+  b.addEventListener("pointerup", talkUp);
+  b.addEventListener("pointercancel", talkUp);
+  b.addEventListener("contextmenu", (e) => e.preventDefault());
+});
 function showTalkVol(v) { $("talk-vol").value = v; $("talk-vol-val").textContent = `${v}%`; }
 $("talk-vol").addEventListener("input", () => showTalkVol($("talk-vol").value));
 $("talk-vol").addEventListener("change", () => api("/api/settings", { talk_volume: Number($("talk-vol").value) }).catch(() => {}));
@@ -1283,7 +1293,6 @@ async function saveSpot() {
 }
 $("spot-save").onclick = saveSpot;
 $("spot-name").addEventListener("keydown", (e) => { if (e.key === "Enter") saveSpot(); });
-$("go-start").onclick = () => api("/api/goto", { to: "start" }).catch((e) => { $("move-note").textContent = e.message; });
 
 // ======================= picture modes =======================
 let pendingMode = 0;
