@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Themes are wired into every page, the files are served before login, and the token set is consistent. Runs anywhere."""
-import json, os, re, subprocess, sys
+import json, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRV = os.path.join(HERE, "..", "..", "server")
