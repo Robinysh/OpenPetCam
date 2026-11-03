@@ -9,6 +9,12 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
   23 / 9 for the previous logistic-regression verifier and 0 / 16 at 0.5.
 - Find says "found her" only when 2 of up to 4 still frames show her in the same place, not on the first frame
   the verifier accepts. Night lookalikes (a clothes pile, a slipper) could end a search on one infrared frame.
+- Follow keeps tracking through frames where a moving, blurred dog scores just under the verifier's cut-off: a
+  dog-like box where the track predicts her continues it, for at most 8 s since the last confirmed sighting (her
+  toys, scored near zero, never do). After its own small moves the tracker shifts what it remembers of her by the
+  same amount instead of forgetting her speed, and ignores frames that may predate the move. In a simulation with
+  realistic detection (tests/server/follow_test.py): in view while she walks across the room 33% -> 77%, walking
+  past a lookalike 41% -> 73%, with no more time spent on the lookalike.
 ### Added
 - Every search keeps the frame at each stop and every sighting, with each box and score (kept 21 days), so Find
   can be checked by hand: `tools/search_review.py` and the "Searches" queue in `tools/label_ui.py`.

@@ -49,6 +49,13 @@ CONFIRM_FRAMES = 2      # ...and this many of them must show her in the same pla
                         # still tolerate one frame that misses a curled-up dog.
 AGREE = 0.15            # two boxes agree when their centres are within this share of the frame
 SCAN_POLL = 0.2         # check a new frame this often while panning (the stream delivers 5 fps)
+# Keeping the track through weak detections (ByteTrack's idea, arXiv 2110.06864): a moving, blurred dog often scores
+# just under the verifier's cut-off. A dog-like box where the track predicts her keeps following her, but only
+# for WEAK_MAX seconds since the last box the verifier accepted, so a weak chain can never start or keep a track
+# on its own. Boxes the verifier scores near zero (her toys) are never passed in (server/watch.py WEAK_MIN).
+WEAK_MAX = 8.0
+WEAK_GATE = 0.12        # a weak box counts only this close (share of the frame) to where she is predicted, plus speed x time
+POST_MOVE_IGNORE = 1.6  # after our own aim, frames this young may predate the move (stream lag + settle): don't re-aim on them
 
 
 class Tracker:
@@ -74,6 +81,8 @@ class Tracker:
         self.last_vel = (0.0, 0.0)
         self.last_move = -1e9
         self.own_move_t = -1e9
+        self.last_verified_t = -1e9   # last box the verifier accepted (weak boxes only extend a track from here)
+        self.last_aim_t = -1e9        # our last small tracking move (frames just after it may predate it)
         # Report 2026-11-02 16:51: a restart mid-search found the 'camera moved' mark from the OLD
         # process's own search moves, took it for a person and froze on a blank wall for 3 min.
         # A mark older than this process can't be told apart from our own moves, so it doesn't pause.
@@ -90,10 +99,18 @@ class Tracker:
         self.was_paused = False
 
     # ---- helpers -------------------------------------------------------------------------
-    def _move(self, fn, *a):
+    def _move(self, fn, *a, shift=None):
         fn(*a)
         self.own_move_t = self.last_move = self.clock()
-        self.hist.clear()                    # positions in the old view no longer apply
+        if shift is None:
+            self.hist.clear()                # a long move: positions in the old view no longer apply
+        else:
+            # A small aim of (fx, fy) moves the picture by the same amount: where she was at offset c in the old view
+            # she is at c - (fx, fy) now. Shifting the history keeps her speed instead of forgetting it.
+            fx, fy = shift
+            self.hist = collections.deque((t, x - fx, y - fy) for t, x, y in self.hist)
+            if self.last_seen_c:
+                self.last_seen_c = (self.last_seen_c[0] - fx, self.last_seen_c[1] - fy)
 
     def user_paused(self):
         try:
@@ -110,9 +127,10 @@ class Tracker:
         return ((x1 - x0) / dt, (y1 - y0) / dt) if dt >= 0.8 else (0.0, 0.0)
 
     # ---- every cycle ---------------------------------------------------------------------
-    def step(self, box, moving, sound=False, motion=None):
-        """Call once per watcher cycle with the verified pet box (or None), and the latest motion
-        centroid (t, fx, fy) from the frame reader. Returns what it did, or None."""
+    def step(self, box, moving, sound=False, motion=None, weak=None):
+        """Call once per watcher cycle with the verified pet box (or None), the latest motion centroid (t, fx, fy)
+        from the frame reader, and `weak`: dog-like boxes from this cycle that the verifier scored below its cut-off
+        but not near zero. Returns what it did, or None."""
         t = self.clock()
         if self.user_paused():
             self.hist.clear()
@@ -122,8 +140,28 @@ class Tracker:
             return None
         self.was_paused = False
         if box is not None:
+            self.last_verified_t = t
             return self._track(t, box, moving)
+        wbox = self._weak_match(t, weak)
+        if wbox is not None:
+            return self._track(t, wbox, moving)
         return self._lost(t, sound, motion)
+
+    def _weak_match(self, t, weak):
+        """The weak box closest to where the track predicts her, if the track is alive and the box is close enough."""
+        if not weak or t - self.last_verified_t > WEAK_MAX or self.last_seen_c is None or t - self.last_seen_t > 3.0:
+            return None
+        dt = t - self.last_seen_t
+        vx, vy = self.last_vel
+        px, py = self.last_seen_c[0] + vx * dt, self.last_seen_c[1] + vy * dt
+        gate = WEAK_GATE + math.hypot(vx, vy) * dt
+        best = None
+        for b in weak:
+            cx, cy = (b[0] + b[2]) / 2 - 0.5, (b[1] + b[3]) / 2 - 0.5
+            d = math.hypot(cx - px, cy - py)
+            if d <= gate and (best is None or d < best[0]):
+                best = (d, b)
+        return best[1] if best else None
 
     def _track(self, t, box, moving):
         cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
@@ -143,13 +181,14 @@ class Tracker:
         else:
             vx, vy = 0.0, 0.0
         self.last_vel = (vx, vy)
-        if t - self.last_move < MOVE_EVERY:
+        if t - self.last_move < MOVE_EVERY or t - self.last_aim_t < POST_MOVE_IGNORE:
             return None
         px, py = cx + vx * LEAD, cy + vy * LEAD
         speed = math.hypot(vx, vy)
         if (moving or speed > 0.05) and (abs(px) > EDGE or abs(py) > EDGE * 1.25):
             fx, fy = max(-0.6, min(0.6, px * 0.9)), max(-0.6, min(0.6, py * 0.8))
-            self._move(self.cam.aim, fx, fy)
+            self._move(self.cam.aim, fx, fy, shift=(fx, fy))
+            self.last_aim_t = self.clock()
             self.offcentre_since = None
             return f"track: aim ({fx:+.2f}, {fy:+.2f}), speed {speed:.2f}/s"
         # Lying down but cut off at the side of the picture: centre her once, but only if she is mostly

@@ -20,6 +20,7 @@ class World:
     def __init__(self, X=1850, pet=1850, pet_y=500, Y=500):
         self.X, self.Y, self.tx, self.pet, self.pet_y, self.t, self.moved = float(X), float(Y), float(X), pet, pet_y, 0.0, -1e9
         self.moves, self.hist = [], [(0.0, float(X), float(Y))]
+        self.moving = False
 
     def advance(self, dt):
         step = self.SPEED * dt

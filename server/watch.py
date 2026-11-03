@@ -98,6 +98,8 @@ BLOCKED_SHARPNESS = 60.0      # Laplacian variance (160x90 gray). Night 1: norma
                               # at close range 14-30 (noisy dark frames up to 176, hence the 10-min rule)
 BLOCKED_WINDOW = 600          # judge "view blocked" over this many seconds
 BLOCKED_FRACTION = 0.8
+WEAK_MIN = 0.15               # a dog-like box the verifier scored at least this (but under its cut-off) may keep an
+                              # existing Follow track going (tracker.py WEAK_MAX); her toys score ~0.00 and never do
 MOTION_DETECT = 1.6           # mean pixel change (0-255, 160x90 gray) that triggers a detector run; IR grain alone is 0.5-1.1
 RETAIN = {"snaps_days": 14, "clips_days": 30, "clips_gb": 4.0, "obs_days": 30, "timelapse_days": 365, "highlights_days": 90, "searches_days": 21}
 
@@ -968,9 +970,13 @@ class Watch:
             self.find(con, best if best and score >= PRESENT_SCORE else None)
         elif self.setting("follow", False) and not privacy:
             try:
+                weak = None
+                if self.verifier and self.last_detect == t:   # only from this cycle's detector run, never a stale one
+                    weak = [f["box"] for f in animals if f is not best and WEAK_MIN <= f.get("verified", 0.0) < self.verifier.threshold]
                 act = self.tracker.step(best["box"] if best and score >= PRESENT_SCORE else None, moving,
                                         sound=self.dog_sound_pending and not self.present,
-                                        motion=self.frames.motion_c if person < 0.5 else None)   # a person leaving is not her
+                                        motion=self.frames.motion_c if person < 0.5 else None,   # a person leaving is not her
+                                        weak=weak)
                 if act:
                     log("follow:", act)
                     if act.startswith("search"):
