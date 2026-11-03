@@ -220,6 +220,21 @@ def running_workers():
     return out
 
 
+
+def touched_heldout(stream):
+    """True when a worker's own tool calls (paths, patterns, commands) name the held-out set. Text it merely read,
+    such as this file's source, does not count (2026-11-03: the meta worker was rejected for reading superagent.py)."""
+    for line in stream.splitlines():
+        try:
+            o = json.loads(line)
+        except ValueError:
+            continue
+        content = (o.get("message") or {}).get("content") if o.get("type") == "assistant" else None
+        for c in content if isinstance(content, list) else []:
+            if c.get("type") == "tool_use" and "heldout" in json.dumps(c.get("input", {})):
+                return True
+    return False
+
 def start_worker(thread, kind, brief):
     left, _, _ = budget_left("worker_runs")
     if left <= 0 or len(running_workers()) >= MAX_WORKERS:
@@ -389,7 +404,7 @@ def work(thread):
         with open(os.path.join(RUN, f"transcript_{safe}.jsonl"), "w") as f:
             f.write(r.stdout)
         status, detail, commit = "no_change", "", None
-        leaked = "eval/heldout" in r.stdout          # the held-out set is the judge's, never the proposer's
+        leaked = touched_heldout(r.stdout)           # the held-out set is the judge's, never the proposer's
         if leaked:
             status, detail = "rejected", "the worker read the held-out data"
         elif ra.git("status", "--porcelain", cwd=wt) and b["kind"] == "meta":
