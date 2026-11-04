@@ -112,6 +112,7 @@ def main(export, follow_log, out):
     seen_h = sum(min(b[0] - a[0], 30) for a, b in zip(obs, obs[1:]) if a[1] >= SEEN) / 3600
     acts = Counter()
     span = None
+    search_ends = Counter()
     if os.path.exists(follow_log):
         ts_list = []
         for line in open(follow_log):
@@ -119,6 +120,9 @@ def main(export, follow_log, out):
             if m:
                 acts[m.group(2)] += 1
                 ts_list.append(float(m.group(1)))
+            e = re.search(r"follow: search \(.*?\): (found her|not found|stopped)", line)
+            if e:
+                search_ends[e.group(1)] += 1
         # per hour the watcher actually ran (gaps over 30 s excluded), not first-to-last action: a held-out day
         # leaves a hole in the middle that would dilute every rate
         span = sum(min(b[0] - a[0], 30) for a, b in zip(obs, obs[1:])) / 3600 if ts_list else None
@@ -128,6 +132,9 @@ def main(export, follow_log, out):
         "losses": len(losses), "losses_per_home_hour": round(len(losses) / max(home_h, 1e-9), 2),
         "seen_again_within_s": {s: within(s) for s in (10, 30, 60, 600)},
         "follow_actions_per_hour": {k: round(v / span, 2) for k, v in acts.items()} if span else {},
+        # how often a search that started on its own ends with her found (the search evidence audit, 2026-11-04)
+        "search_found_share": round(search_ends["found her"] / sum(search_ends.values()), 3) if search_ends else None,
+        "searches": sum(search_ends.values()),
     }
     # update only what this script fits; keep measured sections (motor, measured geometry, backlash) and the calibration
     old = json.load(open(out)) if os.path.exists(out) else {}

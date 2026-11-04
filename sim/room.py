@@ -35,6 +35,13 @@ FREE_DEFAULTS = {
     "p_hidden": 0.3,              # lying down inside an occluder (sim/params.json scene, mapped by Claude): hidden for
                                   # that rest with this probability (calibrated)
     "rest_place_share": 0.2,      # share of lie-downs at Claude's rest places rather than the logged sighting map
+    # Hard poses (2026-11-04 search audit): lying flat or curled, the detector's raw score sits at its 0.10 floor and it
+    # proposes her on only some frames, while the verifier is sure whenever it does. detect_persist (0.99 per frame)
+    # is measured while the watcher is already tracking her, i.e. on the poses it sees well; the losses that start a
+    # search are the others. Each lie-down is hard with q_hard, and then each frame shows her with p_hard (calibrated
+    # to the real search outcomes). Defaults keep the old behaviour.
+    "q_hard": 0.0,
+    "p_hard": 0.3,
 }
 
 
@@ -137,6 +144,7 @@ class Room:
                 else:
                     self.dog_state = "rest"
                     self.state_until = self.t + self._lognorm(self.F["rest_med_s"], self.F["rest_sigma"])
+                    self.hard = self.rng.random() < float(self.F.get("q_hard", 0.0))
                     # behind the sofa, under the stools: hidden for this whole rest, sometimes
                     self.hidden = bool(self._inside("occluders", self.px, self.py)) and \
                         self.rng.random() < float(self.F.get("p_hidden", 0.0))
@@ -227,6 +235,8 @@ class Room:
         if st != "away" and not hid and self.in_view(X, Y, px, py):
             f, g = self.offset(X, Y, px, py)
             p = self.P["detect_persist"]["moving" if mv else "still"]["p"]
+            if not mv and getattr(self, "hard", False):
+                p = float(self.F.get("p_hard", p))
             box = [0.5 + f - 0.08, 0.5 + g - 0.1, 0.5 + f + 0.08, 0.5 + g + 0.1]
             box = [v + float(self.rng.uniform(-0.012, 0.012)) for v in box]
             if self.rng.random() < p:

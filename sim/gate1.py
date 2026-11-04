@@ -65,7 +65,7 @@ def run_watcher(room, T, hours, overrides=None):
         t_before = room.t
         a = tr.step(box, moving=bool(moving and box), sound=False, motion=motion, weak=weak or None, box_t=last_detect)
         if a:
-            acts.append((t_before, a.split(":")[0].split(" ")[0]))
+            acts.append((t_before, a.split(":")[0].split(" ")[0], a))
         # next cycle: ~1 s while motion wakes the loop, else the 3 s period (server/watch.py MIN_CYCLE, PERIOD)
         period = 1.0 if motion else 3.0
         room.advance(max(0.05, period - (room.t - t_before)))
@@ -85,13 +85,16 @@ def metrics(obs, acts):
     home_h = sum(min(b[0] - a[0], 30) for a, b in zip(obs, obs[1:]) if a[2]) / 3600
     seen_h = sum(min(b[0] - a[0], 30) for a, b in zip(obs, obs[1:]) if a[1] >= SEEN) / 3600
     span_h = (obs[-1][0] - obs[0][0]) / 3600 if obs else 1
-    c = collections.Counter(k for _, k in acts)
+    c = collections.Counter(x[1] for x in acts)
+    ends = [x[2] for x in acts if len(x) > 2 and x[2].startswith("search (")]
+    found = [e for e in ends if "found her" in e]
     within = lambda s: round(sum(x <= s for x in losses) / max(len(losses), 1), 3)   # noqa: E731
     return {"in_view_share_while_home": round(seen_h / max(home_h, 1e-9), 3),
             "losses_per_home_hour": round(len(losses) / max(home_h, 1e-9), 2),
             "seen_again_within_s": {s: within(s) for s in (10, 30, 60, 600)},
             "follow_actions_per_hour": {k: round(v / span_h, 2) for k, v in c.items()},
-            "home_share": round(home_h / max(span_h, 1e-9), 3)}
+            "home_share": round(home_h / max(span_h, 1e-9), 3),
+            "search_found_share": round(len(found) / len(ends), 3) if ends else None}
 
 
 def truth(room):

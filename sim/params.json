@@ -227,7 +227,9 @@
    "track": 4.26,
    "search": 2.85,
    "chase": 5.85
-  }
+  },
+  "search_found_share": 0.388,
+  "searches": 80
  },
  "motor": {
   "measured": "2026-11-04",
@@ -258,62 +260,64 @@
   }
  },
  "free": {
-  "walk_speed_med": 275.8559,
-  "rest_med_s": 80.6381,
-  "away_prob": 0.1049,
-  "away_med_s": 499.1158,
-  "people_motion_per_h": 4.223,
+  "walk_speed_med": 127.1268,
+  "rest_med_s": 254.7866,
+  "away_prob": 0.3865,
+  "away_med_s": 820.6473,
+  "people_motion_per_h": 0.6482,
   "owner_moves_per_h": 2.93,
-  "p_hidden": 0.4032,
-  "lag_s": 0.9
+  "p_hidden": 0.5518,
+  "lag_s": 0.9,
+  "q_hard": 0.1934,
+  "p_hard": 0.0505
  },
  "calibration": {
-  "loss": 3.87,
+  "loss": 8.025,
   "hours": 4,
   "seeds": 4,
-  "evals": 136,
+  "evals": 184,
   "fit": {
    "in_view_share_while_home": {
     "real": 0.756,
-    "sim_min": 0.703,
-    "sim_max": 0.71,
-    "sim_mean": 0.707
+    "sim_min": 0.537,
+    "sim_max": 0.773,
+    "sim_mean": 0.697
    },
    "losses_per_home_hour": {
     "real": 12.18,
-    "sim_min": 11.39,
-    "sim_max": 12.92,
-    "sim_mean": 12.103
+    "sim_min": 7.78,
+    "sim_max": 15.51,
+    "sim_mean": 11.748
    },
    "seen_again_within_s/30": {
     "real": 0.279,
-    "sim_min": 0.333,
-    "sim_max": 0.429,
-    "sim_mean": 0.382
+    "sim_min": 0.286,
+    "sim_max": 0.647,
+    "sim_mean": 0.394
    },
    "seen_again_within_s/60": {
     "real": 0.505,
-    "sim_min": 0.37,
-    "sim_max": 0.472,
-    "sim_mean": 0.432
+    "sim_min": 0.286,
+    "sim_max": 0.706,
+    "sim_mean": 0.422
    },
    "follow_actions_per_hour/chase": {
     "real": 5.85,
-    "sim_min": 3.75,
-    "sim_max": 7.25,
-    "sim_mean": 5.312
+    "sim_min": 1.75,
+    "sim_max": 5.5,
+    "sim_mean": 3.312
    },
    "follow_actions_per_hour/search": {
     "real": 2.85,
-    "sim_min": 1.5,
-    "sim_max": 4.5,
-    "sim_mean": 3.375
+    "sim_min": 2.75,
+    "sim_max": 4.0,
+    "sim_mean": 3.312
    },
    "follow_actions_per_hour/track": {
     "real": 4.26,
-    "sim_min": 1.25,
-    "sim_max": 7.25,
-    "sim_mean": 4.5
+    "sim_min": 1.75,
+    "sim_max": 11.25,
+    "sim_mean": 5.0
    }
   }
  },
@@ -509,6 +513,13 @@
    "lag_s": 0.9,
    "date": "2026-11-04",
    "how": "motor command -> first decoded substream frame showing the move, interleaved runs, minus ~0.1 s motor start (docs/performance.md, Control latency); main stream 0.26 s, not used while fast mode is off"
+  },
+  "search_audit": {
+   "date": "2026-11-04",
+   "records": 84,
+   "automatic": 80,
+   "found": 31,
+   "how": "every saved search record since 2026-11-03 14:40 (server /var/lib/petcam/searches); 12 failures had a verified glimpse (8 were her by eye, 4 a toy at night); raw detector scores on a lying dog 0.10-0.53"
   }
  }
 }

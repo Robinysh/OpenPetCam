@@ -20,11 +20,12 @@ from room import load_params  # noqa: E402
 
 # (name, low, high, log-scale)
 SPACE = [("walk_speed_med", 30, 400, True), ("rest_med_s", 30, 1800, True), ("away_prob", 0.05, 0.6, False),
-         ("away_med_s", 120, 3600, True), ("people_motion_per_h", 0.5, 30, True), ("p_hidden", 0.0, 0.9, False)]
+         ("away_med_s", 120, 3600, True), ("people_motion_per_h", 0.5, 30, True), ("p_hidden", 0.0, 0.9, False),
+         ("q_hard", 0.0, 0.8, False), ("p_hard", 0.02, 0.9, True)]
 TARGETS = [("in_view_share_while_home", None, 0.05), ("losses_per_home_hour", None, 2.0),
            ("seen_again_within_s", 30, 0.08), ("seen_again_within_s", 60, 0.08),
            ("follow_actions_per_hour", "chase", 1.5), ("follow_actions_per_hour", "search", 1.0),
-           ("follow_actions_per_hour", "track", 1.5)]
+           ("follow_actions_per_hour", "track", 1.5), ("search_found_share", None, 0.08)]
 HOURS, SEEDS = 4, 4
 
 
@@ -38,7 +39,9 @@ def decode(z):
 
 def get(m, k):
     v = m.get(k[0])
-    return (v or {}).get(k[1], (v or {}).get(str(k[1]), 0.0)) if k[1] is not None else v
+    if k[1] is None:
+        return v if v is not None else 0.0                 # e.g. search_found_share of a run with no search
+    return (v or {}).get(k[1], (v or {}).get(str(k[1]), 0.0))
 
 
 def loss(free, real, params=None):
