@@ -258,61 +258,62 @@
   }
  },
  "free": {
-  "walk_speed_med": 285.9964,
-  "rest_med_s": 229.4746,
-  "away_prob": 0.426,
-  "away_med_s": 216.5326,
-  "people_motion_per_h": 6.0996,
+  "walk_speed_med": 275.8559,
+  "rest_med_s": 80.6381,
+  "away_prob": 0.1049,
+  "away_med_s": 499.1158,
+  "people_motion_per_h": 4.223,
   "owner_moves_per_h": 2.93,
-  "p_hidden": 0.757
+  "p_hidden": 0.4032,
+  "lag_s": 0.9
  },
  "calibration": {
-  "loss": 5.932,
+  "loss": 3.87,
   "hours": 4,
   "seeds": 4,
-  "evals": 128,
+  "evals": 136,
   "fit": {
    "in_view_share_while_home": {
     "real": 0.756,
-    "sim_min": 0.662,
-    "sim_max": 0.762,
-    "sim_mean": 0.717
+    "sim_min": 0.703,
+    "sim_max": 0.71,
+    "sim_mean": 0.707
    },
    "losses_per_home_hour": {
     "real": 12.18,
-    "sim_min": 9.41,
-    "sim_max": 12.43,
-    "sim_mean": 11.152
+    "sim_min": 11.39,
+    "sim_max": 12.92,
+    "sim_mean": 12.103
    },
    "seen_again_within_s/30": {
     "real": 0.279,
-    "sim_min": 0.355,
-    "sim_max": 0.421,
+    "sim_min": 0.333,
+    "sim_max": 0.429,
     "sim_mean": 0.382
    },
    "seen_again_within_s/60": {
     "real": 0.505,
-    "sim_min": 0.375,
-    "sim_max": 0.421,
-    "sim_mean": 0.408
+    "sim_min": 0.37,
+    "sim_max": 0.472,
+    "sim_mean": 0.432
    },
    "follow_actions_per_hour/chase": {
     "real": 5.85,
-    "sim_min": 3.25,
-    "sim_max": 6.5,
-    "sim_mean": 4.938
+    "sim_min": 3.75,
+    "sim_max": 7.25,
+    "sim_mean": 5.312
    },
    "follow_actions_per_hour/search": {
     "real": 2.85,
-    "sim_min": 2.75,
-    "sim_max": 5.0,
-    "sim_mean": 4.062
+    "sim_min": 1.5,
+    "sim_max": 4.5,
+    "sim_mean": 3.375
    },
    "follow_actions_per_hour/track": {
     "real": 4.26,
-    "sim_min": 0.75,
-    "sim_max": 6.0,
-    "sim_mean": 3.75
+    "sim_min": 1.25,
+    "sim_max": 7.25,
+    "sim_mean": 4.5
    }
   }
  },
@@ -502,5 +503,12 @@
   ],
   "source": "claude -p on the camera's own panorama (sim/scene_from_claude.py)",
   "rejected": 0
+ },
+ "measured": {
+  "frame_lag": {
+   "lag_s": 0.9,
+   "date": "2026-11-04",
+   "how": "motor command -> first decoded substream frame showing the move, interleaved runs, minus ~0.1 s motor start (docs/performance.md, Control latency); main stream 0.26 s, not used while fast mode is off"
+  }
  }
 }
