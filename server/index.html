@@ -1561,8 +1561,27 @@ function drawTrend(days) {
 }
 
 // ======================= player, settings =======================
-function openPlayer(src, title) { $("player-title").textContent = title; $("player-video").src = src; $("player").classList.remove("hidden"); }
-$("player-close").onclick = () => { $("player-video").pause(); $("player-video").removeAttribute("src"); $("player").classList.add("hidden"); };
+// Clip player. A clip that would not play used to fail silently (blank player, nothing in any log), so a
+// failure is now shown in the player and sent to /api/clientlog with the browser's MediaError code, and
+// play() is called inside the tap so autoplay rules can't leave it paused.
+function openPlayer(src, title) {
+  const v = $("player-video"), t0 = Date.now();
+  $("player-title").textContent = title; $("player").classList.remove("hidden");
+  v.onerror = () => {
+    const e = v.error || {};
+    $("player-title").textContent = `${title} · this clip can't play here (error ${e.code || "?"})`;
+    reportError("clip", `clip error ${e.code || "?"} ${e.message || ""}`.trim(), src);
+    track("clip_error", { code: e.code || 0, src });
+  };
+  v.onplaying = () => { v.onplaying = null; track("clip_play", { src }, Date.now() - t0); };
+  v.src = src;
+  const p = v.play();
+  if (p && p.catch) p.catch((err) => { if (err && err.name !== "AbortError") reportError("clip-play", `${err.name}: ${err.message}`, src); });
+}
+$("player-close").onclick = () => {
+  const v = $("player-video"); v.onerror = null; v.onplaying = null;
+  v.pause(); v.removeAttribute("src"); $("player").classList.add("hidden");
+};
 
 async function loadDevices() {
   const box = $("devices"); box.innerHTML = "";
