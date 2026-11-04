@@ -51,6 +51,7 @@ PRIVACY = f"{STATE}/privacy"         # "1" while the camera is paused (privacy m
 SETTINGS = f"{STATE}/settings.json"  # {"follow": bool, "talk_volume": int} written by the web app
 FLAP_LOCK_FILE = f"{STATE}/daynight_lock_until"   # survives restarts, so a lock always ends
 HOUSE_FILE = f"{STATE}/housekeeping_day"            # date of the last nightly housekeeping run
+SEARCH_MEMORY_FILE = f"{STATE}/search_memory.json"  # Follow's empty-search count, so a restart doesn't re-sweep
 MODEL = "/opt/petcam/models/yolox_nano.onnx"
 YAMNET_MODEL = "/opt/petcam/models/yamnet.tflite"
 VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.py
@@ -991,7 +992,7 @@ class Watch:
         self.move_box0 = None
         self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep,
                                find_now=self.find_pet_now, can_scan=lambda: self.source != "snapshot",   # idle is fine (frames start on demand); a broken stream is blind
-                               tick=self.search_tick, cancelled=self.find_cancelled)
+                               tick=self.search_tick, cancelled=self.find_cancelled, memory=SEARCH_MEMORY_FILE)
         self.last_tick = 0.0
         self.last_motion_t = 0.0
         self.last_find_req = now()          # requests from before this process started are stale

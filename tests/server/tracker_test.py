@@ -327,4 +327,26 @@ for _ in range(3):                                     # the detector runs again
 aims20 = [m for m in w.moves if m[0] == "aim"]
 assert len(aims20) == 1 and w.box() is not None and abs(w.fx()) < 0.15, (aims20, round(w.fx(), 2), log20)
 print(f"old box after our own aim: {len(aims20)} aim, she stays in view (offset {w.fx():+.2f})")
+
+# 21. Report 2026-11-04 15:28: she was out; two timed sweeps found nothing and the timer gave up. A deploy then
+#     restarted the watcher: the empty-search count went back to 0 and a third 2.5-min sweep began 66 s later,
+#     as the owner opened the app. The count must survive the restart (and a stale one must not).
+import tempfile  # noqa: E402
+mem = os.path.join(tempfile.mkdtemp(), "search_memory.json")
+w = World(X=1850, pet=99999)
+tr = T.Tracker(w, w.find_pet, clock=lambda: w.t, log=lambda m: None, sleep=w.sleep, find_now=w.find_now, memory=mem)
+s21 = [a for _, a in run(w, tr, 1300) if a.startswith("search")]
+assert len(s21) == 2 and "waiting for movement" in s21[1], s21
+w.advance(300)                                          # ...the watcher restarts
+tr2 = T.Tracker(w, w.find_pet, clock=lambda: w.t, log=lambda m: None, sleep=w.sleep, find_now=w.find_now, memory=mem)
+s21b = [a for _, a in run(w, tr2, 900) if a.startswith("search")]
+assert s21b == [], f"swept the empty room again after a restart: {s21b}"
+w.pet = 1850; w.advance(1.0); tr2.step(w.box(), moving=False)   # she is back: the count resets and is saved
+tr3 = T.Tracker(w, w.find_pet, clock=lambda: w.t, log=lambda m: None, sleep=w.sleep, find_now=w.find_now, memory=mem)
+assert tr3.failed_searches == 0, tr3.failed_searches
+w2 = World(X=1850, pet=99999); w2.t = w.t + T.MEMORY_MAX_AGE + 10   # a count from long ago is ignored
+tr2.failed_searches = T.GIVE_UP_AFTER; tr2._save_memory()
+tr4 = T.Tracker(w2, w2.find_pet, clock=lambda: w2.t, log=lambda m: None, memory=mem)
+assert tr4.failed_searches == 0 and tr4.last_search < 0, (tr4.failed_searches, tr4.last_search)
+print("restart after two empty sweeps: no third sweep; the count resets when she is seen and expires after an hour")
 print("tracker ok")
