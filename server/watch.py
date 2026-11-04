@@ -966,6 +966,43 @@ def housekeeping():
     con.close()
 
 
+def pet_moving(prev_box, box, diff):
+    """Is she moving? prev_box/box are the previous and current detections (normalised x0, y0, x1, y1;
+    prev_box None when there is nothing to compare, e.g. right after a camera move); diff is the 160x90
+    absolute frame difference, or None."""
+    b = box
+    if prev_box is not None:
+        c0 = ((prev_box[0] + prev_box[2]) / 2, (prev_box[1] + prev_box[3]) / 2)
+        c1 = ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+        # Relative to her size: the detector's box on a dog lying still jitters by ~0.03 between
+        # runs (2026-11-02 14:00: "<pet> is moving" while she slept and the owner walked past).
+        if math.hypot(c1[0] - c0[0], c1[1] - c0[1]) > max(0.025, 0.15 * math.hypot(b[2] - b[0], b[3] - b[1])):
+            return True
+    if diff is None:
+        return False
+    # Pixel change inside her box: catches stretching, scratching, head lifts, walking in place.
+    h, w = diff.shape
+    top = h // 10                     # the clock overlay rows (zeroed by the caller): in neither average
+    x0, y0 = max(0, int(b[0] * w)), max(top, int(b[1] * h))
+    x1, y1 = min(w, int(math.ceil(b[2] * w))), min(h, int(math.ceil(b[3] * h)))
+    if x1 <= x0 or y1 <= y0:
+        return False
+    inside = diff[y0:y1, x0:x1]
+    diff = diff[top:]
+    n_in, n_all = inside.size, diff.size
+    total = float(diff.sum())
+    # Minus the change around her, so an exposure / white-balance jump isn't her moving. Compare with
+    # the area OUTSIDE her box, not the whole frame: when she stands right in front of the camera her
+    # box is most of the picture, the frame average is mostly her own motion, and she never counted as
+    # moving (2026-11-04 17:28: "resting 1m" while she stood and walked in front of the lens).
+    # Fall back to the whole frame when almost nothing is outside the box.
+    if n_all - n_in >= 0.1 * n_all:
+        background = (total - float(inside.sum())) / (n_all - n_in)
+    else:
+        background = total / n_all
+    return float(inside.mean()) - background > 4.0
+
+
 # ---------------------------------------------------------------- main loop
 
 class Watch:
@@ -1276,18 +1313,7 @@ class Watch:
         moving = False
         if best and score >= ABSENT_SCORE:
             b = best["box"]
-            if self.prev_box is not None and not moved_recently:
-                c0 = ((self.prev_box[0] + self.prev_box[2]) / 2, (self.prev_box[1] + self.prev_box[3]) / 2)
-                c1 = ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
-                # Relative to her size: the detector's box on a dog lying still jitters by ~0.03 between
-                # runs (2026-11-02 14:00: "<pet> is moving" while she slept and the owner walked past).
-                moving = math.hypot(c1[0] - c0[0], c1[1] - c0[1]) > max(0.025, 0.15 * math.hypot(b[2] - b[0], b[3] - b[1]))
-            if not moving and diff is not None:
-                # Pixel change inside her box: catches stretching, scratching, head lifts.
-                x0, y0, x1, y1 = int(b[0] * 160), int(b[1] * 90), int(math.ceil(b[2] * 160)), int(math.ceil(b[3] * 90))
-                if x1 > x0 and y1 > y0:
-                    # minus the frame-wide change, so an exposure / white-balance jump isn't her moving
-                    moving = float(diff[y0:y1, x0:x1].mean()) - float(diff.mean()) > 4.0
+            moving = pet_moving(None if moved_recently else self.prev_box, b, diff)
             self.prev_box = b
         else:
             self.prev_box = None
