@@ -131,3 +131,32 @@ What made the difference:
 
 The last window was mostly quiet. An active dog, live viewing and searches cost more and spend the banked credits.
 Run `tools/qa.py` and the CPU measurement from this section after changes to the watcher.
+
+## Control latency: from her move to the camera's move (measured 2026-11-04)
+
+Measured as motor command -> first decoded frame that shows the move, alternating moves interleaved across decoders
+so every variant sees the same moves, light and load (the hit threshold is 4x the pre-command frame noise, so it does
+not depend on texture or light). Motor start itself is 50-120 ms; command send over the camera shell 21-40 ms.
+
+| Path | Median |
+|---|---|
+| Substream ch1 (640x360, 5 fps), as the watcher decodes it | 1.0-1.1 s |
+| Same, read straight from the camera, bypassing MediaMTX | 1.0 s (the relay adds nothing) |
+| Same with ffmpeg `nobuffer`/`low_delay` | no change |
+| Substream at 10 / 25 fps | 1.3 / 2.5 s: it gets WORSE with fps, a queue in the camera's ch1 pipeline |
+| Main stream ch0 (1080p25) through `fps=5` | 0.8 s: ffmpeg's fps filter alone adds ~450 ms |
+| Main stream ch0, every frame | **0.33-0.37 s** |
+
+The chain while Follow tracks her today: picture age ~1.0 s, then up to 1 s until the next watcher cycle (MIN_CYCLE),
+the detector (37 ms + 11 ms verifier) only when the picture changed, MOVE_EVERY 2.5 s between tracking moves and
+POST_MOVE_IGNORE after each, then ~0.2 s of command and motor start. Detection -> motor start is already only
+~0.1-0.2 s; the gap is the picture's age, the cycle cadence and the hold-offs.
+
+Fast mode (watch.py, built and tested, **off**: `FAST_ENABLED = False`): while Follow is engaged, frames from the
+main stream at 25 fps (every frame read, motion still compared 0.2 s apart) and a detector run every 0.5 s; frames
+carry their capture time (`STREAM_LAG`) and the tracker's box time is put on the substream's clock so the tuned
+constants keep their meaning. Cost: ~10% of a core to decode (`-skip_loop_filter all` saves ~20%; scaling 25 frames
+costs the same as 5) plus ~10% for 2 Hz detection. A governor turns it off for 10 min when CPU steal passes 8%.
+It is off because the box cannot pay for it: average use sits at or above the burst baseline, and on 2026-11-04 the
+credits ran out (71% steal; the main stream decoded at 6.6 of 25 fps). Turning it on needs either CPU headroom
+(cut the baseline load) or a camera-side fix for ch1's lag, which would cost the server nothing.

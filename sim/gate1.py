@@ -128,8 +128,12 @@ def compare(rows, real):
 if __name__ == "__main__":
     hours = float(sys.argv[1]) if len(sys.argv) > 1 else 6
     seeds = int(sys.argv[2]) if len(sys.argv) > 2 else 4
-    rows = simulate(hours, seeds)
-    real = load_params()["real_metrics"]
+    P = load_params()
+    free = None if "--defaults" in sys.argv else P.get("free")      # the calibrated room unless asked for the defaults
+    if len(sys.argv) > 3 and sys.argv[3].startswith("lag="):
+        free = dict(free or {}, lag_s=float(sys.argv[3][4:]))
+    rows = simulate(hours, seeds, free=free, params=P)
+    real = P["real_metrics"]
     for k, v in compare(rows, real).items():
         print(f"{k:<36} real {v['real']!s:<7} sim {v['sim_mean']:<7} [{v['sim_min']}, {v['sim_max']}]")
     print("truth (sim only):", [t for _, t in rows])

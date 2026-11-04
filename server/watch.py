@@ -71,13 +71,33 @@ LOUD_NON_DOG_DB = -28.0       # non-dog sounds become a moment only when this lo
 DOG_SOUND_KINDS = set(petconf.DOG_SOUND_KINDS)
 
 SUB_URL = "rtsp://127.0.0.1:8554/sub"   # the camera's 640x360 stream, relayed by MediaMTX
+MAIN_URL = "rtsp://127.0.0.1:8554/cam"  # the 1080p main stream (MediaMTX pulls it all day for the recording)
+# How old the picture is when a decoded frame reaches the watcher (2026-11-04: motor command -> first moving frame,
+# minus the ~0.1 s motor start; ffmpeg low-delay flags and the MediaMTX relay changed nothing, the camera's
+# substream pipeline itself holds ~0.6 s more, and MORE at higher fps: 10 fps 1.3 s, 25 fps 2.5 s).
+STREAM_LAG = {"sub": 0.90, "main": 0.26, "snapshot": 1.0}
+# Fast mode: while Follow is engaged with her (seen moving, or a search), frames come from the main stream (0.26 s
+# instead of 0.9 s old) and the detector runs every FAST_CYCLE. Costs ~9.4% of a core to decode (1080p25 with the
+# loop filter skipped, scaled fast_bilinear) plus ~10% for detecting at 2 Hz, so a governor turns it off whenever
+# the box shows CPU steal (its burst credits are spent) and for FAST_COOLDOWN after.
+# Main stream: every 25 fps frame, not decimated. ffmpeg's fps=5 filter alone added ~450 ms of lag here (2026-11-04,
+# interleaved on the same moves: command -> first moving frame 365 ms at 25 fps, 809 ms through fps=5, 1112 ms on the
+# substream), and scaling all 25 costs about the same as 5 (9.8% vs 9.5% of a core): decoding dominates.
+MAIN_VF = "scale={w}:{h}:flags=fast_bilinear"
+MAIN_FPS = 25
+FAST_ENABLED = False          # off until the box has CPU to spare for it: its average use already sits at or above
+                              # the burst baseline, so fast mode would only spend credits it does not earn (2026-11-04:
+                              # credits at 0, 71% steal, the main stream decoded at 6.6 of 25 fps)
+FAST_HOLD = 20                # s fast mode stays on after the last reason
+FAST_CYCLE = 0.5              # s between watcher cycles (and detector runs) in fast mode
+FAST_STEAL_MAX = 0.08         # steal share of CPU time over the last minute that switches fast mode off
+FAST_COOLDOWN = 600
 STREAM_HOLD = 90              # seconds the live decoder keeps running after the last reason to watch closely
 FRAME_FPS = 5                 # decoded frames per second for motion (the detector runs far less often)
 STREAM_STALL = 90             # seconds of no live frames (while snapshots work) before the streamer is restarted
 CAM_MOVE_GRACE = 10.0         # s around a camera move in which entering/leaving the picture is not an event
 EPISODE_GAP = 60.0            # dog sounds closer than this are one barking episode (one event)
 TALKING = f"{STATE}/talking"      # "start until": the app is playing the owner's voice on the speaker
-STREAM_LATENCY = 0.7          # a frame arrives up to this long after the camera captured it (profiled ≤ 0.7 s)
 MIN_CYCLE = 1.0               # at most one full cycle (detector, DB row) per second, even while she moves
 PERIOD = 3.0                  # seconds between snapshots (2 s kept the box over its CPU baseline)
 PRESENT_SCORE = 0.30          # animal score that counts as "the pet is here" (see README for evidence)
@@ -192,6 +212,9 @@ class FrameSource:
         self.frame, self.t = None, 0.0
         self.prev_small = None
         self.motion_c = None        # (t, fx, fy): where in the picture the last real motion was (-0.5..0.5)
+        self.mode, self.lag = "sub", STREAM_LAG["sub"]
+        self.fast_until = 0.0
+        self.governor = StealGovernor()
         self.wake = threading.Event()
         self.lock = threading.Lock()
 
@@ -210,6 +233,18 @@ class FrameSource:
     def wanted(self):
         return now() < self.want_until
 
+    def want_fast(self, secs=FAST_HOLD):
+        """Main-stream frames for the next secs (Follow engaged), unless the governor says the box can't afford it."""
+        if FAST_ENABLED:
+            self.fast_until = max(self.fast_until, now() + secs)
+        self.want(STREAM_HOLD)
+
+    def fast(self):
+        return now() < self.fast_until and self.governor.ok()
+
+    def desired_mode(self):
+        return "main" if self.fast() else "sub"
+
     def run(self):
         backoff = 2
         self.wake_decoder = getattr(self, "wake_decoder", threading.Event())
@@ -220,9 +255,18 @@ class FrameSource:
                 self.wake_decoder.wait(5)
                 self.wake_decoder.clear()
                 continue
-            p = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-nostdin", "-threads", "1", "-rtsp_transport", "tcp", "-i", self.url,
-                                  "-an", "-vf", f"fps={FRAME_FPS},scale={self.W}:{self.H}", "-pix_fmt", "rgb24",
+            mode = self.desired_mode()
+            if mode == "main":       # 1080p25: every frame must be decoded; skipping the deblocking filter saves ~20%
+                src = ["-skip_loop_filter", "all", "-rtsp_transport", "tcp", "-i", MAIN_URL]
+                vf = MAIN_VF.format(w=self.W, h=self.H)
+            else:
+                src, vf = ["-rtsp_transport", "tcp", "-i", self.url], f"fps={FRAME_FPS},scale={self.W}:{self.H}"
+            p = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-nostdin", "-threads", "1", *src,
+                                  "-an", "-vf", vf, "-pix_fmt", "rgb24",
                                   "-f", "rawvideo", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            switched = False
+            every = max(1, round(MAIN_FPS / FRAME_FPS)) if mode == "main" else 1   # motion compares frames 0.2 s apart
+            k = 0
             n = self.W * self.H * 3
             stopped = False
             # A new decoder session must not compare its first frame with the last one of the previous session
@@ -233,11 +277,20 @@ class FrameSource:
                     if not self.wanted():
                         stopped = True          # idle again: stop decoding
                         break
+                    if self.desired_mode() != mode:
+                        switched = True         # into or out of fast mode: restart on the other stream at once
+                        break
                     buf = p.stdout.read(n)
                     if len(buf) < n:
                         break
                     backoff = 2
                     arr = np.frombuffer(buf, np.uint8).reshape(self.H, self.W, 3)
+                    k += 1
+                    if k % every:                       # newest frame for the detector; motion on every `every`-th
+                        with self.lock:
+                            self.frame, self.t = arr, now()
+                            self.mode, self.lag = mode, STREAM_LAG[mode]
+                        continue
                     s4 = arr[::4, ::4]                                          # 160x90 gray: integer sum, not float mean
                     small = (s4[..., 0].astype(np.int16) + s4[..., 1] + s4[..., 2]) // 3   # bit-identical, 18x less CPU
                     if self.prev_small is not None:
@@ -251,10 +304,11 @@ class FrameSource:
                     self.prev_small = small
                     with self.lock:
                         self.frame, self.t = arr, now()
+                        self.mode, self.lag = mode, STREAM_LAG[mode]
             finally:
                 p.kill()
                 p.wait()
-            if stopped:
+            if stopped or switched:
                 continue
             time.sleep(backoff)
             backoff = min(backoff * 2, 60)
@@ -263,7 +317,39 @@ class FrameSource:
         with self.lock:
             if self.frame is None or now() - self.t > max_age:
                 return None
+            self.got = (self.t, self.lag, self.mode)      # when the returned frame arrived, how old it was then
             return Image.fromarray(self.frame)
+
+
+class StealGovernor:
+    """Is there CPU to spare for fast mode? On a burstable VM, steal time appears once the burst credits are spent;
+    then fast mode would only slow everything else down. Reads /proc/stat at most every 10 s."""
+
+    def __init__(self, path="/proc/stat"):
+        self.path, self.last, self.at, self.off_until, self.share = path, None, 0.0, 0.0, 0.0
+        self.hist = []
+
+    def sample(self):
+        try:
+            v = [int(x) for x in open(self.path).readline().split()[1:9]]
+        except (OSError, ValueError):
+            return None
+        return sum(v), v[7]
+
+    def ok(self, t=None):
+        t = now() if t is None else t
+        if t - self.at >= 10:
+            self.at = t
+            s = self.sample()
+            if s:
+                self.hist = [h for h in self.hist if t - h[0] <= 70] + [(t, *s)]
+                h0 = self.hist[0]
+                if t - h0[0] >= 30 and s[0] > h0[1]:
+                    self.share = (s[1] - h0[2]) / (s[0] - h0[1])
+                    if self.share > FAST_STEAL_MAX and t >= self.off_until:
+                        log(f"fast mode off for {FAST_COOLDOWN // 60} min: CPU steal {100 * self.share:.0f}%")
+                        self.off_until = t + FAST_COOLDOWN
+        return t >= self.off_until
 
 
 def camera_moved_at_recently(window=4.0):
@@ -814,8 +900,9 @@ class Watch:
                 log("cycle error:", type(e).__name__, e)
                 self.on_failure()
             # Next cycle after PERIOD, or as soon as the frame reader sees motion (but not within MIN_CYCLE).
-            time.sleep(max(0.0, MIN_CYCLE - (now() - t0)))
-            self.frames.wake.wait(max(0.0, PERIOD - (now() - t0)))
+            fast = self.frames.fast() and self.source == "stream" and self.frames.mode == "main"
+            time.sleep(max(0.0, (FAST_CYCLE if fast else MIN_CYCLE) - (now() - t0)))
+            self.frames.wake.wait(max(0.0, (FAST_CYCLE if fast else PERIOD) - (now() - t0)))
             self.frames.wake.clear()
 
     def apply_policy(self, t):
@@ -931,13 +1018,16 @@ class Watch:
             buf = io.BytesIO()
             img.save(buf, "JPEG", quality=85)
             jpg = buf.getvalue()
-            if self.source != "stream":
-                log("frames: live stream")
-            self.source = "stream"
+            arrived, lag, mode = self.frames.got
+            if self.source != "stream" or getattr(self, "frame_mode", None) != mode:
+                log(f"frames: live stream ({mode})")
+            self.source, self.frame_mode = "stream", mode
+            self.frame_capture_t = arrived - lag
         else:                       # idle (decoder off) or stream down: the camera's own snapshot
             jpg = snapshot("ch1")
             img = Image.open(io.BytesIO(jpg))
             img.load()
+            self.frame_mode, self.frame_capture_t = "snapshot", now() - STREAM_LAG["snapshot"]
             if not self.frames.wanted():
                 if self.source != "idle":
                     log("frames: idle, camera snapshots")
@@ -992,14 +1082,21 @@ class Watch:
             self.last_motion_t = t
         if lively or motion > MOTION_DETECT:
             self.frames.want()                 # something to watch closely: live frames for the next 90 s
+        # Follow engaged with her: fresher frames (main stream) and a detector run every FAST_CYCLE (CPU governed).
+        engaged = (not privacy and self.setting("follow", False)
+                   and (self.tracker.searching or t - (self.last_seen or 0) < 20 and not self.rest_since))
+        if engaged:
+            self.frames.want_fast()
+        fast_now = self.frame_mode == "main" and self.frames.fast()
         # After our own camera move the last answer shows the old view: ask again once the picture has settled,
         # so Follow sees where she is now instead of waiting up to DETECT_EVERY (tracker.step ignores the old box).
         settle_t = self.tracker.last_move + T.POST_MOVE_IGNORE
         after_move = self.last_detect < settle_t <= t
         if motion > MOTION_DETECT or t - self.last_detect >= (DETECT_EVERY if lively else DETECT_STILL) or prev is None \
-                or after_move:
+                or after_move or fast_now and t - self.last_detect >= 0.9 * FAST_CYCLE:
             self.last_found = self.det.detect(img, min_score=0.10)
             self.last_detect = t
+            self.last_detect_capture = self.frame_capture_t
             if self.verifier:
                 for f in sorted((f for f in self.last_found if f["label"] != "person"), key=lambda f: -f["score"])[:3]:
                     f["verified"] = round(self.verifier.prob(img, f["box"]), 3)
@@ -1057,7 +1154,10 @@ class Watch:
                 else:
                     act = self.tracker.step(best["box"] if best and score >= PRESENT_SCORE else None, moving,
                                             sound=self.dog_sound_pending and not self.present,
-                                            motion=motion_c, weak=weak, box_t=self.last_detect)
+                                            motion=motion_c, weak=weak,
+                                            # on the substream's clock (the constants were tuned on it): a fresher
+                                            # main-stream frame is judged by when it was actually taken
+                                            box_t=getattr(self, "last_detect_capture", self.last_detect) + STREAM_LAG["sub"])
                 try:   # per cycle: where the camera pointed and what Follow did, to fit and replay its simulator
                     pose = self.current_pose(t) or (None, None)
                     con.execute("INSERT INTO track(ts, pan, tilt, act, weak, policy) VALUES(?,?,?,?,?,?)",
@@ -1268,7 +1368,7 @@ class Watch:
         img = None
         while now() < deadline:
             with self.frames.lock:
-                fresh = self.frames.frame is not None and self.frames.t > after_t + STREAM_LATENCY
+                fresh = self.frames.frame is not None and self.frames.t > after_t + self.frames.lag
             if fresh:
                 img = self.frames.latest()
                 break
