@@ -117,7 +117,10 @@ class FollowEnv(gym.Env):
             if a == 8:
                 r.stop()
             return
-        why = self.F.blocked(r.t)
+        why = self.F.blocked(r.t, a)
+        if why == "seen":
+            self.stats["search_blocked"] = self.stats.get("search_blocked", 0) + 1
+            return
         if why == "rest":
             self.stats["shielded"] += 1
             return

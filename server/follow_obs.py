@@ -12,6 +12,8 @@ import numpy as np
 
 STILL_SPAN, STILL_SPREAD, REST_HOLD = 3.0, 0.06, 8.0
 MOVE_BUDGET, BUDGET_WINDOW = 6, 600.0
+SEARCH_UNSEEN = 10.0     # a search needs her unseen this long (live smoke test 2026-11-04: PPO had learned to "search"
+                         # every cycle while she was in view, as a free 4-frame look; 183 of 186 cycles)
 N_OBS = 18
 
 
@@ -52,8 +54,11 @@ class FollowObs:
     def budget_used(self, t):
         return sum(1 for m in self.move_times if t - m < BUDGET_WINDOW)
 
-    def blocked(self, t):
-        """Why a motor action may not run now: 'rest' (she lies still in view), 'budget', or None."""
+    def blocked(self, t, motor=None):
+        """Why a motor action may not run now: 'seen' (a search while she was just seen), 'rest' (she lies still in
+        view), 'budget', or None. motor 7 = search."""
+        if motor == 7 and self.sightings and t - self.sightings[-1][0] < SEARCH_UNSEEN:
+            return "seen"
         if self.lay_still(t) and self.sightings and t - self.sightings[-1][0] < REST_HOLD:
             return "rest"
         if self.budget_used(t) >= MOVE_BUDGET:

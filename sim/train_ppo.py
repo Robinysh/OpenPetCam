@@ -33,7 +33,7 @@ def evaluate_ppo(model, bank):
             start = np.zeros((1,), dtype=bool)
             done = term or trunc
         sc = E.episode_score(info, HOURS)
-        res.append((sc["in_view"], sc["moves_per_h"], sc["fast_min_per_h"], sc["shielded"]))
+        res.append((sc["in_view"], sc["moves_per_h"], sc["fast_min_per_h"], sc["shielded"], info.get("search_blocked", 0)))
     return res
 
 
@@ -50,7 +50,7 @@ def main(timesteps=600_000):
         model.learn(total_timesteps=min(100_000, timesteps - done), reset_num_timesteps=False)
         done += min(100_000, timesteps - done)
         print(f"{done} steps, {time.time() - t0:.0f} s", flush=True)
-    model.save(os.path.join(ROOT, "eval", "rl", "ppo_follow_budget"))
+    model.save(os.path.join(ROOT, "eval", "rl", "ppo_follow_v3"))
     test = TP.rooms(32, 90_000, P)
     res = evaluate_ppo(model, test)
     report = {"timesteps": timesteps, "train_s": round(time.time() - t0),
@@ -58,8 +58,9 @@ def main(timesteps=600_000):
               "robust": round(float(np.mean(sorted(r[0] for r in res)[:8])), 3),
               "moves_per_h": round(float(np.mean([r[1] for r in res])), 1),
               "fast_min_per_h": round(float(np.mean([r[2] for r in res])), 1),
-              "shielded_per_room": round(float(np.mean([r[3] for r in res])), 1)}
-    json.dump(report, open(os.path.join(ROOT, "eval", "rl", "ppo_report_budget.json"), "w"), indent=1)
+              "shielded_per_room": round(float(np.mean([r[3] for r in res])), 1),
+              "searches_refused_while_seen_per_room": round(float(np.mean([r[4] for r in res])), 1)}
+    json.dump(report, open(os.path.join(ROOT, "eval", "rl", "ppo_report_v3.json"), "w"), indent=1)
     print(json.dumps(report, indent=1))
 
 

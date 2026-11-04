@@ -73,7 +73,7 @@ class PPOFollow:
         if motor == 8:
             self.cam.stop()
             return "ppo: stop"
-        why = self.F.blocked(t)
+        why = self.F.blocked(t, motor)
         if why:
             return None
         last = self.F.sightings[-1] if self.F.sightings else None

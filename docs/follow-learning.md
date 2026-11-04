@@ -69,6 +69,20 @@ so `sim/per_day.py` calibrates one simulator per day and training draws rooms fr
 both days failed gate 2 (0.612 vs 0.645); the deployed one still wins on cross-day held-out rooms: in-view 0.645 -> 0.662,
 moves 44.5 -> 40.4 per hour (calm-day rooms 0.645 -> 0.679, active-day rooms unchanged with 10% fewer moves).
 
+## PPO, honestly
+
+- With a hard move budget (6 per 10 min, enforced in code), recurrent PPO first scored in-view 0.704 on cross-day
+  held-out rooms, beating the tuned constants (0.662), and passed every parity test (ONNX actor 0/500 mismatches,
+  server controller 1,144/1,144 identical decisions, simulated watcher loop 0.705).
+- A forced 10-minute **live** smoke test (`/var/lib/petcam/policy_override`, self-expiring) then showed it choosing
+  "search" on 183 of 186 cycles with the dog in view: in the simulator a search with her visible is a free 4-frame look
+  that costs no move budget. Live it wrote 201 fake Find searches (relabelled `search_smoketest`, not deleted).
+- With searches allowed only after 10 s unseen (`server/follow_obs.py`, shared by training and the server), retrained
+  PPO scores 0.518: the whole advantage was the loophole. PPO is off the camera; the tuned constants stay the learned
+  arm. Next RL attempt: invalid actions masked in the policy itself (it still wastes ~200 choices per room on refused
+  searches), occlusion-aware visibility, longer training.
+- The lesson kept as a rule: every learned policy gets a forced live smoke test before its A/B block.
+
 ## What is not yet established
 
 - **Predicting a held-out real day.** Leave-one-day-out (fit on one real day, predict the other) put only 1-3 of 7
