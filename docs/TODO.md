@@ -69,3 +69,15 @@ Worked top to bottom. Each item moves to Done with the commit that shipped it.
    for motion (18x cheaper), audio floor every 2 s, one multiplexed SSH connection (~3,700 logins/day before). If the
    credits still don't refill: camera motion detection + webhook instead of server polling, keyframe-only decode when
    idle, microSD recording on the camera; int8 on this CPU is likely slower (VNNI hidden by the hypervisor).
+
+15. **Follow and Find as active visual tracking (owner-supplied research, 2026-11-03).** Baseline from 3 days of obs
+   (loss = seen, then unseen >= 6 s): 280 losses; seen again within 10 s 2%, 30 s 28%, 60 s 51%, 10 min 91%; median 53 s.
+   Many "lost while still" (234) are cadence gaps (detector every 8-30 s at rest), not real losses: split losses into
+   edge exit / occlusion / perception miss before judging recovery. Order:
+   1. Measure the camera: command-to-motion delay, speed vs command, replace-or-queue, settle/blur time, real frame age.
+   2. Track bearing = pan/tilt pose (track table) + pixel, in a rest/moving Kalman filter; drop the constant 0.7 s lag.
+   3. Belief search: hotspot prior (item 5) x last motion; next view by P(find | view) / (move + settle + look time);
+      a negative look lowers, never erases, a region.
+   4. Recurrent policy (RL) on the log-fitted, randomised sim, against 2-3 with the same perception.
+   5. Live A/B on the real camera, scored by visibility share, losses/hour, recovery within 1/3/10 s (timeouts included),
+      p95, wrong-target switches.
