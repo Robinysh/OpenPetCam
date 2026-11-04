@@ -75,13 +75,19 @@ MAIN_URL = "rtsp://127.0.0.1:8554/cam"  # the 1080p main stream (MediaMTX pulls 
 # How old the picture is when a decoded frame reaches the watcher (2026-11-04: motor command -> first moving frame,
 # minus the ~0.1 s motor start; ffmpeg low-delay flags and the MediaMTX relay changed nothing, the camera's
 # substream pipeline itself holds ~0.6 s more, and MORE at higher fps: 10 fps 1.3 s, 25 fps 2.5 s).
-STREAM_LAG = {"sub": 0.90, "main": 0.26, "push": 0.55, "snapshot": 1.0}
+STREAM_LAG = {"sub": 0.90, "main": 0.26, "push": 0.55, "idle": 0.55, "snapshot": 1.0}
 # JPEG push (2026-11-04): the camera's own ch1 JPEG snapshots are fresh (the delay of the ch1 H.264 stream is added
 # after them, in its encoder/RTSP output, and no encoder setting removed it), so while live frames are wanted the camera
 # streams snapshots to the watcher over one ssh channel. On the same moves: 0.95 s vs 1.40 s for the substream; JPEG
 # decode costs the server less than H.264; ~0.8 Mbit/s of home upload while it runs. Falls back to the substream.
 PUSH_ENABLED = True
 PUSH_FPS = 5
+# Idle (nothing to watch closely): the push keeps running at IDLE_FPS instead of the watcher polling a camera
+# snapshot every PERIOD. Each frame refreshes the app's status (owner, 2026-11-04: status freshness target 1 s), and
+# motion between frames wakes the loop as before. Decoded at 1/2 size for motion (JPEG DCT scaling, cheap); the full
+# frame is decoded only when the watcher asks for it. ~0.3 Mbit/s of home upload.
+IDLE_FPS = 2
+STATUS_EVERY = 0.5              # while frames arrive, the status file is rewritten at most this often, or on a change
 PUSH_QUALITY = 60
 PUSH_MAX_S = 900               # the camera-side loop ends by itself after this; the watcher simply starts a new one
 PUSH_RETRY_S = 600             # after a failed push, use the substream this long
@@ -228,6 +234,8 @@ class FrameSource:
         self.prev_small = None
         self.motion_c = None        # (t, fx, fy): where in the picture the last real motion was (-0.5..0.5)
         self.mode, self.lag = "sub", STREAM_LAG["sub"]
+        self.jpeg = None
+        self.on_frame = None          # callback(arrival_t, motion or None) for every motion-checked frame
         self.fast_until = 0.0
         self.governor = StealGovernor()
         self.wake = threading.Event()
@@ -260,14 +268,18 @@ class FrameSource:
     push_down_until = 0.0
 
     def desired_mode(self):
+        """main / push / sub while live frames are wanted; idle (slow push) or None (no frames) otherwise."""
+        push_ok = PUSH_ENABLED and now() >= self.push_down_until
+        if not self.wanted():
+            return "idle" if push_ok and IDLE_FPS else None
         if self.fast():
             return "main"
-        return "push" if PUSH_ENABLED and now() >= self.push_down_until else "sub"
+        return "push" if push_ok else "sub"
 
-    def push_cmd(self):
+    def push_cmd(self, fps=PUSH_FPS):
         """ssh to the camera running the snapshot loop. One loop at a time (pid file), bounded in time, and it stops
         when a write fails, so a dropped connection cannot leave it running for long. One ~20 KB file in RAM."""
-        gap = max(0, int(1e6 / PUSH_FPS) - 40000)            # a snapshot takes ~40 ms on the camera
+        gap = max(0, int(1e6 / fps) - 40000)                 # a snapshot takes ~40 ms on the camera
         # a stale pid (the loop was killed) may belong to another process after a reboot: kill it only if it is a push loop
         loop = ("F=/tmp/.push.jpg; O=$(cat /tmp/.push.pid 2>/dev/null); "
                 "[ -n \"$O\" ] && [ \"$O\" != $$ ] && grep -q push.jpg /proc/$O/cmdline 2>/dev/null && kill $O; "
@@ -282,7 +294,7 @@ class FrameSource:
 
     def read_frame(self, p, mode, n):
         """The next frame as an HxWx3 uint8 array, or None when the source ended."""
-        if mode != "push":
+        if mode not in ("push", "idle"):
             buf = p.stdout.read(n)
             return np.frombuffer(buf, np.uint8).reshape(self.H, self.W, 3) if len(buf) == n else None
         while True:
@@ -301,7 +313,16 @@ class FrameSource:
         if len(b) < size:
             return None
         try:
-            im = Image.open(io.BytesIO(b)).convert("RGB")
+            im = Image.open(io.BytesIO(b))
+            if mode == "idle":
+                # motion needs only grey 160x90: decode luminance at 1/8 size (JPEG DCT scaling, 2.5x cheaper than 1/2
+                # RGB on this box) and double it; the full frame is decoded only if the watcher asks for it
+                im.draft("L", (self.W // 8, self.H // 8))
+                g = np.asarray(im.convert("L"), dtype=np.int16)
+                self.pending_jpeg = b
+                return np.repeat(np.repeat(g, 2, 0), 2, 1)[: self.H // 4, : self.W // 4]
+            im = im.convert("RGB")
+            self.pending_jpeg = b                             # the camera's own JPEG: no re-encode in the cycle
         except Exception:  # noqa: BLE001 - a torn JPEG: skip it, keep the source
             return np.zeros((0,), np.uint8)
         if im.size != (self.W, self.H):
@@ -312,13 +333,13 @@ class FrameSource:
         backoff = 2
         self.wake_decoder = getattr(self, "wake_decoder", threading.Event())
         while True:
-            if not self.wanted():
+            mode = self.desired_mode()
+            if mode is None:
                 with self.lock:
-                    self.frame = None
+                    self.frame, self.jpeg = None, None
                 self.wake_decoder.wait(5)
                 self.wake_decoder.clear()
                 continue
-            mode = self.desired_mode()
             if mode == "main":       # 1080p25: every frame must be decoded; skipping the deblocking filter saves ~20%
                 src = ["-skip_loop_filter", "all", "-rtsp_transport", "tcp", "-i", MAIN_URL]
                 vf = MAIN_VF.format(w=self.W, h=self.H)
@@ -326,8 +347,9 @@ class FrameSource:
                 # no fps filter: the substream is natively FRAME_FPS, and the filter waits for the NEXT frame to decide
                 # which to emit (~one frame interval of lag, 200 ms at 5 fps)
                 src, vf = ["-rtsp_transport", "tcp", "-i", self.url], f"scale={self.W}:{self.H}"
-            if mode == "push":
-                p = subprocess.Popen(self.push_cmd(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            if mode in ("push", "idle"):
+                p = subprocess.Popen(self.push_cmd(IDLE_FPS if mode == "idle" else PUSH_FPS),
+                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             else:
                 # "-threads 1" before -i limits the decoder only; the rawvideo output encoder is frame-threaded and,
                 # left automatic, can hold frames too (a local reproduction measured ~200 ms at 5 fps), so limit it as well
@@ -358,11 +380,10 @@ class FrameSource:
             self.prev_small = None
             try:
                 while True:
-                    if not self.wanted():
-                        stopped = True          # idle again: stop decoding
-                        break
-                    if self.desired_mode() != mode:
-                        switched = True         # into or out of fast mode: restart on the other stream at once
+                    want = self.desired_mode()
+                    if want != mode:
+                        stopped = want is None  # idle with no push: stop decoding
+                        switched = not stopped  # another mode (idle push, live, fast): restart on it at once
                         break
                     arr = self.read_frame(p, mode, n)
                     if arr is None:
@@ -375,11 +396,14 @@ class FrameSource:
                     k += 1
                     if k % every:                       # newest frame for the detector; motion on every `every`-th
                         with self.lock:
-                            self.frame, self.t = arr, now()
+                            self.frame, self.t, self.jpeg = arr, now(), None
                             self.mode, self.lag = mode, STREAM_LAG[mode]
                         continue
-                    s4 = arr[::4, ::4]                                          # 160x90 gray: integer sum, not float mean
-                    small = (s4[..., 0].astype(np.int16) + s4[..., 1] + s4[..., 2]) // 3   # bit-identical, 18x less CPU
+                    if mode == "idle":
+                        small = arr                                             # already 160x90 grey (read_frame)
+                    else:
+                        s4 = arr[::4, ::4]                                      # 160x90 gray: integer sum, not float mean
+                        small = (s4[..., 0].astype(np.int16) + s4[..., 1] + s4[..., 2]) // 3   # bit-identical, 18x less CPU
                     if self.prev_small is not None:
                         d = np.abs(small - self.prev_small)
                         d[:9, :] = 0                                         # the clock overlay
@@ -388,10 +412,17 @@ class FrameSource:
                             if len(xs) > 30:      # where it moved: lets follow chase a pet seen once or not at all
                                 self.motion_c = (now(), float(xs.mean()) / 160 - 0.5, float(ys.mean()) / 90 - 0.5)
                             self.wake.set()
+                    fm = float(d.mean()) if self.prev_small is not None else None
                     self.prev_small = small
                     with self.lock:
                         self.frame, self.t = arr, now()
+                        self.jpeg = getattr(self, "pending_jpeg", None) if mode in ("idle", "push") else None
                         self.mode, self.lag = mode, STREAM_LAG[mode]
+                    if self.on_frame:
+                        try:
+                            self.on_frame(self.t, fm)
+                        except Exception as e:  # noqa: BLE001 - status refresh must never stop the frames
+                            log("status refresh:", e)
             finally:
                 progress["done"] = True
                 p.kill()
@@ -399,7 +430,7 @@ class FrameSource:
             if stopped or switched:
                 self.push_short = 0
                 continue
-            if mode == "push":
+            if mode in ("push", "idle"):
                 lasted = now() - started
                 if got == 0 or lasted < PUSH_SHORT_S:
                     self.push_short = getattr(self, "push_short", 0) + 1
@@ -421,6 +452,13 @@ class FrameSource:
             if self.frame is None or now() - self.t > max_age:
                 return None
             self.got = (self.t, self.lag, self.mode)      # when the returned frame arrived, how old it was then
+            self.got_jpeg = self.jpeg                      # the camera's JPEG of this same frame, if it sent one
+            if self.mode == "idle" and self.jpeg:
+                try:
+                    im = Image.open(io.BytesIO(self.jpeg)).convert("RGB")
+                    return im if im.size == (self.W, self.H) else im.resize((self.W, self.H))
+                except Exception:  # noqa: BLE001
+                    return None
             return Image.fromarray(self.frame)
 
 
@@ -943,6 +981,7 @@ class Watch:
         self.audio_watch_from = now()
         self.clips = Clips()
         self.frames = FrameSource()
+        self.frames.on_frame = self.publish_tick       # every new frame refreshes the app's status
         self.source = None
         self.dog_sound_pending = False
         self.cam_moves = collections.deque(maxlen=20)
@@ -1129,9 +1168,11 @@ class Watch:
     def cycle(self):
         img = self.frames.latest()
         if img is not None:
-            buf = io.BytesIO()
-            img.save(buf, "JPEG", quality=85)
-            jpg = buf.getvalue()
+            jpg = getattr(self.frames, "got_jpeg", None)
+            if not jpg:                                     # decoded H.264 frame: encode it once for snaps/candidates
+                buf = io.BytesIO()
+                img.save(buf, "JPEG", quality=85)
+                jpg = buf.getvalue()
             arrived, lag, mode = self.frames.got
             if self.source != "stream" or getattr(self, "frame_mode", None) != mode:
                 log(f"frames: live stream ({mode})")
@@ -1813,6 +1854,28 @@ class Watch:
             pass
         self.publish(status="ok", searching=True, score=0.0, moving=False, box=None, det_t=self.last_detect, motion=0.0, person=0.0)
 
+    def publish_tick(self, frame_t, motion):
+        """A new frame arrived (FrameSource.on_frame): the status is now current as of this frame. Rewrite it when
+        motion crosses the detection threshold, or at most every STATUS_EVERY. The fields the detector sets keep their
+        own time (det_t); 'frame_t' and 'frame_motion' say what this frame showed."""
+        last = getattr(self, "live_last", None)
+        if last is None:
+            return
+        moved = motion is not None and motion > MOTION_DETECT
+        t = now()
+        if moved == getattr(self, "tick_moved", False) and t - getattr(self, "live_written", 0.0) < STATUS_EVERY:
+            return
+        self.tick_moved = moved
+        live = dict(last, t=t, frame_t=frame_t, frame_motion=round(motion, 2) if motion is not None else None)
+        with self.pub_lock:
+            try:
+                write_json(LIVE, live)
+                self.live_written = t
+            except OSError as e:
+                log("publish:", e)
+
+    pub_lock = threading.Lock()
+
     def publish(self, status, **kw):
         live = {"t": now(), "status": status, "present": self.present and status != "privacy",
                 "last_seen": self.last_seen or None, "gone_since": self.gone_since,
@@ -1820,10 +1883,12 @@ class Watch:
                 "moving_since": self.moving_since, "imaging": self.imaging,
                 "audio_ok": now() - self.audio.last_ok < 30, "view_blocked": self.view_blocked,
                 "find": self.find_result, **kw}
-        try:
-            write_json(LIVE, live)
-        except OSError as e:
-            log("publish:", e)
+        with self.pub_lock:
+            try:
+                write_json(LIVE, live)
+                self.live_last, self.live_written = live, live["t"]
+            except OSError as e:
+                log("publish:", e)
 
 
 if __name__ == "__main__":
