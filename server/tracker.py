@@ -142,10 +142,11 @@ class Tracker:
         return ((x1 - x0) / dt, (y1 - y0) / dt) if dt >= 0.8 else (0.0, 0.0)
 
     # ---- every cycle ---------------------------------------------------------------------
-    def step(self, box, moving, sound=False, motion=None, weak=None):
+    def step(self, box, moving, sound=False, motion=None, weak=None, box_t=None):
         """Call once per watcher cycle with the verified pet box (or None), the latest motion centroid (t, fx, fy)
         from the frame reader, and `weak`: dog-like boxes from this cycle that the verifier scored below its cut-off
-        but not near zero. Returns what it did, or None."""
+        but not near zero. box_t: when the detector produced `box` (the watcher reuses its last answer between
+        detector runs). Returns what it did, or None."""
         t = self.clock()
         if self.user_paused():
             self.hist.clear()
@@ -154,6 +155,12 @@ class Tracker:
                 return f"paused for {USER_PAUSE / 60:.0f} min (a person moved the camera)"
             return None
         self.was_paused = False
+        # Report 2026-11-03 18:17: the detector runs only every few seconds and the watcher passes its last box
+        # in between. After our own aim that box shows her where she was BEFORE the turn; read as new, it looked
+        # like she had jumped by the aim's size, so Follow aimed again and again (+0.19, +0.20, +0.22 in 7 s)
+        # and turned the camera off her while she lay still. A box from before our last move says nothing new.
+        if box is not None and box_t is not None and box_t < self.last_move + POST_MOVE_IGNORE:
+            return None
         if box is not None:
             self.last_verified_t = t
             return self._track(t, box, moving)

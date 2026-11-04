@@ -937,7 +937,12 @@ class Watch:
             self.last_motion_t = t
         if lively or motion > MOTION_DETECT:
             self.frames.want()                 # something to watch closely: live frames for the next 90 s
-        if motion > MOTION_DETECT or t - self.last_detect >= (DETECT_EVERY if lively else DETECT_STILL) or prev is None:
+        # After our own camera move the last answer shows the old view: ask again once the picture has settled,
+        # so Follow sees where she is now instead of waiting up to DETECT_EVERY (tracker.step ignores the old box).
+        settle_t = self.tracker.last_move + T.POST_MOVE_IGNORE
+        after_move = self.last_detect < settle_t <= t
+        if motion > MOTION_DETECT or t - self.last_detect >= (DETECT_EVERY if lively else DETECT_STILL) or prev is None \
+                or after_move:
             self.last_found = self.det.detect(img, min_score=0.10)
             self.last_detect = t
             if self.verifier:
@@ -987,7 +992,7 @@ class Watch:
                 act = self.tracker.step(best["box"] if best and score >= PRESENT_SCORE else None, moving,
                                         sound=self.dog_sound_pending and not self.present,
                                         motion=self.frames.motion_c if person < 0.5 else None,   # a person leaving is not her
-                                        weak=weak)
+                                        weak=weak, box_t=self.last_detect)
                 try:   # per cycle: where the camera pointed and what Follow did, to fit and replay its simulator
                     pose = self.current_pose(t) or (None, None)
                     con.execute("INSERT INTO track VALUES(?,?,?,?,?)", (t, pose[0], pose[1], (act or "")[:80] or None,

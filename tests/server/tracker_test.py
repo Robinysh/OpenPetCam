@@ -309,4 +309,22 @@ for _ in range(3600):
 s19 = [a for _, a in log if a.startswith("search")]
 assert len(s19) == T.GIVE_UP_AFTER, (len(s19), s19[:4])
 print(f"empty room: {len(s19)} sweeps in an hour; the drive back to the saved view does not re-arm the timer")
+
+# 20. Report 2026-11-03 18:17: she shifted a little toward the right edge and lay still. The detector runs only every
+#     few seconds; in between the watcher passes its LAST box. After Follow's aim that box still showed her where she
+#     was before the turn, so she seemed to jump by the aim's size each cycle: aims of +0.19, +0.20, +0.22 in 7 s
+#     turned the camera off her, and two searches failed. One aim, then a fresh detection, must keep her in view.
+w = World(X=1850, pet=1850 - 0.07 * FW); tr = tracker_for(w)
+for _ in range(3):                                     # resting a little right of centre, freshly detected
+    w.advance(2.0); tr.step(w.box(), moving=False, box_t=w.t)
+w.pet = w.X - 0.18 * FW; w.advance(2.0)                # shifts toward the right edge, then lies still
+det_t, stale = w.t, w.box()
+log20 = [tr.step(stale, moving=True, box_t=det_t)]
+for _ in range(2):                                     # cycles between detector runs: the same old box
+    w.advance(3.0); log20.append(tr.step(stale, moving=False, box_t=det_t))
+for _ in range(3):                                     # the detector runs again on the turned view
+    w.advance(3.0); log20.append(tr.step(w.box(), moving=False, box_t=w.t))
+aims20 = [m for m in w.moves if m[0] == "aim"]
+assert len(aims20) == 1 and w.box() is not None and abs(w.fx()) < 0.15, (aims20, round(w.fx(), 2), log20)
+print(f"old box after our own aim: {len(aims20)} aim, she stays in view (offset {w.fx():+.2f})")
 print("tracker ok")
