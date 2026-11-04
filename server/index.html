@@ -832,6 +832,12 @@ function petText(l) {
   if (l.status === "watcher_down") return [`Can't tell where ${PET.name} is right now`, ""];
   // A Follow search is sweeping the room: say so, or the camera seems to move on its own (report 2026-11-03 07:41).
   if (l.searching) return [`${l.settings && l.settings.follow ? "Follow: l" : "L"}ooking for ${PET.name}…`, ""];
+  // A dog sound in the last minute says more than "resting" (report 2026-11-04 17:29: "Now bark").
+  const bark = l.last_bark, barkAge = bark ? Date.now() / 1000 - bark.t : 1e9;
+  if (barkAge < 60) {
+    const word = { howling: "howling", whining: "whining", growling: "growling" }[bark.kind] || "barking";
+    return [`${PET.name} · ${barkAge < 15 ? word + " now" : "heard " + word + " " + Math.round(barkAge) + " s ago"}`, "active"];
+  }
   if (l.present) {
     const unseen = l.last_seen ? Date.now() / 1000 - l.last_seen : 0;
     // > 20 s: the last detector run (every 12 s even when still) did not see her, so don't still claim "resting"

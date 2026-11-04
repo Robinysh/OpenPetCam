@@ -55,6 +55,19 @@ def main():
     text = pet_text({"status": "ok", "present": False, "last_seen": time.time() - 600, "searching": True,
                      "settings": {"follow": True}})
     assert "Follow" in text and "looking" in text.lower(), f"a follow search must be visible: {text!r}"
+    # Report 20261104-172936: she barked (dog sound 0.74) right after settling, and the pill kept
+    # saying "resting 1m". A dog sound in the last minute must show; an old one must not.
+    t = time.time()
+    resting = {"status": "ok", "present": True, "last_seen": t - 5, "rest_since": t - 60}
+    text = pet_text(resting | {"last_bark": {"t": t - 3, "kind": "dog_sound"}})
+    assert "barking" in text and "resting" not in text, f"a fresh bark must show: {text!r}"
+    text = pet_text(resting | {"last_bark": {"t": t - 30, "kind": "howling"}})
+    assert "howling" in text and "s ago" in text, f"a bark 30 s ago must show: {text!r}"
+    text = pet_text(resting | {"last_bark": {"t": t - 300, "kind": "barking"}})
+    assert "resting" in text, f"an old bark must not hide 'resting': {text!r}"
+    # Heard but not in view: still worth saying.
+    text = pet_text({"status": "ok", "present": False, "last_seen": t - 600, "last_bark": {"t": t - 2, "kind": "barking"}})
+    assert "barking" in text, f"a bark out of view must show: {text!r}"
     print("pill ok")
 
 

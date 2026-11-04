@@ -987,6 +987,7 @@ class Watch:
         self.frames.on_frame = self.publish_tick       # every new frame refreshes the app's status
         self.source = None
         self.dog_sound_pending = False
+        self.last_bark = None                          # {"t", "kind"} of the latest dog sound, for the app's status
         self.cam_moves = collections.deque(maxlen=20)
         self.move_box0 = None
         self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep,
@@ -1746,6 +1747,9 @@ class Watch:
                 detail["pet_visible"] = self.present
                 detail["pet_in_frame"] = bool(self.last_seen) and ts - self.last_seen < 5
                 name = detail.pop("kind").replace(" ", "_")
+                if name in DOG_SOUND_KINDS:
+                    # The app's status line shows a fresh bark (report 20261104-172936: "Now bark" while it said "resting").
+                    self.last_bark = {"t": round(ts, 1), "kind": name}
                 y = detail.get("yamnet") or {}
                 if name not in DOG_SOUND_KINDS:
                     y.pop("dog_label", None)         # "Growling" at dog 0.08 read as a growl
@@ -1892,7 +1896,7 @@ class Watch:
                 "rest_since": self.rest_since if self.present else None,
                 "moving_since": self.moving_since, "imaging": self.imaging,
                 "audio_ok": now() - self.audio.last_ok < 30, "view_blocked": self.view_blocked,
-                "find": self.find_result, **kw}
+                "find": self.find_result, "last_bark": self.last_bark, **kw}
         with self.pub_lock:
             try:
                 write_json(LIVE, live)
