@@ -103,3 +103,16 @@ iv = sum(m["in_view_share_while_home"] for m in rows) / len(rows)
 assert 0.4 < iv < 0.98, iv
 print(f"gate 1 smoke: real controller in the sim, logged in-view {iv:.2f} (real install 0.756)")
 print("sim ok")
+
+# Frame freshness matches the watcher (review 2026-11-04): a settled look returns a frame exposed AFTER the requested
+# time, each look judges a new frame, and mid-pan there is nothing new between frame arrivals.
+import room as _room  # noqa: E402
+fr = _room.Room(seed=3)
+fr.advance(2.0)
+fr.find_pet(2.0)
+assert fr.last_judged - fr.F["lag_s"] > 2.0 - 1e-6, ("look returned a frame exposed before the request", fr.last_judged)
+first = fr.last_judged
+fr.find_pet(2.0)
+assert fr.last_judged > first, "two looks judged the same frame"
+assert fr.find_now(fr.t) is None, "mid-pan: no new frame since now"
+print("freshness: looks judge new frames exposed after the request; mid-pan sees only new arrivals")

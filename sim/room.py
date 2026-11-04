@@ -59,6 +59,9 @@ class Room:
             self.FW = float(free["pan_frame"])
         self.speed = float(self.P["motor"]["speed_steps_s"]["250"])
         self.rng = np.random.default_rng(seed)
+        # Sensing draws from its own stream (review 2026-11-04): with one shared stream, a policy that looks more often
+        # changed where the dog went next under the same seed, so paired policy comparisons were not paired.
+        self.rng_sense = np.random.default_rng([seed, 7919])
         self.dt = 0.05
         self.t = 0.0
         # camera
@@ -238,14 +241,14 @@ class Room:
             if not mv and getattr(self, "hard", False):
                 p = float(self.F.get("p_hard", p))
             box = [0.5 + f - 0.08, 0.5 + g - 0.1, 0.5 + f + 0.08, 0.5 + g + 0.1]
-            box = [v + float(self.rng.uniform(-0.012, 0.012)) for v in box]
-            if self.rng.random() < p:
+            box = [v + float(self.rng_sense.uniform(-0.012, 0.012)) for v in box]
+            if self.rng_sense.random() < p:
                 return box, mv, weak
-            if self.rng.random() < 0.8:
+            if self.rng_sense.random() < 0.8:
                 weak.append(box)
             return None, False, weak
-        if self.rng.random() < self.F["p_false_accept"]:
-            c = float(self.rng.uniform(0.2, 0.8)), float(self.rng.uniform(0.3, 0.8))
+        if self.rng_sense.random() < self.F["p_false_accept"]:
+            c = float(self.rng_sense.uniform(0.2, 0.8)), float(self.rng_sense.uniform(0.3, 0.8))
             return [c[0] - 0.06, c[1] - 0.08, c[0] + 0.06, c[1] + 0.08], False, weak
         return None, False, weak
 
@@ -288,9 +291,24 @@ class Room:
             n += 1
         return self.position()
 
-    def find_pet(self, after):                              # a settled look: a fresh frame, ~0.4 s
-        self.sleep(0.4)
+    FRAME_DT = 0.2                                          # live frames arrive at 5 fps (server/watch.py FRAME_FPS)
+
+    def _next_arrival(self, t):
+        return math.ceil(t / self.FRAME_DT + 1e-9) * self.FRAME_DT
+
+    def find_pet(self, after):
+        """A settled look, with the watcher's rule (server/watch.py find_pet): a frame TAKEN after `after` (it arrives
+        lag later, on the 5 fps grid) and not one already judged; plus the detector's ~0.05 s. Review 2026-11-04: this
+        used to return, 0.4 s on, whatever delayed frame was there, i.e. one exposed BEFORE the requested time."""
+        t = self._next_arrival(max(self.t, after + self.F["lag_s"], getattr(self, "last_judged", -1.0) + 1e-6))
+        self.sleep(max(0.0, t - self.t) + 0.05)
+        self.last_judged = t
         return self.frame()[0]
 
-    def find_now(self, since):                              # mid-pan: the newest frame
+    def find_now(self, since):
+        """Mid-pan: the newest frame if one arrived after `since`, else nothing new (no wait)."""
+        newest = math.floor(self.t / self.FRAME_DT + 1e-9) * self.FRAME_DT
+        if newest <= since or newest <= getattr(self, "last_judged", -1.0):
+            return None
+        self.last_judged = newest
         return self.frame()[0]
