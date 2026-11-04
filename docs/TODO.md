@@ -54,6 +54,11 @@ Worked top to bottom. Each item moves to Done with the commit that shipped it.
      452 owner/Claude-labelled crops. Teacher: the server's YOLOX-nano + verifier (owner labels override).
    - Model: grayscale ~96x54 input, int8 or binary weights compiled into C, a few MMAC per frame (YOLOX-nano is ~1 GMAC);
      output: her box or "not in view". Train on the laptop; judge held-out by day against the teacher.
+   - First student (2026-11-03, eval/tiny/): 11,851 params, 1.5 MMAC/frame (~700x less than YOLOX-nano). Teacher-labelled
+     3,457 frames (1,434 with her). Held out 11-03: recall 0.88 / precision 0.57 at 0.3, median centre error 0.08 frame.
+     Weak on identity (expected: the camera only follows near the server's last confirmed box).
+   - Blocker: frames on the camera. prudynt owns the ISP; JPEG/H.264 decode would cost more than the model. Path: run
+     the model inside prudynt's IVS/motion frame path (open source, Thingino toolchain), output a box to the motor loop.
    - Ship gate: camera stays under ~70% busy (per-thread /proc profile), tracking beats today's 2.5 s detections in
      the Follow sim fitted to the track table (pan/tilt per cycle, logged since 2026-11-03), and a live A/B.
 14. **Server CPU allowance.** The $5 box ran pinned at its 5% cap all day (credits 0%). Shipped 2026-11-03: integer grey
