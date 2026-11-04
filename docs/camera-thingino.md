@@ -56,3 +56,10 @@ Main stream 1080p 25 fps VBR <= 1600 kbit/s, sub stream 640x360.
 - **Sound moments come from YAMNet** on episodes found by the loudness gate (dog classes 69-75:
   barking, howling, whining, growling, dog sound). Non-dog sounds become a moment only above
   -28 dBFS, labelled with what YAMNet heard. If the model can't load, the old loudness rule is the fallback.
+
+- **Software noise suppression costs about a fifth of the camera's CPU.** Profiling every prudynt thread
+  (2026-11-03, 30 s from /proc) put the microphone thread at 19-20% of the single core. Setting
+  `audio.mic_noise_suppression` to 0 (live through `prudyntctl json`, then `{"action":{"save_config":null}}`)
+  took the camera from 67% to 45% busy; `mic_hq` made no measurable difference. `audio.tap_enabled` (a raw PCM
+  copy nothing reads) can only change in the config file with a prudynt restart.
+
