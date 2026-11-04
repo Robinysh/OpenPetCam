@@ -29,4 +29,4 @@ jobs:
             echo "== $t"; timeout 300 python tests/server/${t}_test.py
           done
       - name: The Follow simulator holds to the measured hardware and its own physics
-        run: timeout 600 python tests/sim/sim_test.py
+        run: timeout 600 python tests/sim/sim_test.py && timeout 300 python tests/sim/sysid_recovery_test.py

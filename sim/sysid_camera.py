@@ -62,10 +62,14 @@ def shift(a, b):
     return float(dx), float(dy), float(r.max() / (r.mean() + 1e-9))
 
 
+IDLE = ("n=0; while [ \"$(motors -j | tr -d '{}\\\"' | tr ',' '\\n' | grep '^status:' | cut -d: -f2)\" != 0 ]"
+        " && [ $n -lt 300 ]; do n=$((n+1)); sleep 0.1; done")   # wait until the motor is idle
+
 POLL = r'''
 up() { cut -d' ' -f1 /proc/uptime; }
 pos() { motors -j 2>/dev/null | tr -d '{}"' | tr ',' ' '; }
 poll() { end=$(awk "BEGIN{print $(up)+$1}"); while awk "BEGIN{exit !($(up) < $end)}"; do echo "$(up) $(pos)"; done; }
+idle() { n=0; while [ "$(motors -j 2>/dev/null | tr -d '{}"' | tr ',' '\n' | grep '^status:' | cut -d: -f2)" != "0" ] && [ $n -lt 300 ]; do n=$((n+1)); sleep 0.1; done; }
 '''
 
 
@@ -86,15 +90,34 @@ def parse(text):
     return data, cmds
 
 
-def motor_runs():
+def hold_follow():
+    """Keep Follow paused for the whole test: the 'camera moved' mark pauses it for 3 minutes, the test takes longer
+    (2026-11-04: an expired pause let the tracker move the camera mid-measurement and corrupt it)."""
+    server("sudo touch /var/lib/petcam/moved_at")
+
+
+def centre(cam=None, pan=1850, tilt=500):
+    """Start from mid-range so no test move can reach an end stop (a run from pan 2700 hit the 3700 limit)."""
+    cam = cam or camera
+    m = json.loads(cam("motors -j"))
+    x, y = int(float(m["xpos"])), int(float(m["ypos"]))
+    # tilt commands are inverted on this mount (docs/camera-thingino.md: invert 2, commands only)
+    inv = -1 if str(m.get("invert", "")) == "2" else 1
+    cam(f"motors -d g -s 250 -x {pan - x} -y {inv * (tilt - y)} >/dev/null; sleep 0.3; " + IDLE + "; sleep 0.5")
+    m = json.loads(cam("motors -j"))
+    return int(float(m["xpos"])), int(float(m["ypos"]))
+
+
+def motor_runs(cam=None):
+    cam = cam or camera
     script = POLL + r'''
 echo "START $(pos)"
-echo "== A: +400 at 250"; echo "CMD $(up)"; motors -d g -s 250 -x 400 -y 0 >/dev/null; poll 3.5
-echo "== B: +600 at 250 then reverse"; echo "CMD $(up)"; motors -d g -s 250 -x 600 -y 0 >/dev/null; poll 0.8; echo "CMD2 $(up)"; motors -d g -s 250 -x -600 -y 0 >/dev/null; poll 5
+echo "== A: +400 at 250"; echo "CMD $(up)"; motors -d g -s 250 -x 400 -y 0 >/dev/null; poll 3.5; idle
+echo "== B: +600 at 250 then reverse"; echo "CMD $(up)"; motors -d g -s 250 -x 600 -y 0 >/dev/null; poll 0.8; echo "CMD2 $(up)"; motors -d g -s 250 -x -600 -y 0 >/dev/null; poll 5; idle
 echo "== C: -400 at 900"; echo "CMD $(up)"; motors -d g -s 900 -x -400 -y 0 >/dev/null; poll 2.5
 motors -d g -s 250 -x 0 -y 0 >/dev/null; echo "END $(pos)"
 '''
-    data, cmds = parse(camera(script))
+    data, cmds = parse(cam(script))
     out = {}
     for seg, rows in data.items():
         t0 = cmds[seg]["CMD"]
@@ -108,32 +131,35 @@ motors -d g -s 250 -x 0 -y 0 >/dev/null; echo "END $(pos)"
     return out
 
 
-def frame_steps(axis, steps=200, trials=2):
+def frame_steps(axis, steps=200, trials=3, cam=None, snap=None):
+    cam, snap = cam or camera, snap or snapshot
     """Steps per frame width/height and backlash, from image shifts (phase correlation). Each trial measures a move that
     continues the previous direction and one that reverses it: the gears take up slack on a reversal, the step counter
     does not notice, and the picture moves less (2026-11-04 on the reference camera: 740 steps/frame, 27 steps lost)."""
     def move(n):
+        if cam is camera:
+            hold_follow()
         d = f"-x {n} -y 0" if axis == "pan" else f"-x 0 -y {n}"
-        camera(f"motors -d g -s 250 {d} >/dev/null; sleep 2.2")
+        cam(f"motors -d g -s 250 {d} >/dev/null; sleep 0.3; " + IDLE + "; sleep 0.8")
     k = 0 if axis == "pan" else 1
     same, rev, conf = [], [], []
     for _ in range(trials):
         move(150)
-        a = snapshot()
+        a = snap()
         move(steps)
-        b = snapshot()
+        b = snap()
         s1 = shift(a, b)
         move(-(steps + 150))
         move(-150)
-        a = snapshot()
+        a = snap()
         move(steps)
-        b = snapshot()
+        b = snap()
         s2 = shift(a, b)
         move(-(steps - 150))
         same.append(abs(s1[k]))
         rev.append(abs(s2[k]))
         conf += [s1[2], s2[2]]
-    size = snapshot().shape[1 - k]
+    size = snap().shape[1 - k]
     ps = float(np.median(same))
     return {"steps_per_frame": round(steps * size / ps, 1) if ps > 2 else None,
             "backlash_steps": round(steps * (1 - float(np.median(rev)) / ps), 1) if ps > 2 else None,
@@ -151,9 +177,14 @@ def main(argv):
     if "--dry-run" in argv:
         print("would pause Follow and run the motor + frame-size tests")
         return
-    server("sudo touch /var/lib/petcam/moved_at")              # pauses Follow and Find for 3 minutes
+    hold_follow()                                              # pauses Follow and Find (re-asserted before each move)
+    start = centre()
+    print("centred at", start, flush=True)
     motor = motor_runs()
+    hold_follow()
+    centre()
     geo = {"pan": frame_steps("pan"), "tilt": frame_steps("tilt")}
+    centre(pan=start[0], tilt=start[1])                        # leave it where the test started (mid-range)
     lim = json.loads(camera("motors -j"))
     p_path = os.path.join(HERE, "params.json")
     P = json.load(open(p_path)) if os.path.exists(p_path) else {}
