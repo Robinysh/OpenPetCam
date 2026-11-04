@@ -61,7 +61,8 @@ Worked top to bottom. Each item moves to Done with the commit that shipped it.
      the model inside prudynt's IVS/motion frame path (open source, Thingino toolchain), output a box to the motor loop.
      Lead (gtxaspec/prudynt-t src/Motion.cpp): motion binds a framesource channel to Ingenic's IVS with IMP_System_Bind.
      A dedicated small framesource channel (hardware-scaled ~96x54 NV12) read with IMP_FrameSource_GetFrame gives the
-     Y plane as the grey input for free; check whether the T23N has a spare channel (ch0 1080p, ch1 640x360 in use).
+     Y plane as the grey input for free. Checked 2026-11-03 (/proc/jz/isp/isp-fs): framesource 2 exists and is stopped;
+     ch0 1080p (scaler off) and ch1 640x360 (hardware scaler on) are in use, so a ~96x54 NV12 ch2 is available.
    - Ship gate: camera stays under ~70% busy (per-thread /proc profile), tracking beats today's 2.5 s detections in
      the Follow sim fitted to the track table (pan/tilt per cycle, logged since 2026-11-03), and a live A/B.
 14. **Server CPU allowance.** The $5 box ran pinned at its 5% cap all day (credits 0%). Shipped 2026-11-03: integer grey
