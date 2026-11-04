@@ -4,6 +4,30 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-04
+
+### Find
+- A sighting while the camera pans is placed where the camera pointed when that frame was taken, and the search goes
+  back to her before confirming (at most once per place, three times per search). Report 2026-11-04: she lay in plain
+  view, the verifier was sure three times while panning, but each frame arrived after the camera had panned on and
+  every look at the stop showed the next view. Calibrated simulator, 12 held-out days: in view 0.465 -> 0.509.
+
+### Live status
+- The app's status is at most 1 s old (was 1-3 s): every new frame refreshes it (at most every 0.5 s, at once when
+  motion starts). While nothing needs watching closely the camera pushes 2 frames a second instead of the watcher
+  polling a snapshot every 3 s; they are decoded at 1/8 size for motion, so idle CPU stays about the same. Measured:
+  median 0.31 s, worst 0.95 s.
+
+### Agent goals
+- `app_status_fresh` target 1 s (was 10 s).
+- New `video_start`: opening the app to the first video frame, median <= 1 s and 90th percentile <= 2 s over 7 days.
+  The app now reports the time since it opened on the first video of each open. Baseline (connect to first frame,
+  174 starts): median 1.2 s, 90th percentile 4.6 s.
+
+### Tests
+- `tests/server/js_syntax_test.py`: every script in the app's pages parses (a syntax error would blank the app).
+- `tests/server/search_overshoot_test.py`: the late mid-pan sighting case.
+
 ## [0.2.0] - 2026-11-04
 
 The camera learns this camera and this pet, Find was rebuilt from an audit of real searches, and the live picture is
