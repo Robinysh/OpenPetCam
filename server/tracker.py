@@ -382,6 +382,7 @@ class Tracker:
         mistake a slipper for her at night. Stops as soon as she is confirmed, or can no longer be."""
         self.tick()
         hits = []
+        self.last_glimpse = None
         for n in range(frames):
             box = self.find_pet(self.clock())
             if box is not None:
@@ -390,10 +391,29 @@ class Tracker:
                 if len(agree) + 1 >= need:
                     return box
                 hits.append((c, box))
+                self.last_glimpse = box
             best = max([sum(1 for k in hits if abs(k[0][0] - h[0][0]) <= AGREE and abs(k[0][1] - h[0][1]) <= AGREE)
                         for h in hits] or [0])
             if best + (frames - n - 1) < need:       # even if every remaining frame agrees, not enough
                 return None
+        return None
+
+    def _glimpse(self, t0, where, reason):
+        """A verified sighting that did not reach CONFIRM_FRAMES: aim at it, so she is fully in the picture, and
+        confirm on fresh frames as usual (the confirmation rule itself is unchanged). Report 2026-11-04 17:40: she
+        lay at the top edge of a stop, cut off; the verifier gave 0.977 on one of 4 frames, the others missed, and
+        the search moved on while she was in view. Returns the result text, or None."""
+        g = getattr(self, "last_glimpse", None)
+        if g is None:
+            return None
+        cx, cy = (g[0] + g[2]) / 2 - 0.5, (g[1] + g[3]) / 2 - 0.5
+        self.log(f"search: one glimpse at ({cx:+.2f}, {cy:+.2f}), not yet confirmed: aiming at it to look again")
+        self._move(self.cam.aim, cx * 0.9, cy * 0.8)
+        self._wait_idle()
+        self.sleep(SETTLE)
+        box = self.look()
+        if box is not None:
+            return self._found(box, t0, f"{where}, after aiming at a glimpse of her", reason, centre=False)
         return None
 
     def _found(self, box, t0, where, reason, centre=True):
@@ -423,9 +443,12 @@ class Tracker:
                 self._wait_idle()
                 self.sleep(SETTLE)
                 confirm = self.look()
+                x, _ = self.cam.position()
                 if confirm is not None:
-                    x, _ = self.cam.position()
                     return self._found(confirm, t0, f"while panning, near ({x}, {y})", reason)
+                res = self._glimpse(t0, f"while panning, near ({x}, {y})", reason)
+                if res:
+                    return res
                 self._move(self.cam.goto, b, y)      # glimpse not confirmed: carry on
             self.sleep(SCAN_POLL)
         self.own_move_t = self.last_move = self.clock()
@@ -433,7 +456,7 @@ class Tracker:
         box = self.look()
         if box is not None:
             return self._found(box, t0, f"at ({b}, {y})", reason)
-        return None
+        return self._glimpse(t0, f"at ({b}, {y})", reason)
 
     def rest_view(self):
         """The saved view a failed search parks at: the first one whose name contains a REST_NAMES word
@@ -466,8 +489,14 @@ class Tracker:
             # she was detected in the same view 38 s / 9 s later). Found here: no motor move at all, not
             # even to centre her, since a motor next to a resting dog is what the owners want avoided.
             box = self.look()
+            if box is None and getattr(self, "last_glimpse", None) is not None:
+                box = self.look(frames=2 * LOOK_FRAMES)      # she may be here: look longer before any move
             if box is not None:
                 return self._found(box, t0, "where the camera already was", reason, centre=False)
+            # Still only glimpses: aim at her rather than drive off to the saved views (a smaller move than leaving)
+            res = self._glimpse(t0, "where the camera already was", reason)
+            if res:
+                return res
             stops = [{"x": x, "y": y} for x, y in SEARCH_STOPS] or self.cam.presets()   # learned order, else saved views
             for p in stops:
                 halt = self._halt(reason)
@@ -482,9 +511,12 @@ class Tracker:
                     return halt
                 self.sleep(SETTLE)
                 box = self.look()
+                where = f"at {'the learned stop' if SEARCH_STOPS else 'the saved view'} ({p['x']}, {p['y']})"
                 if box is not None:
-                    where = "the learned stop" if SEARCH_STOPS else "the saved view"
-                    return self._found(box, t0, f"at {where} ({p['x']}, {p['y']})", reason)
+                    return self._found(box, t0, where, reason)
+                res = self._glimpse(t0, where, reason)
+                if res:
+                    return res
             for (tx, ty) in self.sweep_plan(y0):
                 halt = self._halt(reason)
                 if halt:

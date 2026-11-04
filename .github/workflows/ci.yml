@@ -25,7 +25,7 @@ jobs:
         env:
           PETCAM_SITE_ENV: config/site.env.example
         run: |
-          for t in tracker events presence stall disconnect pill search_here_first update pet_name theme search_evidence follow search_cancel spot_highlight talk_button policy fast_mode; do
+          for t in tracker events presence stall disconnect pill search_here_first update pet_name theme search_evidence follow search_cancel spot_highlight talk_button policy fast_mode search_glimpse; do
             echo "== $t"; timeout 300 python tests/server/${t}_test.py
           done
       - name: The Follow simulator holds to the measured hardware and its own physics
