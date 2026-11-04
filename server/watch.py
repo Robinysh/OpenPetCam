@@ -57,6 +57,7 @@ VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.
 FOLLOW_POLICY = "/opt/petcam/models/follow_policy.json"   # from sim/train_policy.py (learned on this camera's simulator)
 FOLLOW_PPO = "/opt/petcam/models/follow_ppo.onnx"         # a recurrent PPO policy (sim/train_ppo.py), server/ppo_follow.py
 POLICY_BLOCK_S = 7200          # live A/B: the learned constants and today's alternate in 2-hour blocks
+POLICY_OVERRIDE = f"{STATE}/policy_override"   # "<arm> <unix expiry>": force one arm for a live smoke test, expires itself
 REPORTS = f"{STATE}/reports"                         # "Something wrong?" reports from the app
 CANDIDATES = f"{STATE}/candidates"                  # frames with dog-like things, for the next bootstrap
 SEARCHES = f"{STATE}/searches"                      # what each search saw, to label Find right/wrong (tools/search_review.py)
@@ -844,6 +845,12 @@ class Watch:
                     log("follow policy: PPO controller unavailable:", e)
         arms = ["base"] + (["learned"] if self.policy_doc else []) + (["ppo"] if self.ppo else [])
         arm = arms[int(t // POLICY_BLOCK_S) % len(arms)]   # 2-hour blocks rotate through every policy present
+        try:
+            want, until = open(POLICY_OVERRIDE).read().split()[:2]
+            if want in arms and t < float(until):
+                arm = want
+        except (OSError, ValueError):
+            pass
         for k, v in self.policy_base.items():
             setattr(T, k, self.policy_doc.get(k, v) if arm == "learned" else v)
         if arm == "ppo" and self.policy_arm != "ppo":
