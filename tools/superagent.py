@@ -771,7 +771,8 @@ def metrics():
         rows.append({"goal": goal, "value": value, "target": target, "ok": ok, "detail": detail})
     if "cpu" in m:
         add("cpu", m["cpu"], "<= 8", m["cpu"] <= 8, "% of one core, camera services, since last measure")
-    add("app_status_fresh", m.get("live_age"), "<= 10", (m.get("live_age") or 999) <= 10, "seconds since live.json")
+    add("app_status_fresh", m.get("live_age"), "<= 1", (m.get("live_age") if m.get("live_age") is not None else 999) <= 1,
+        "seconds since live.json")
     f, h = m.get("search", [0, 0])
     if h:
         add("search_success", round(f / h, 2), ">= 0.8", f / h >= 0.8, f"{f} found of {h} searches when she was near (24 h, definition v2)")

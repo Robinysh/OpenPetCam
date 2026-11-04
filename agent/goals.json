@@ -54,7 +54,8 @@
       "id": "app_status_fresh",
       "what": "The app's status is current",
       "metric": "seconds since the watcher last published, sampled each collect",
-      "target": "<= 10",
+      "target": "<= 1",
+      "note": "owner, 2026-11-04: raised from <= 10. The watcher publishes once per cycle (every 1-3 s), so today a sample is 0-3 s old; meeting 1 s needs a sub-second cycle or a status that is published as soon as anything in it changes, without more detector runs on a CPU-limited server",
       "ground_truth": "live.json age"
     }
   ]
