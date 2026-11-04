@@ -338,11 +338,11 @@ def _():
 
 
 LOCAL_TESTS = ["tracker_test", "events_test", "presence_test", "stall_test"]        # pure simulations, run anywhere
-SERVER_TESTS = {                                                                    # need /opt/petcam; nothing moves
-    "heal_test": ["total actions in 50 min"],
-    "zones_test": ["visits started: 2"],
-    "authleak": ["same connection, anonymous -> 401"],
-    "e2e": ["no cookie live  401", "join reuse      410", "db via /media   404", "live video auth 401", "media no cookie 401"],
+SERVER_TESTS = {                                                    # run on the server against /opt/petcam; nothing moves
+    "onserver/heal_test": ["total actions in 50 min"],
+    "server/zones_test": ["visits started: 2"],
+    "onserver/authleak": ["same connection, anonymous -> 401"],
+    "onserver/e2e": ["no cookie live  401", "join reuse      410", "db via /media   404", "live video auth 401", "media no cookie 401"],
 }
 
 
@@ -357,10 +357,11 @@ def _():
 
 @check("tests", "server tests", "self-heal, zones, auth isolation and the login/invite/media paths work on the real server")
 def _():
-    files = [os.path.join(ROOT, "tests", "server", f"{t}.py") for t in SERVER_TESTS]
+    files = [os.path.join(ROOT, "tests", f"{t}.py") for t in SERVER_TESTS]
     sh(["scp", "-q", "-i", SSH[SSH.index("-i") + 1]] + files + [SSH[-1] + ":/tmp/"], timeout=60)
     out, bad = [], []
-    for t, must in SERVER_TESTS.items():
+    for path, must in SERVER_TESTS.items():
+        t = path.split("/")[-1]
         r = subprocess.run(SSH + [f"cd /tmp && sudo timeout 120 /opt/petcam/venv/bin/python {t}.py; echo rc=$?; rm -f /tmp/{t}.py"],
                            capture_output=True, text=True, timeout=200)
         missing = [m for m in must if m not in r.stdout]
@@ -376,7 +377,7 @@ def _():
 @check("loops", "launchd jobs", "the nightly autopilot and the report agent are scheduled on this computer")
 def _():
     lst = sh("launchctl list | grep -i openpetcam").stdout
-    want = ["ai.openpetcam.autopilot", "ai.openpetcam.reports"]
+    want = ["ai.openpetcam.autopilot", "ai.openpetcam.agent.tick"]   # agent.tick replaced the reports job
     miss = [w for w in want if w not in lst]
     return ("FAIL" if miss else "PASS"), f"loaded: {lst.strip() or 'none'}; missing: {miss or 'none'}"
 
