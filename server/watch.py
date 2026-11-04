@@ -75,6 +75,11 @@ EPISODE_GAP = 60.0            # dog sounds closer than this are one barking epis
 TALKING = f"{STATE}/talking"      # "start until": the app is playing the owner's voice on the speaker
 STREAM_LATENCY = 0.7          # a frame arrives up to this long after the camera captured it (profiled ≤ 0.7 s)
 MIN_CYCLE = 1.0               # at most one full cycle (detector, DB row) per second, even while she moves
+FAST_PERIOD = 0.5             # while she moves (seen moving in the last FAST_HOLD s): a cycle and a detector run this often.
+FAST_HOLD = 6.0               # Measured 2026-11-03: at the 3 s period a walking dog was seen every ~2.5 s and lost at the
+                              # edge; 4 in 5 of the motion chases that followed found nothing (86 chases, 243 motor moves
+                              # in 3 days). She moves ~43 min in 3 days, so 2 Hz then costs ~0.1% of a core on average.
+FAST_BUDGET = 600.0           # at most this many seconds of fast cycles per rolling hour (fails closed to PERIOD)
 PERIOD = 3.0                  # seconds between snapshots (2 s kept the box over its CPU baseline)
 PRESENT_SCORE = 0.30          # animal score that counts as "the pet is here" (see README for evidence)
 ABSENT_SCORE = 0.15
@@ -769,6 +774,7 @@ class Watch:
         self.gone_since = now()
         self.rest_since = None
         self.moving_since = None
+        self.fast_used = collections.deque()      # start times of fast cycles in the last hour (FAST_BUDGET)
         self.minute = None
         self.acc = None
         self.imaging = {}
@@ -795,10 +801,22 @@ class Watch:
             except Exception as e:  # noqa: BLE001
                 log("cycle error:", type(e).__name__, e)
                 self.on_failure()
+            if self.fast_mode(now()):              # she is moving: look every FAST_PERIOD s, motion or not
+                self.fast_used.append(t0)
+                time.sleep(max(0.0, FAST_PERIOD - (now() - t0)))
+                continue
             # Next cycle after PERIOD, or as soon as the frame reader sees motion (but not within MIN_CYCLE).
             time.sleep(max(0.0, MIN_CYCLE - (now() - t0)))
             self.frames.wake.wait(max(0.0, PERIOD - (now() - t0)))
             self.frames.wake.clear()
+
+    def fast_mode(self, t):
+        """She was seen moving a moment ago, and this hour's fast-cycle budget isn't spent."""
+        if self.moving_since is None or t - (self.last_seen or 0) > FAST_HOLD or self.privacy_on():
+            return False
+        while self.fast_used and t - self.fast_used[0] > 3600:
+            self.fast_used.popleft()
+        return len(self.fast_used) * FAST_PERIOD < FAST_BUDGET
 
     def check_stream_stall(self):
         """Video stopped but snapshots still work: after a stream-settings change (2026-11-02 10:28) the
@@ -932,7 +950,10 @@ class Watch:
             self.last_motion_t = t
         if lively or motion > MOTION_DETECT:
             self.frames.want()                 # something to watch closely: live frames for the next 90 s
-        if motion > MOTION_DETECT or t - self.last_detect >= (DETECT_EVERY if lively else DETECT_STILL) or prev is None:
+        fast = self.fast_mode(t)
+        if fast:
+            self.frames.want()
+        if fast or motion > MOTION_DETECT or t - self.last_detect >= (DETECT_EVERY if lively else DETECT_STILL) or prev is None:
             self.last_found = self.det.detect(img, min_score=0.10)
             self.last_detect = t
             if self.verifier:
