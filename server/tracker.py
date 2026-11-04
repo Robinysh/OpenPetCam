@@ -305,6 +305,24 @@ class Tracker:
                 rows.append(y)
         return sorted(rows, key=lambda r: abs(r - y0))
 
+    def sweep_plan(self, y0):
+        """The pan targets of the zigzag after the saved views. Scan this row toward the side she was last
+        heading, then the rest of it, then the next row back the other way: no long blind move before scanning
+        starts. tools/coverage.py draws this plan's coverage, so it lives here and not inside search()."""
+        xm, _ = self.cam.limits()
+        heading_right = bool(self.last_seen_c and self.last_seen_c[0] > 0)   # +fx (right) = lower x
+        end_a, end_b = (0, xm) if heading_right else (xm, 0)
+        plan, end = [], end_a                             # zigzag: alternate direction row by row
+        for n, ry in enumerate(self.rows(y0)):
+            if n == 0:
+                plan += [(end_a, ry), (end_b, ry)]
+                end = end_b
+            else:
+                other = end_a if end == end_b else end_b
+                plan += [(end, ry), (other, ry)]
+                end = other
+        return plan
+
     def _wait_idle(self, limit=20.0):
         """Wait for the motor, ticking: a slow move can take 15 s, longer than the app tolerates silence."""
         t0 = self.clock()
@@ -400,7 +418,6 @@ class Tracker:
         self.searching = True
         try:
             x0, y0 = self.cam.position()
-            xm, _ = self.cam.limits()
             fw, _ = self.cam.frame_steps()
             # Look here before moving anywhere (2026-11-02 13:45 and 18:31: asleep in view, a detector dropout
             # or a restart started the search, it drove to the saved views first and came back "not found";
@@ -424,20 +441,7 @@ class Tracker:
                 box = self.look()
                 if box is not None:
                     return self._found(box, t0, f"at the saved view ({p['x']}, {p['y']})", reason)
-            # Scan this row toward the side she was last heading, then the rest of it,
-            # then the second row back the other way: no long blind move before scanning starts.
-            heading_right = bool(self.last_seen_c and self.last_seen_c[0] > 0)   # +fx (right) = lower x
-            end_a, end_b = (0, xm) if heading_right else (xm, 0)
-            plan, end = [], end_a                             # zigzag: alternate direction row by row
-            for n, ry in enumerate(self.rows(y0)):
-                if n == 0:
-                    plan += [(end_a, ry), (end_b, ry)]
-                    end = end_b
-                else:
-                    other = end_a if end == end_b else end_b
-                    plan += [(end, ry), (other, ry)]
-                    end = other
-            for (tx, ty) in plan:
+            for (tx, ty) in self.sweep_plan(y0):
                 halt = self._halt(reason)
                 if halt:
                     return halt
