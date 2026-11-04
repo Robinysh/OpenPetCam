@@ -59,6 +59,9 @@ Worked top to bottom. Each item moves to Done with the commit that shipped it.
      Weak on identity (expected: the camera only follows near the server's last confirmed box).
    - Blocker: frames on the camera. prudynt owns the ISP; JPEG/H.264 decode would cost more than the model. Path: run
      the model inside prudynt's IVS/motion frame path (open source, Thingino toolchain), output a box to the motor loop.
+     Lead (gtxaspec/prudynt-t src/Motion.cpp): motion binds a framesource channel to Ingenic's IVS with IMP_System_Bind.
+     A dedicated small framesource channel (hardware-scaled ~96x54 NV12) read with IMP_FrameSource_GetFrame gives the
+     Y plane as the grey input for free; check whether the T23N has a spare channel (ch0 1080p, ch1 640x360 in use).
    - Ship gate: camera stays under ~70% busy (per-thread /proc profile), tracking beats today's 2.5 s detections in
      the Follow sim fitted to the track table (pan/tilt per cycle, logged since 2026-11-03), and a live A/B.
 14. **Server CPU allowance.** The $5 box ran pinned at its 5% cap all day (credits 0%). Shipped 2026-11-03: integer grey
