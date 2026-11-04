@@ -33,6 +33,10 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
   a 2 h night lock and the picture stayed infrared in daylight until 08:13.
 - The agent's status-age metric reads the clock when it reads the status (it could read as -10 s).
 
+### Agent
+- `tools/agent_plot.py`: every goal over time against its target, and every improvement attempt with its verdict
+  (`eval/superagent/agent_timeline.png`); the loop's schedule and what it measured are in docs/superagent.md.
+
 ### Tests
 - `tests/server/flap_test.py`: the night lock.
 - `tests/server/js_syntax_test.py`: every script in the app's pages parses (a syntax error would blank the app).
