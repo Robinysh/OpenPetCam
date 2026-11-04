@@ -58,12 +58,16 @@ def main(days=3):
         out[arm] = {"home_hours": round(h, 1), "logged_in_view": round(s["seen_s"] / max(s["home_s"], 1e-9), 3),
                     "moves_per_home_hour": round(s["moves"] / max(h, 1e-9), 1)}
     print(json.dumps(out, indent=1))
-    b, l = out.get("base"), out.get("learned")
-    if not b or not l or min(b["home_hours"], l["home_hours"]) < 8:
-        print("verdict: not enough data yet (need 8 home hours per arm)")
-        return
-    keep = l["logged_in_view"] >= b["logged_in_view"] and l["moves_per_home_hour"] <= b["moves_per_home_hour"]
-    print("verdict:", "KEEP the learned policy" if keep else "REMOVE models/follow_policy.json and redeploy")
+    b = out.get("base")
+    files = {"learned": "models/follow_policy.json", "ppo": "models/follow_ppo.onnx"}
+    for arm, l in out.items():
+        if arm == "base":
+            continue
+        if not b or min(b["home_hours"], l["home_hours"]) < 8:
+            print(f"verdict {arm}: not enough data yet (need 8 home hours per arm)")
+            continue
+        keep = l["logged_in_view"] >= b["logged_in_view"] and l["moves_per_home_hour"] <= b["moves_per_home_hour"]
+        print(f"verdict {arm}:", "KEEP" if keep else f"REMOVE {files.get(arm, arm)} and redeploy")
 
 
 if __name__ == "__main__":

@@ -55,6 +55,7 @@ MODEL = "/opt/petcam/models/yolox_nano.onnx"
 YAMNET_MODEL = "/opt/petcam/models/yamnet.tflite"
 VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.py
 FOLLOW_POLICY = "/opt/petcam/models/follow_policy.json"   # from sim/train_policy.py (learned on this camera's simulator)
+FOLLOW_PPO = "/opt/petcam/models/follow_ppo.onnx"         # a recurrent PPO policy (sim/train_ppo.py), server/ppo_follow.py
 POLICY_BLOCK_S = 7200          # live A/B: the learned constants and today's alternate in 2-hour blocks
 REPORTS = f"{STATE}/reports"                         # "Something wrong?" reports from the app
 CANDIDATES = f"{STATE}/candidates"                  # frames with dog-like things, for the next bootstrap
@@ -831,10 +832,23 @@ class Watch:
                 log("follow policy:", self.policy_doc or "none valid")
         except (OSError, ValueError):
             self.policy_doc, self.policy_mtime = {}, None
-        learned = bool(self.policy_doc) and int(t // POLICY_BLOCK_S) % 2 == 1
+        if not hasattr(self, "ppo"):
+            self.ppo = None
+            if os.path.exists(FOLLOW_PPO):
+                try:
+                    from ppo_follow import PPOFollow
+                    self.ppo = PPOFollow(FOLLOW_PPO, CamAdapter(), Tracker, self.find_pet, now,
+                                         log=lambda m: log("follow:", m), sleep=time.sleep, find_now=self.find_pet_now)
+                    log("follow policy: PPO controller loaded")
+                except Exception as e:  # noqa: BLE001 - a broken model must never stop following: base runs instead
+                    log("follow policy: PPO controller unavailable:", e)
+        arms = ["base"] + (["learned"] if self.policy_doc else []) + (["ppo"] if self.ppo else [])
+        arm = arms[int(t // POLICY_BLOCK_S) % len(arms)]   # 2-hour blocks rotate through every policy present
         for k, v in self.policy_base.items():
-            setattr(T, k, self.policy_doc.get(k, v) if learned else v)
-        self.policy_arm = "learned" if learned else "base"
+            setattr(T, k, self.policy_doc.get(k, v) if arm == "learned" else v)
+        if arm == "ppo" and self.policy_arm != "ppo":
+            self.ppo.reset()                                # a fresh memory at the start of each PPO block
+        self.policy_arm = arm
 
     def check_stream_stall(self):
         """Video stopped but snapshots still work: after a stream-settings change (2026-11-02 10:28) the
@@ -1021,10 +1035,19 @@ class Watch:
                 weak = None
                 if self.verifier and self.last_detect == t:   # only from this cycle's detector run, never a stale one
                     weak = [f["box"] for f in animals if f is not best and WEAK_MIN <= f.get("verified", 0.0) < self.verifier.threshold]
-                act = self.tracker.step(best["box"] if best and score >= PRESENT_SCORE else None, moving,
-                                        sound=self.dog_sound_pending and not self.present,
-                                        motion=self.frames.motion_c if person < 0.5 else None,   # a person leaving is not her
-                                        weak=weak, box_t=self.last_detect)
+                motion_c = self.frames.motion_c if person < 0.5 else None   # a person leaving is not her
+                if self.policy_arm == "ppo" and self.ppo:
+                    fresh = self.last_detect == t
+                    if fresh:
+                        self.ppo_weak_n = len(weak or [])
+                    st, px, py = camapi.motor_status()       # the counter right now (the cached pose can be 30 s old)
+                    seen = best["box"] if best and score >= PRESENT_SCORE else None
+                    act = self.ppo.step(t, fresh, seen if fresh else None, seen, motion_c,
+                                        getattr(self, "ppo_weak_n", 0), (px, py), st != "0")
+                else:
+                    act = self.tracker.step(best["box"] if best and score >= PRESENT_SCORE else None, moving,
+                                            sound=self.dog_sound_pending and not self.present,
+                                            motion=motion_c, weak=weak, box_t=self.last_detect)
                 try:   # per cycle: where the camera pointed and what Follow did, to fit and replay its simulator
                     pose = self.current_pose(t) or (None, None)
                     con.execute("INSERT INTO track(ts, pan, tilt, act, weak, policy) VALUES(?,?,?,?,?,?)",

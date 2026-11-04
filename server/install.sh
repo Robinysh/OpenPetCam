@@ -83,13 +83,13 @@ install -d -m 750 -o mediamtx -g mediamtx /var/lib/mediamtx /var/lib/mediamtx/re
   /opt/petcam/venv/bin/pip install -q onnxruntime ai-edge-litert
 /opt/petcam/venv/bin/python -c "import pywebpush" 2>/dev/null || /opt/petcam/venv/bin/pip install -q pywebpush
 install -d -m 755 /opt/petcam/models
-for m in yolox_nano.onnx yamnet.tflite yamnet_class_map.csv mobilenetv2-12.onnx petnet.onnx verifier.json follow_policy.json; do
+for m in yolox_nano.onnx yamnet.tflite yamnet_class_map.csv mobilenetv2-12.onnx petnet.onnx verifier.json follow_policy.json follow_ppo.onnx; do
   [ -f "$SRC/models/$m" ] && install -m 644 "$SRC/models/$m" /opt/petcam/models/
 done
 echo "10c95ea3eb9a7bb4cb8bddf6feb023250381008177ac162ce169694d05c317de  /opt/petcam/models/yamnet.tflite" | sha256sum -c --quiet -
 
 render $SRC/mediamtx.yml > /etc/mediamtx/mediamtx.yml && chmod 644 /etc/mediamtx/mediamtx.yml
-install -m 644 $SRC/petconf.py $SRC/agentdb.py $SRC/tracker.py $SRC/app.py $SRC/watch.py $SRC/detector.py $SRC/alert.py $SRC/update.py $SRC/index.html $SRC/agent.html $SRC/login.html $SRC/join.html \
+install -m 644 $SRC/petconf.py $SRC/agentdb.py $SRC/tracker.py $SRC/follow_obs.py $SRC/ppo_follow.py $SRC/app.py $SRC/watch.py $SRC/detector.py $SRC/alert.py $SRC/update.py $SRC/index.html $SRC/agent.html $SRC/login.html $SRC/join.html \
   $SRC/manifest.webmanifest $SRC/icon.png $SRC/apple-touch-icon.png $SRC/favicon.png $SRC/favicon.svg $SRC/icon-maskable.png $SRC/badge.png $SRC/logo.png $SRC/logo-light.png $SRC/themes.css $SRC/theme-controller.js $SRC/theme-data.js $SRC/theme-app.js $SRC/sw.js /opt/petcam/
 render $SRC/Caddyfile > /etc/caddy/Caddyfile && chmod 644 /etc/caddy/Caddyfile
 install -m 750 -o root -g root $SRC/set-secrets.sh /opt/petcam/set-secrets.sh

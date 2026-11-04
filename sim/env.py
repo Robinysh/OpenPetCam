@@ -23,6 +23,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gate1  # noqa: E402
 from room import Room, load_params  # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "..", "server"))
+from follow_obs import FollowObs  # noqa: E402  the observation the server builds too
 
 MOVE_COST, MOVE_FRAME_COST, FAST_COST = 1.0, 0.5, 0.15
 EPISODE_S = 3600.0
@@ -70,18 +72,14 @@ class FollowEnv(gym.Env):
         self.t0 = self.room.t
         self.last_detect, self.last_motion_t = -1e9, -1e9
         self.result = (None, False, [])
-        self.sightings = []                  # (t, cx, cy) of fresh sightings, frame coords centred on 0
-        self.last_move_t, self.fast = -1e9, 0
+        self.F = FollowObs()                 # sightings, own moves, the shield and the budget (shared with the server)
+        self.fast = 0
         self.stats = {"moves": 0, "shielded": 0, "fast_s": 0.0, "in_view_s": 0.0, "home_s": 0.0}
         self._tick()
         return self._obs(), {}
 
     def _lay_still(self):
-        h = [s for s in self.sightings if self.room.t - s[0] <= 4.0]
-        if len(h) < 2 or h[-1][0] - h[0][0] < STILL_SPAN:
-            return False
-        xs, ys = [s[1] for s in h], [s[2] for s in h]
-        return max(xs) - min(xs) <= STILL_SPREAD and max(ys) - min(ys) <= STILL_SPREAD
+        return self.F.lay_still(self.room.t)
 
     def _tick(self):
         """One watcher cycle of sensing (server/watch.py): maybe run the detector, else repeat the last result."""
@@ -94,34 +92,24 @@ class FollowEnv(gym.Env):
         self.fresh = bool(self.fast or self.motion or r.t - self.last_detect >= (8.0 if lively else 30.0))
         if self.fresh:
             self.result, self.last_detect = r.frame(), r.t
-            box = self.result[0]
-            if box is not None:
-                self.sightings.append((r.t, (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5))
-                self.sightings = self.sightings[-20:]
+        self.F.update(r.t, self.fresh, self.result[0] if self.fresh else None, self.motion,
+                      len(self.result[2]) if self.fresh else 0, self.fast)
 
     def _velocity(self):
-        h = [s for s in self.sightings if self.room.t - s[0] <= 4.0]
-        if len(h) < 2 or h[-1][0] - h[0][0] < 0.5:
-            return 0.0, 0.0
-        dt = h[-1][0] - h[0][0]
-        return (h[-1][1] - h[0][1]) / dt, (h[-1][2] - h[0][2]) / dt
+        return self.F.velocity(self.room.t)
+
+    @property
+    def sightings(self):
+        return self.F.sightings
+
+    @property
+    def last_move_t(self):
+        return self.F.last_move_t
 
     def _obs(self):
         r = self.room
-        box = self.result[0]
-        last = self.sightings[-1] if self.sightings else None
-        age = (r.t - last[0]) if last else 999.0
-        vx, vy = self._velocity()
-        m = self.motion
-        o = [float(self.fresh), float(box is not None),
-             (last[1] if last else 0.0), (last[2] if last else 0.0),
-             min(age, 120.0) / 30.0, float(np.clip(vx, -2, 2)), float(np.clip(vy, -2, 2)),
-             r.X / 1850.0 - 1.0, r.Y / 500.0 - 1.0, float(r.busy()),
-             float(m is not None), (m[1] if m else 0.0), (m[2] if m else 0.0),
-             min(len(self.result[2]), 3) / 3.0, float(self.fast), min(r.t - self.last_move_t, 60.0) / 30.0,
-             float(self._lay_still()),
-             1.0 - min(1.0, sum(1 for m in r.moves if r.t - m[0] < BUDGET_WINDOW) / MOVE_BUDGET)]
-        return np.asarray(o, dtype=np.float32)
+        self.F.box, self.F.weak_n = self.result[0], len(self.result[2])      # what the cycle shows (stale or fresh)
+        return self.F.vector(r.t, r.X, r.Y, r.busy())
 
     def _act(self, a):
         r = self.room
@@ -129,10 +117,11 @@ class FollowEnv(gym.Env):
             if a == 8:
                 r.stop()
             return
-        if self._lay_still() and self.sightings and r.t - self.sightings[-1][0] < REST_HOLD:
+        why = self.F.blocked(r.t)
+        if why == "rest":
             self.stats["shielded"] += 1
             return
-        if sum(1 for m in r.moves if r.t - m[0] < BUDGET_WINDOW) >= MOVE_BUDGET:
+        if why == "budget":
             self.stats["budget_blocked"] = self.stats.get("budget_blocked", 0) + 1     # a hard constraint, not a cost
             return
         last = self.sightings[-1] if self.sightings else None
@@ -149,8 +138,10 @@ class FollowEnv(gym.Env):
             r.aim(0.0, -0.6 if a == 5 else 0.6)
         elif a == 7:
             self.tr.search("rl")
+        for mv in r.moves[n0:]:
+            self.F.note_move(mv[0])
         if len(r.moves) > n0:
-            self.last_move_t = r.t
+            self.F.last_move_t = r.t        # "since our last move" counts from when the action finished (as trained)
 
     def step(self, action):
         motor, detect = int(action[0]), int(action[1])
