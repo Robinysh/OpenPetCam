@@ -166,3 +166,12 @@ show a pan 0.49-0.60 s after the command on ch1 and 0.61-0.69 s on ch0 (each inc
 its own JPEG encode). ch1's raw frames are therefore fresh, while its H.264 stream is ~1.0 s old: the extra ~0.5 s
 is added in ch1's encoder or RTSP output, which is configuration, not the image pipeline. The camera has ~2 MB of
 free RAM and /tmp is RAM: never store test files there (a snapshot loop doing so rebooted it once).
+
+**JPEG push (live, 2026-11-04).** No ch1 encoder setting removed its extra delay (measured, each restored: audio off
+864 ms, clock overlay off 858, `imp_polling_timeout` 50 ms 1121, `buffers` 1 1618, `buffers` 4 1106, bitrate 1000 990,
+against 860-1320 baselines; CBR crashes the streamer and must not be used). Because ch1's JPEG snapshots are fresh, the
+watcher's live frames now come from the camera pushing ch1 snapshots over one ssh channel (`PUSH_*` in watch.py): on
+the same moves 0.95 s vs 1.40 s for the substream by day, 1.7 s vs 2.6 s at night. ~4 fps, ~0.8 Mbit/s of home
+upload while live frames are wanted, a few % of a server core. The camera-side loop holds one ~20 KB file in RAM, is
+bounded to 15 min, stops when a write fails and kills a previous loop only if that pid really is one. A push that
+yields no frame falls back to the substream for 10 min.

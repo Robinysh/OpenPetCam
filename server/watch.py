@@ -75,7 +75,16 @@ MAIN_URL = "rtsp://127.0.0.1:8554/cam"  # the 1080p main stream (MediaMTX pulls 
 # How old the picture is when a decoded frame reaches the watcher (2026-11-04: motor command -> first moving frame,
 # minus the ~0.1 s motor start; ffmpeg low-delay flags and the MediaMTX relay changed nothing, the camera's
 # substream pipeline itself holds ~0.6 s more, and MORE at higher fps: 10 fps 1.3 s, 25 fps 2.5 s).
-STREAM_LAG = {"sub": 0.90, "main": 0.26, "snapshot": 1.0}
+STREAM_LAG = {"sub": 0.90, "main": 0.26, "push": 0.55, "snapshot": 1.0}
+# JPEG push (2026-11-04): the camera's own ch1 JPEG snapshots are fresh (the delay of the ch1 H.264 stream is added
+# after them, in its encoder/RTSP output, and no encoder setting removed it), so while live frames are wanted the camera
+# streams snapshots to the watcher over one ssh channel. On the same moves: 0.95 s vs 1.40 s for the substream; JPEG
+# decode costs the server less than H.264; ~0.8 Mbit/s of home upload while it runs. Falls back to the substream.
+PUSH_ENABLED = True
+PUSH_FPS = 5
+PUSH_QUALITY = 60
+PUSH_MAX_S = 900               # the camera-side loop ends by itself after this; the watcher simply starts a new one
+PUSH_RETRY_S = 600             # after a failed push, use the substream this long
 # Fast mode: while Follow is engaged with her (seen moving, or a search), frames come from the main stream (0.26 s
 # instead of 0.9 s old) and the detector runs every FAST_CYCLE. Costs ~9.4% of a core to decode (1080p25 with the
 # loop filter skipped, scaled fast_bilinear) plus ~10% for detecting at 2 Hz, so a governor turns it off whenever
@@ -242,8 +251,51 @@ class FrameSource:
     def fast(self):
         return now() < self.fast_until and self.governor.ok()
 
+    push_down_until = 0.0
+
     def desired_mode(self):
-        return "main" if self.fast() else "sub"
+        if self.fast():
+            return "main"
+        return "push" if PUSH_ENABLED and now() >= self.push_down_until else "sub"
+
+    def push_cmd(self):
+        """ssh to the camera running the snapshot loop. One loop at a time (pid file), bounded in time, and it stops
+        when a write fails, so a dropped connection cannot leave it running for long. One ~20 KB file in RAM."""
+        gap = max(0, int(1e6 / PUSH_FPS) - 40000)            # a snapshot takes ~40 ms on the camera
+        # a stale pid (the loop was killed) may belong to another process after a reboot: kill it only if it is a push loop
+        loop = ("F=/tmp/.push.jpg; O=$(cat /tmp/.push.pid 2>/dev/null); "
+                "[ -n \"$O\" ] && [ \"$O\" != $$ ] && grep -q push.jpg /proc/$O/cmdline 2>/dev/null && kill $O; "
+                "echo $$ > /tmp/.push.pid; "
+                f"E=$(( $(cut -d. -f1 /proc/uptime) + {PUSH_MAX_S} )); "
+                f"while [ $(cut -d. -f1 /proc/uptime) -lt $E ]; do prudyntctl snapshot -c 1 -q {PUSH_QUALITY} > $F || break; "
+                f"echo \"J $(wc -c < $F)\" || break; cat $F || break; usleep {gap}; done; rm -f $F /tmp/.push.pid")
+        key = camapi.CAM_SSH_KEY
+        return ["ssh", "-T", "-i", key, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+                "-o", f"UserKnownHostsFile={os.path.dirname(key)}/known_hosts", "-o", "ConnectTimeout=5",
+                "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", f"root@{camapi.CAM_HOST}", loop]
+
+    def read_frame(self, p, mode, n):
+        """The next frame as an HxWx3 uint8 array, or None when the source ended."""
+        if mode != "push":
+            buf = p.stdout.read(n)
+            return np.frombuffer(buf, np.uint8).reshape(self.H, self.W, 3) if len(buf) == n else None
+        while True:
+            line = p.stdout.readline()
+            if not line:
+                return None
+            if line.startswith(b"J "):
+                break
+        size = int(line.split()[1])
+        b = p.stdout.read(size)
+        if len(b) < size:
+            return None
+        try:
+            im = Image.open(io.BytesIO(b)).convert("RGB")
+        except Exception:  # noqa: BLE001 - a torn JPEG: skip it, keep the source
+            return np.zeros((0,), np.uint8)
+        if im.size != (self.W, self.H):
+            im = im.resize((self.W, self.H))
+        return np.asarray(im)
 
     def run(self):
         backoff = 2
@@ -261,9 +313,13 @@ class FrameSource:
                 vf = MAIN_VF.format(w=self.W, h=self.H)
             else:
                 src, vf = ["-rtsp_transport", "tcp", "-i", self.url], f"fps={FRAME_FPS},scale={self.W}:{self.H}"
-            p = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-nostdin", "-threads", "1", *src,
-                                  "-an", "-vf", vf, "-pix_fmt", "rgb24",
-                                  "-f", "rawvideo", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            if mode == "push":
+                p = subprocess.Popen(self.push_cmd(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            else:
+                p = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-nostdin", "-threads", "1", *src,
+                                      "-an", "-vf", vf, "-pix_fmt", "rgb24",
+                                      "-f", "rawvideo", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            started, got = now(), 0
             switched = False
             every = max(1, round(MAIN_FPS / FRAME_FPS)) if mode == "main" else 1   # motion compares frames 0.2 s apart
             k = 0
@@ -280,11 +336,13 @@ class FrameSource:
                     if self.desired_mode() != mode:
                         switched = True         # into or out of fast mode: restart on the other stream at once
                         break
-                    buf = p.stdout.read(n)
-                    if len(buf) < n:
+                    arr = self.read_frame(p, mode, n)
+                    if arr is None:
                         break
+                    if arr.size == 0:
+                        continue
                     backoff = 2
-                    arr = np.frombuffer(buf, np.uint8).reshape(self.H, self.W, 3)
+                    got += 1
                     k += 1
                     if k % every:                       # newest frame for the detector; motion on every `every`-th
                         with self.lock:
@@ -309,6 +367,14 @@ class FrameSource:
                 p.kill()
                 p.wait()
             if stopped or switched:
+                continue
+            if mode == "push":
+                if got == 0 or now() - started < PUSH_MAX_S - 30:     # failed, not the loop's own time limit
+                    if got == 0:
+                        log(f"frames: camera push failed, substream for {PUSH_RETRY_S // 60} min")
+                        self.push_down_until = now() + PUSH_RETRY_S
+                    else:
+                        time.sleep(1)
                 continue
             time.sleep(backoff)
             backoff = min(backoff * 2, 60)

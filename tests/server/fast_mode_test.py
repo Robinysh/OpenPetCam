@@ -47,20 +47,44 @@ assert watch.StealGovernor("/nonexistent").ok(), "an unreadable /proc/stat never
 # The frame source picks the stream: main only while fast mode is wanted and the governor allows it.
 f = watch.FrameSource()
 f.governor = type("G", (), {"ok": lambda self: True})()
-assert f.desired_mode() == "sub"
+assert f.desired_mode() == "push", "live frames come from the camera's JPEG push by default"
+f.push_down_until = clock[0] + 600
+assert f.desired_mode() == "sub", "a failed push falls back to the substream"
+f.push_down_until = 0
 f.want_fast(20)
 assert f.desired_mode() == "main" and f.wanted()
 clock[0] += 21
-assert f.desired_mode() == "sub", "fast mode expires"
+assert f.desired_mode() == "push", "fast mode expires"
 assert f.wanted(), "the decoder itself keeps running (STREAM_HOLD) on the substream"
 f.want_fast(20)
 f.governor = type("G", (), {"ok": lambda self: False})()
-assert f.desired_mode() == "sub", "the governor wins"
+assert f.desired_mode() == "push", "the governor wins"
 assert watch.STREAM_LAG["main"] < watch.STREAM_LAG["sub"]
 watch.FAST_ENABLED = False
 g2 = watch.FrameSource()
 g2.governor = type("G", (), {"ok": lambda self: True})()
 g2.want_fast(20)
-assert g2.desired_mode() == "sub" and g2.wanted(), "disabled: live frames as before, never the main stream"
+assert g2.desired_mode() == "push" and g2.wanted(), "disabled: live frames as before, never the main stream"
 os.unlink(stat.name)
+
+# The push parser: header line + JPEG bytes; noise lines skipped; a torn JPEG skipped; end of stream -> None.
+import io  # noqa: E402
+from PIL import Image  # noqa: E402
+buf = io.BytesIO()
+Image.new("RGB", (640, 360), (200, 10, 10)).save(buf, "JPEG")
+j = buf.getvalue()
+small = io.BytesIO()
+Image.new("RGB", (320, 180), (10, 200, 10)).save(small, "JPEG")
+k = small.getvalue()
+data = b"motd noise\n" + b"J %d\n" % len(j) + j + b"J 5\nxxxxx" + b"J %d\n" % len(k) + k + b"J 999\nshort"
+proc = type("P", (), {"stdout": io.BytesIO(data)})()
+fs = watch.FrameSource()
+a = fs.read_frame(proc, "push", 0)
+assert a.shape == (360, 640, 3) and a[180, 320, 0] > 150, "a pushed JPEG decodes to the frame size"
+assert fs.read_frame(proc, "push", 0).size == 0, "a torn JPEG is skipped, not fatal"
+b = fs.read_frame(proc, "push", 0)
+assert b.shape == (360, 640, 3) and b[90, 160, 1] > 150, "another size is scaled to the frame size"
+assert fs.read_frame(proc, "push", 0) is None, "a truncated frame ends the source"
+cmd = " ".join(fs.push_cmd())
+assert "/tmp/.push.pid" in cmd and "|| break" in cmd and str(watch.PUSH_MAX_S) in cmd, "one loop, stops on a failed write, bounded"
 print("fast mode: ok")
