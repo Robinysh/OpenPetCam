@@ -386,6 +386,7 @@ class Tracker:
         self.tick()
         hits = []
         self.last_glimpse = None
+        pose = None
         for n in range(frames):
             box = self.find_pet(self.clock())
             if box is not None:
@@ -396,6 +397,18 @@ class Tracker:
                 hits.append((c, box))
                 if getattr(box, "p", 1.0) >= GLIMPSE_P:
                     self.last_glimpse = box
+                    # Across looks: a sure sighting where an earlier look of this search had one (room coordinates,
+                    # the camera is stopped) confirms her. 2026-11-03 20:54 and 2026-11-04 09:35 saw her 3 and 8
+                    # times, never twice within one look, and ended "not found".
+                    pose = pose or self.cam.position()
+                    fw, fh = self.cam.frame_steps()
+                    rx, ry = pose[0] - (c[0] - 0.5) * fw, pose[1] - (c[1] - 0.5) * fh
+                    seen = getattr(self, "search_hits", None)
+                    if seen is not None:
+                        if any(abs(h[0] - rx) <= AGREE * fw and abs(h[1] - ry) <= AGREE * fh for h in seen):
+                            self.log(f"search: sighting at ({rx:.0f}, {ry:.0f}) agrees with an earlier look: confirmed")
+                            return box
+                        seen.append((rx, ry, self.clock()))
             best = max([sum(1 for k in hits if abs(k[0][0] - h[0][0]) <= AGREE and abs(k[0][1] - h[0][1]) <= AGREE)
                         for h in hits] or [0])
             if best + (frames - n - 1) < need:       # even if every remaining frame agrees, not enough
@@ -485,6 +498,7 @@ class Tracker:
         self.last_search = t0
         self.search_t0 = t0
         self.searching = True
+        self.search_hits = []            # sure sightings of this search, room coordinates (pan, tilt steps)
         try:
             x0, y0 = self.cam.position()
             fw, _ = self.cam.frame_steps()
@@ -546,3 +560,4 @@ class Tracker:
         finally:
             self.searching = False
             self.search_t0 = None
+            self.search_hits = None

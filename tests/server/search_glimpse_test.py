@@ -68,7 +68,40 @@ res = tr.search("test")
 assert "after aiming at a glimpse" not in res, res
 print("weak glimpse not followed up:", res)
 
-# 4. Nothing anywhere: no glimpse, no extra aims; the search ends as before.
+# 4. Fully in view but the detector catches her on one frame in four (lying still, 2026-11-03 20:54 and
+#    2026-11-04 09:35: 3 and 8 sightings, never two in one look, "not found"). Sightings now add up across looks.
+class FlakyWorld(EdgeWorld):
+    def find_pet(self, after):
+        self.sleep(0.4)
+        self.calls = getattr(self, "calls", 0) + 1
+        b = self.box()
+        return b if b is not None and self.calls % 4 == 1 else None
+
+
+w = FlakyWorld(X=1850, pet=400)
+tr = tracker_for(w)
+res = tr.search("test")
+assert "found her" in res and "(400, 500)" in res, res
+print("flaky detector, sightings add up:", res)
+
+
+class FlakyToy(FlakyWorld):
+    def find_pet(self, after):
+        b = FlakyWorld.find_pet(self, after)
+        if b is None:
+            return None
+        v = type("VB", (list,), {})(b)
+        v.p = 0.9
+        return v
+
+
+w = FlakyToy(X=1850, pet=400)
+tr = tracker_for(w)
+res = tr.search("test")
+assert "not found" in res, ("a weak, flaky sighting (the night toy) was confirmed", res)
+print("weak flaky sighting not confirmed:", res)
+
+# 5. Nothing anywhere: no glimpse, no extra aims; the search ends as before.
 w = EdgeWorld(X=1850, pet=99999)
 tr = tracker_for(w)
 res = tr.search("test")
