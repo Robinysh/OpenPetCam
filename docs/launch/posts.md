@@ -1,6 +1,6 @@
 # Launch posts
 
-Posted: Thingino Discussions 2026-11-03 (https://github.com/themactep/thingino-firmware/discussions/1914). Approved, waiting for the browser: Show HN, r/selfhosted. Baseline before launch: 9 stars, 0 forks.
+Posted: Thingino Discussions 2026-11-03 (https://github.com/themactep/thingino-firmware/discussions/1914). Show HN 2026-11-03 (https://news.ycombinator.com/item?id=50360077): auto-flagged within a minute (account karma 4); ask hn@ycombinator.com to review, never repost. r/selfhosted: the browser extension blocks Reddit; owner posts by hand. Baseline before launch: 9 stars, 0 forks.
 
 Facts used, each checkable in the repo: $5 Lightsail nano server; Thingino-flashed pan/tilt camera (tested on one
 model, Cinnado D1); YOLOX-nano + a MobileNetV2 verifier fine-tuned on your own camera's pictures; 26 ms + 11 ms per
