@@ -27,6 +27,7 @@ from room import Room, load_params  # noqa: E402
 MOVE_COST, MOVE_FRAME_COST, FAST_COST = 1.0, 0.5, 0.15
 EPISODE_S = 3600.0
 STILL_SPAN, STILL_SPREAD, REST_HOLD = 3.0, 0.06, 8.0
+MOVE_BUDGET, BUDGET_WINDOW = 6, 600.0   # hard limit: at most 6 moves per 10 minutes (today's tracker makes ~31-44/h)
 
 
 class FollowEnv(gym.Env):
@@ -39,7 +40,7 @@ class FollowEnv(gym.Env):
         self.randomize = randomize
         self.episode_s = episode_s
         self.action_space = gym.spaces.MultiDiscrete([9, 2])
-        self.observation_space = gym.spaces.Box(-5.0, 5.0, shape=(17,), dtype=np.float32)
+        self.observation_space = gym.spaces.Box(-5.0, 5.0, shape=(18,), dtype=np.float32)
         self.T = gate1.load_tracker()
         self._seed = seed
 
@@ -118,7 +119,8 @@ class FollowEnv(gym.Env):
              r.X / 1850.0 - 1.0, r.Y / 500.0 - 1.0, float(r.busy()),
              float(m is not None), (m[1] if m else 0.0), (m[2] if m else 0.0),
              min(len(self.result[2]), 3) / 3.0, float(self.fast), min(r.t - self.last_move_t, 60.0) / 30.0,
-             float(self._lay_still())]
+             float(self._lay_still()),
+             1.0 - min(1.0, sum(1 for m in r.moves if r.t - m[0] < BUDGET_WINDOW) / MOVE_BUDGET)]
         return np.asarray(o, dtype=np.float32)
 
     def _act(self, a):
@@ -129,6 +131,9 @@ class FollowEnv(gym.Env):
             return
         if self._lay_still() and self.sightings and r.t - self.sightings[-1][0] < REST_HOLD:
             self.stats["shielded"] += 1
+            return
+        if sum(1 for m in r.moves if r.t - m[0] < BUDGET_WINDOW) >= MOVE_BUDGET:
+            self.stats["budget_blocked"] = self.stats.get("budget_blocked", 0) + 1     # a hard constraint, not a cost
             return
         last = self.sightings[-1] if self.sightings else None
         n0 = len(r.moves)

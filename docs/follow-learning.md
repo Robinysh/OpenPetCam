@@ -32,7 +32,12 @@ and keeps every hard rule: the server accepts only whitelisted constants clamped
 - **Camera (sysid):** 216-218 steps/s at the quiet speed, 50-120 ms from command to first motion, a new command waits for
   the move in progress; frame 740 steps wide (configured 733); **27 steps of gear play**: after a reversal the step
   counter moves at once and the picture only after the play (the simulator models counter and optics separately).
-  Tilt could not be measured in a busy room (phase correlation needs a still scene); the configured value is kept.
+  Pan frame and play differ by pose (707-740 steps, 27-41 play; the lens is likely off the pan axis), so training
+  randomises over the measured range. Tilt: 431 steps per frame and essentially no play (1 step), measured only once
+  every compared frame sat in the textured band (above tilt ~650 this camera sees a blank ceiling).
+- **The driver's tilt range check is inverted:** a relative tilt step is accepted only while y + cmd stays in 0..1000,
+  yet the head moves to y - cmd. A naive sweep left tilt stuck at 0 (fixed by homing); calibration and sweeps now move
+  through the app's own `goto()`, which splits long tilts.
 - **Sensing:** frames 0.7 s late; the detector runs every 30 s while she rests (8 s while lively, at once on motion),
   so one missed detection becomes a 30-second "loss" in the logs, and the simulator runs the same schedule.
 - **You:** people turn the camera by hand about 3 times an hour, which pauses Follow for 3 minutes; measured from the
@@ -46,6 +51,23 @@ and keeps every hard rule: the server accepts only whitelisted constants clamped
   the same 32 held-out rooms: in-view 0.596, worst quarter 0.251, **237 motor moves per hour**. It lost to both, so the
   deployed policy is the tuned controller. Before trying again: a much higher per-move cost (or the move budget as a
   hard constraint), the resting shield plus a move budget in the action mask, and longer training (Modal CPU sweeps).
+
+## The pixel twin (in progress)
+
+The policy only sees detector output, so pixels matter in one place: when and where the real detector misses or
+false-accepts. Plan (research memo 2026-11-04): a panorama from the camera's own sweeps (`sim/sweep.py`, done for day),
+depth for it from a phone walkthrough (VGGT / MASt3R), the dog inserted at the right scale and occlusion, the real YOLOX
+and verifier run on those frames, and a perception error model fitted from them and fed into the fast simulator, which
+stays the training engine. Cosmos-Transfer adds lighting and appearance variety as augmentation; it is too slow and has
+no pan/tilt control to be the simulator itself (~$2k per million steps). Needed from the owner: a 2-3 minute phone
+walkthrough including views toward the camera, a night sweep, and ~300 labelled frames.
+
+## Training across days
+
+The two real days fit very differently (calm: rests ~24 min, walks 37 steps/s; active: rests ~1 min, walks 322 steps/s),
+so `sim/per_day.py` calibrates one simulator per day and training draws rooms from all of them. A policy searched over
+both days failed gate 2 (0.612 vs 0.645); the deployed one still wins on cross-day held-out rooms: in-view 0.645 -> 0.662,
+moves 44.5 -> 40.4 per hour (calm-day rooms 0.645 -> 0.679, active-day rooms unchanged with 10% fewer moves).
 
 ## What is not yet established
 
