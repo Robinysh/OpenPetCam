@@ -260,64 +260,64 @@
   }
  },
  "free": {
-  "walk_speed_med": 127.1268,
-  "rest_med_s": 254.7866,
-  "away_prob": 0.3865,
-  "away_med_s": 820.6473,
-  "people_motion_per_h": 0.6482,
+  "walk_speed_med": 89.0368,
+  "rest_med_s": 655.395,
+  "away_prob": 0.5388,
+  "away_med_s": 195.1118,
+  "people_motion_per_h": 14.4691,
   "owner_moves_per_h": 2.93,
-  "p_hidden": 0.5518,
+  "p_hidden": 0.6301,
   "lag_s": 0.9,
-  "q_hard": 0.1934,
-  "p_hard": 0.0505
+  "q_hard": 0.4888,
+  "p_hard": 0.04
  },
  "calibration": {
-  "loss": 8.025,
+  "loss": 6.89,
   "hours": 4,
   "seeds": 4,
   "evals": 184,
   "fit": {
    "in_view_share_while_home": {
     "real": 0.756,
-    "sim_min": 0.537,
-    "sim_max": 0.773,
-    "sim_mean": 0.697
+    "sim_min": 0.712,
+    "sim_max": 0.776,
+    "sim_mean": 0.744
    },
    "losses_per_home_hour": {
     "real": 12.18,
-    "sim_min": 7.78,
-    "sim_max": 15.51,
-    "sim_mean": 11.748
+    "sim_min": 8.09,
+    "sim_max": 11.61,
+    "sim_mean": 10.133
    },
    "seen_again_within_s/30": {
     "real": 0.279,
-    "sim_min": 0.286,
-    "sim_max": 0.647,
-    "sim_mean": 0.394
+    "sim_min": 0.357,
+    "sim_max": 0.571,
+    "sim_mean": 0.424
    },
    "seen_again_within_s/60": {
     "real": 0.505,
-    "sim_min": 0.286,
-    "sim_max": 0.706,
-    "sim_mean": 0.422
+    "sim_min": 0.4,
+    "sim_max": 0.571,
+    "sim_mean": 0.473
    },
    "follow_actions_per_hour/chase": {
     "real": 5.85,
-    "sim_min": 1.75,
-    "sim_max": 5.5,
-    "sim_mean": 3.312
+    "sim_min": 2.5,
+    "sim_max": 7.3,
+    "sim_mean": 5.575
    },
    "follow_actions_per_hour/search": {
     "real": 2.85,
     "sim_min": 2.75,
-    "sim_max": 4.0,
-    "sim_mean": 3.312
+    "sim_max": 4.28,
+    "sim_mean": 3.57
    },
    "follow_actions_per_hour/track": {
     "real": 4.26,
-    "sim_min": 1.75,
-    "sim_max": 11.25,
-    "sim_mean": 5.0
+    "sim_min": 2.5,
+    "sim_max": 6.75,
+    "sim_mean": 4.385
    }
   }
  },
