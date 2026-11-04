@@ -53,3 +53,26 @@ assert "found her at the saved view" in res, res
 print("old press ignored:", res)
 assert tr.search_t0 is None and not tr.searching
 print("search cancel ok")
+
+# 4. Cancelled during the confirming look at a stop where she is visible but off-centre (review 2026-11-04: cancel at
+#    8.5 s, then a centring aim at 8.9 s and "found"). No motor command may follow the press.
+w = SavedViews(X=1850, pet=400 + 0.3 * 733)
+state = {"at": None}
+
+
+def cancel_on_arrival(since):
+    if state["at"] is None and not w.busy() and abs(w.X - 400) < 1:
+        state["at"] = w.t + 1.0           # the owner presses Stop during the look (after the settle pause)
+    return state["at"] is not None and since < state["at"] <= w.t
+
+
+tr = T.Tracker(w, w.find_pet, clock=lambda: w.t, log=lambda m: None, sleep=w.sleep, find_now=w.find_now,
+               cancelled=cancel_on_arrival)
+n_moves_at = {}
+orig_aim, orig_goto = w.aim, w.goto
+w.aim = lambda fx, fy: (n_moves_at.setdefault("aim_t", w.t), orig_aim(fx, fy))
+res = tr.search("you asked")
+assert "stopped, you cancelled it" in res, res
+assert "aim_t" not in n_moves_at or n_moves_at["aim_t"] < state["at"], ("aimed after the cancel", n_moves_at, state)
+print("cancelled during the confirming look:", res)
+print("search cancel ok (with look boundary)")

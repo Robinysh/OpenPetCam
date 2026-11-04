@@ -17,13 +17,8 @@ jobs:
           python-version: "3.12"
       - run: pip install pyflakes==3.2.0 numpy==2.1.3 pillow==11.0.0 && python -m pyflakes server tools tests
       - run: tools/check_public.sh --all
-      - name: Tests that need no camera or server
-        env:
-          PETCAM_SITE_ENV: config/site.env.example
-        run: |
-          for t in tracker events presence stall disconnect pill search_here_first update pet_name theme; do
-            timeout 300 python tests/server/${t}_test.py
-          done
+      - name: Offline tests (server + simulator), the same gate as CI
+        run: tools/run_tests.sh
       - run: tools/make_release.sh "$GITHUB_REF_NAME"
       - name: Publish
         env:

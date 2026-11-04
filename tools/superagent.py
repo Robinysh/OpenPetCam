@@ -524,6 +524,7 @@ def work(thread):
 
 SHADOW_HOURS = 6
 SHADOW_MIN_FRAMES = 30
+SHADOW_MIN_LABELS = 5        # a shadow verdict needs this many independently labelled disagreements (or all of them)
 DETECTION_FILES = ("server/detector.py", "server/watch.py")
 
 
@@ -562,20 +563,30 @@ def shadow_step():
         subprocess.run(["tar", "-C", fd, "-xf", "-"], input=pull.stdout, capture_output=True)
         job["since"] = time.time()
         frames = sorted(os.listdir(fd))
-        votes = {}
+        votes, replay_err = {}, None
         for tree, key in ((ROOT, "cur"), (job["wt"], "cand")):
             r = subprocess.run([sys.executable, os.path.join(HERE, "replay.py"), "pipeline", "--tree", tree, "--frames", fd],
                                capture_output=True, text=True, timeout=1800, env=ENV)
             try:
-                votes[key] = json.loads(r.stdout)
+                votes[key] = json.loads(r.stdout) if r.returncode == 0 else None
             except ValueError:
+                votes[key] = None
+            if not isinstance(votes[key], dict):
+                # a failed replay is missing evidence, not "no disagreements" (review 2026-11-04: both failing -> ship)
+                replay_err = replay_err or f"the {key} replay failed (exit {r.returncode})"
                 votes[key] = {}
         job["frames"] = len(frames)
         job["disagree"] = [fr for fr in frames if bool(votes["cur"].get(fr)) != bool(votes["cand"].get(fr))]
         json.dump(job, open(path, "w"))
         if time.time() - job["started"] < SHADOW_HOURS * 3600 or len(frames) < SHADOW_MIN_FRAMES:
             continue
-        verdict, detail = adjudicate(fd, job["disagree"], votes)
+        if replay_err:
+            verdict, detail = "hold", replay_err
+        else:
+            verdict, detail = adjudicate(fd, job["disagree"], votes)
+        if verdict == "hold":                      # missing evidence: keep the candidate in shadow and try next round
+            note("shadow", f"[hold] {detail}"[:900], job["thread"], "result")
+            continue
         st = ra.load_state()
         if verdict == "ship":
             status, why = ra.ship(job["thread"], job["wt"], job["branch"], st)
@@ -604,6 +615,8 @@ def adjudicate(fd, disagree, votes):
         box = votes["cur"].get(fr) or votes["cand"].get(fr)
         items.append({"n": i, "file": os.path.join(fd, fr), "box": box})
     out = os.path.join(fd, "labels.json")
+    if os.path.exists(out):
+        os.remove(out)                 # a previous round's labels must never stand in for this round's
     prompt = (f"For each picture, look at the region inside the box (fractions x0,y0,x1,y1 of the image) and say whether it "
               f"shows the dog {PET} (a golden retriever), not a toy, person or empty floor. Items: {json.dumps(items)}. "
               f'Write {out} as {{"n": true|false, ...}} keyed by n.')
@@ -621,7 +634,10 @@ def adjudicate(fd, disagree, votes):
         fr = os.path.basename(it["file"])
         for k in right:
             right[k] += bool(votes[k].get(fr)) == truth
-    detail = f"right on disagreements: current {right['cur']}, candidate {right['cand']} of {len(lab)}"
+    judged = sum(1 for it in items if lab.get(it["n"]) is not None)
+    detail = f"right on disagreements: current {right['cur']}, candidate {right['cand']} of {judged}"
+    if judged < min(len(items), SHADOW_MIN_LABELS):
+        return "hold", f"too few labelled disagreements ({judged} of {len(items)}): {detail}"
     return ("ship" if right["cand"] >= right["cur"] else "reject"), detail
 
 

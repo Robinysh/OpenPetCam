@@ -1244,7 +1244,10 @@ class Watch:
 
         self.update_pet(con, t, score, moving, jpg, best["box"] if best else None)
         if not privacy and self.find_requested(t):
-            self.find(con, best if best and score >= PRESENT_SCORE else None)
+            # "already in view" only from THIS cycle's detector run: between runs `best` repeats an older answer
+            # (review 2026-11-04: a 20 s old box answered the owner's Find without any detection)
+            fresh = self.last_detect == t
+            self.find(con, best if fresh and best and score >= PRESENT_SCORE else None)
         elif self.setting("follow", False) and not privacy:
             self.apply_policy(t)
             try:

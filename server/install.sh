@@ -87,8 +87,10 @@ for m in yolox_nano.onnx yamnet.tflite yamnet_class_map.csv mobilenetv2-12.onnx 
   [ -f "$SRC/models/$m" ] && install -m 644 "$SRC/models/$m" /opt/petcam/models/
 done
 # A learned Follow policy that is no longer shipped must stop running: set it aside (not deleted, for the record).
+# Only when this source ships models at all (a ./deploy.sh from a checkout that has them): a GitHub release carries
+# no models, and must not retire the policy this camera learned (review 2026-11-04).
 for m in follow_policy.json follow_ppo.onnx; do
-  if [ ! -f "$SRC/models/$m" ] && [ -f "/opt/petcam/models/$m" ]; then
+  if [ -f "$SRC/models/yolox_nano.onnx" ] && [ ! -f "$SRC/models/$m" ] && [ -f "/opt/petcam/models/$m" ]; then
     mv "/opt/petcam/models/$m" "/opt/petcam/models/$m.retired-$(date +%Y%m%d%H%M%S)"
   fi
 done

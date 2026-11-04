@@ -99,6 +99,10 @@ WEAK_GATE = 0.12        # a weak box counts only this close (share of the frame)
 POST_MOVE_IGNORE = 1.6  # after our own aim, frames this young may predate the move (stream lag + settle): don't re-aim on them
 
 
+class SearchHalted(Exception):
+    """A running search must stop now (cancelled, or a person moved the camera); the message is its result."""
+
+
 class Tracker:
     def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None, can_scan=None, tick=None, cancelled=None):
         """cam: position() -> (x, y); home() -> (x, y); goto(x, y) (returns at once); aim(fx, fy); wait_idle(); busy(); stop();
@@ -145,6 +149,12 @@ class Tracker:
 
     # ---- helpers -------------------------------------------------------------------------
     def _move(self, fn, *a, shift=None):
+        # During a search every motor command is a boundary: a cancel or a person's move since the last check stops
+        # it here, before the camera moves (review 2026-11-04: cancelled at 8.5 s, aimed at 8.9 s, reported found).
+        if self.searching and self.search_t0 is not None:
+            halt = self._halt(getattr(self, "search_reason", "search"))
+            if halt:
+                raise SearchHalted(halt)
         fn(*a)
         self.own_move_t = self.last_move = self.clock()
         if shift is None:
@@ -392,6 +402,10 @@ class Tracker:
         # two confirmations on the substream).
         boundary = self.clock()
         for n in range(frames):
+            if self.searching and self.search_t0 is not None:
+                halt = self._halt(getattr(self, "search_reason", "search"))
+                if halt:
+                    raise SearchHalted(halt)
             box = self.find_pet(boundary)
             if box is not None:
                 c = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
@@ -502,6 +516,7 @@ class Tracker:
         self.last_search = t0
         self.search_t0 = t0
         self.searching = True
+        self.search_reason = reason
         self.search_hits = []            # sure sightings of this search, room coordinates (pan, tilt steps)
         try:
             x0, y0 = self.cam.position()
@@ -561,6 +576,8 @@ class Tracker:
             self._wait_idle()
             self.own_move_t = self.last_move = self.clock()
             return f"search ({reason}): not found on {len(self.rows(y0))} rows, back to {label} ({bx}, {by})"
+        except SearchHalted as h:
+            return str(h)
         finally:
             self.searching = False
             self.search_t0 = None

@@ -21,12 +21,5 @@ jobs:
         run: for f in deploy.sh server/*.sh tools/*.sh; do bash -n "$f"; done
       - name: Nothing private is committed
         run: tools/check_public.sh --all
-      - name: Tests that need no camera or server
-        env:
-          PETCAM_SITE_ENV: config/site.env.example
-        run: |
-          for t in tracker events presence stall disconnect pill search_here_first update pet_name theme search_evidence follow search_cancel spot_highlight talk_button policy fast_mode search_glimpse; do
-            echo "== $t"; timeout 300 python tests/server/${t}_test.py
-          done
-      - name: The Follow simulator holds to the measured hardware and its own physics
-        run: timeout 600 python tests/sim/sim_test.py && timeout 300 python tests/sim/sysid_recovery_test.py
+      - name: Offline tests (server + simulator), the same gate the release workflow runs
+        run: tools/run_tests.sh
