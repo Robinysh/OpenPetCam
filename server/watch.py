@@ -178,10 +178,12 @@ def init_db():
                                       clip TEXT, thumb TEXT, label TEXT, labelled_by TEXT);
     CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
     """)
-    try:
-        con.execute("ALTER TABLE track ADD COLUMN policy TEXT")   # which Follow policy ran this cycle (A/B)
-    except sqlite3.OperationalError:
-        pass                                                         # already there
+    for col in ("policy TEXT",        # which Follow policy ran this cycle (A/B)
+                "moves INT"):         # motor commands Follow started during this cycle (a search is many)
+        try:
+            con.execute(f"ALTER TABLE track ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass                                                     # already there
     con.close()
 
 
@@ -1042,7 +1044,10 @@ class Watch:
                 except Exception as e:  # noqa: BLE001 - a broken model must never stop following: base runs instead
                     log("follow policy: PPO controller unavailable:", e)
         arms = ["base"] + (["learned"] if self.policy_doc or self.policy_stops else []) + (["ppo"] if self.ppo else [])
-        arm = arms[int(t // POLICY_BLOCK_S) % len(arms)]   # 2-hour blocks rotate through every policy present
+        # 2-hour blocks rotate through every policy present, shifted one block per day: with 12 blocks a day and 2 arms
+        # an unshifted rotation gave each arm the SAME hours every day (review 2026-11-04), confounding policy with
+        # her daily routine. Shifted, each hour of the day alternates between arms day by day.
+        arm = arms[(int(t // POLICY_BLOCK_S) + int(t // 86400)) % len(arms)]
         try:
             want, until = open(POLICY_OVERRIDE).read().split()[:2]
             if want in arms and t < float(until):
@@ -1272,9 +1277,11 @@ class Watch:
                                             box_t=getattr(self, "last_detect_capture", self.last_detect) + STREAM_LAG["sub"])
                 try:   # per cycle: where the camera pointed and what Follow did, to fit and replay its simulator
                     pose = self.current_pose(t) or (None, None)
-                    con.execute("INSERT INTO track(ts, pan, tilt, act, weak, policy) VALUES(?,?,?,?,?,?)",
+                    n_motor = getattr(self.tracker, "n_motor", 0)
+                    moves, self.n_motor_logged = n_motor - getattr(self, "n_motor_logged", n_motor), n_motor
+                    con.execute("INSERT INTO track(ts, pan, tilt, act, weak, policy, moves) VALUES(?,?,?,?,?,?,?)",
                                 (t, pose[0], pose[1], (act or "")[:80] or None, len(weak or []),
-                                 f"{self.policy_arm}@{self.code_version}"))   # replayable: arm + exact code
+                                 f"{self.policy_arm}@{self.code_version}", moves))   # replayable: arm + exact code
                 except Exception as e:  # noqa: BLE001 - logging must never stop following
                     log("track log:", e)
                 if act:

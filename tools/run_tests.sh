@@ -14,4 +14,5 @@ done
 echo "== sim"
 timeout 600 python3 tests/sim/sim_test.py
 timeout 300 python3 tests/sim/sysid_recovery_test.py
+timeout 300 python3 tests/sim/ab_report_test.py
 echo "all offline tests passed"

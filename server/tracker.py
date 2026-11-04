@@ -156,6 +156,7 @@ class Tracker:
             if halt:
                 raise SearchHalted(halt)
         fn(*a)
+        self.n_motor = getattr(self, "n_motor", 0) + 1        # every motor command, for the A/B (a search is many)
         self.own_move_t = self.last_move = self.clock()
         if shift is None:
             self.hist.clear()                # a long move: positions in the old view no longer apply
