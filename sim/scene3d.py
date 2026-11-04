@@ -8,10 +8,12 @@ tall frame from the measured 723.6 x 431.1 steps per frame; a 16:9 lens at 69.4 
 
     python3 sim/scene3d.py [eval/twin/day]   ->  eval/twin/<tag>/scene3d/{points.ply, floor.png, floor.json}
 
-STATUS (first run, 2026-11-04): not usable yet. Per-frame monocular depth disagrees in scale between neighbouring
-frames, so the fused floor is smeared (9.2 m2 of floor found, a 5 deg tilted plane, camera "0.30 m" up). Next: solve
-one depth scale per frame from the ~50% overlaps (the same viewing direction must have the same depth), then fit the
-floor; check the map by eye against the panorama before Find uses it.
+STATUS (2026-11-04): not usable as a floor map yet. One depth scale per frame, solved from the ~50% overlaps (339
+pairs), cuts the disagreement between overlapping frames from 38.5% to 18.2%, but the scales span 0.33-2.06: the
+model errs within frames too, and 18% at 2 m is ~35 cm of height noise, so most real floor reads as an obstacle.
+Next approach: segment floor pixels in each frame and place them where their viewing ray meets the floor plane (the
+camera sits at one point, so a floor pixel needs no depth; the camera height is measured once). Monocular depth stays
+useful for coarse geometry (walls, large furniture). Check every map by eye against the panorama before Find uses it.
 
 floor.json is what Find can use: the floor plane, the camera's height above it, and a top-down grid of floor cells
 (seen floor, obstacle, never seen), each with the pan/tilt that looks at it. Everything stays in eval/ (git-ignored).
@@ -63,21 +65,75 @@ def main(twin=os.path.join(ROOT, "eval", "twin", "day")):
     pipe = pipeline("depth-estimation", model=MODEL, device=dev)
     W, H = meta["frame_px"]
     hfov = math.radians(meta["pan_frame"] * DEG_PER_STEP)
+    # 1. depth per frame (cached: the model is the slow part)
+    cache = os.path.join(out_dir, "depth_cache.npz")
+    poses = meta["poses"]
+    if os.path.exists(cache):
+        z = np.load(cache)
+        depths = [z[f"d{i}"] for i in range(len(poses))]
+    else:
+        depths = []
+        for i, p in enumerate(poses):
+            _img, d = next(depth_maps([os.path.join(twin, p["file"])], pipe))
+            depths.append(d.astype(np.float32))
+            print(f"depth {i + 1}/{len(poses)} pan {p['pan']} tilt {p['tilt']}: {np.percentile(d, 10):.1f}-"
+                  f"{np.percentile(d, 90):.1f} m", flush=True)
+        np.savez_compressed(cache, **{f"d{i}": d for i, d in enumerate(depths)})
+    dh, dw = depths[0].shape
+    fx = (dw / 2) / math.tan(hfov / 2)
+    Rs = [rot(p["pan"], p["tilt"]) for p in poses]
+
+    def ray(xs, ys):
+        v = np.stack([(xs - dw / 2) / fx, -(ys - dh / 2) / fx, np.ones_like(xs, dtype=float)], 1)
+        return v                                          # camera-frame direction with z = 1 (scale by depth z)
+
+    # 2. one depth scale per frame from the overlaps: the same viewing direction must have the same range in both frames
+    ys, xs = np.mgrid[12:dh:24, 12:dw:24]
+    xs, ys = xs.ravel().astype(float), ys.ravel().astype(float)
+    rows, rhs, wts = [], [], []
+    for i in range(len(poses)):
+        for j in range(len(poses)):
+            if j <= i or abs(poses[i]["pan"] - poses[j]["pan"]) > 1.2 * meta["pan_frame"] or \
+                    abs(poses[i]["tilt"] - poses[j]["tilt"]) > 1.2 * meta["tilt_frame"]:
+                continue
+            ci = ray(xs, ys)
+            zi = depths[i][ys.astype(int), xs.astype(int)]
+            dirw = (ci / np.linalg.norm(ci, axis=1, keepdims=True)) @ Rs[i].T
+            cj = dirw @ Rs[j]                              # into camera j
+            ok = cj[:, 2] > 0.2
+            u = fx * cj[:, 0] / np.where(ok, cj[:, 2], 1) + dw / 2
+            v = dh / 2 - fx * cj[:, 1] / np.where(ok, cj[:, 2], 1)
+            ok &= (u >= 0) & (u < dw - 1) & (v >= 0) & (v < dh - 1) & (zi > 0.2) & (zi < MAX_DEPTH)
+            if ok.sum() < 40:
+                continue
+            zj = depths[j][v[ok].astype(int), u[ok].astype(int)]
+            ri = zi[ok] * np.linalg.norm(ci[ok], axis=1)
+            rj = zj * np.linalg.norm(ray(u[ok], v[ok]), axis=1)
+            good = (rj > 0.2) & (rj < MAX_DEPTH)
+            if good.sum() < 40:
+                continue
+            row = np.zeros(len(poses)); row[i], row[j] = 1, -1     # log s_i - log s_j = log r_j - log r_i
+            rows.append(row); rhs.append(float(np.median(np.log(rj[good]) - np.log(ri[good])))); wts.append(math.sqrt(good.sum()))
+    A = np.array(rows) * np.array(wts)[:, None]
+    b = np.array(rhs) * np.array(wts)
+    A = np.vstack([A, np.ones(len(poses)) * 10.0]); b = np.append(b, 0.0)     # gauge: mean log scale 0 (keep metric)
+    logs = np.linalg.lstsq(A, b, rcond=None)[0]
+    resid_before = float(np.median(np.abs(rhs)))
+    resid_after = float(np.median(np.abs(np.array(rhs) - np.array(rows) @ logs)))
+    scales = np.exp(logs)
+    print(f"overlap pairs {len(rows)}: median scale disagreement {100 * resid_before:.1f}% -> {100 * resid_after:.1f}% "
+          f"after one scale per frame (scales {scales.min():.2f}-{scales.max():.2f})", flush=True)
+
+    # 3. fuse
     pts, cols, owner = [], [], []
-    for i, p in enumerate(meta["poses"]):
-        img, d = next(depth_maps([os.path.join(twin, p["file"])], pipe))
-        dh, dw = d.shape
-        fx = (dw / 2) / math.tan(hfov / 2)
-        ys, xs = np.mgrid[0:dh:STRIDE, 0:dw:STRIDE]
-        z = d[ys, xs]
+    for i, p in enumerate(poses):
+        img = Image.open(os.path.join(twin, p["file"])).convert("RGB").resize((dw, dh))
+        yy, xx = np.mgrid[0:dh:STRIDE, 0:dw:STRIDE]
+        z = depths[i][yy, xx] * scales[i]
         ok = (z > 0.2) & (z < MAX_DEPTH)
-        xs, ys, z = xs[ok], ys[ok], z[ok]
-        cam = np.stack([(xs - dw / 2) / fx * z, -(ys - dh / 2) / fx * z, z], 1)     # x right, y up, z forward
-        world = cam @ rot(p["pan"], p["tilt"]).T
-        rgb = np.asarray(img.resize((dw, dh)))[ys, xs]
-        pts.append(world); cols.append(rgb); owner.append(np.full(len(world), i))
-        print(f"{i + 1}/{len(meta['poses'])} pan {p['pan']} tilt {p['tilt']}: {len(world)} points, depth "
-              f"{np.percentile(z, 10):.1f}-{np.percentile(z, 90):.1f} m", flush=True)
+        xx, yy, z = xx[ok].astype(float), yy[ok].astype(float), z[ok]
+        world = (ray(xx, yy) * z[:, None]) @ Rs[i].T
+        pts.append(world); cols.append(np.asarray(img)[yy.astype(int), xx.astype(int)]); owner.append(np.full(len(world), i))
     P, C, O = np.concatenate(pts), np.concatenate(cols), np.concatenate(owner)
     # floor: the dominant horizontal plane below the camera (RANSAC on y)
     rng = np.random.default_rng(0)
@@ -92,7 +148,7 @@ def main(twin=os.path.join(ROOT, "eval", "twin", "day")):
         if abs(n[1]) < 0.9:                    # floor is near-horizontal
             continue
         dist = np.abs((below - s[0]) @ n)
-        k = int((dist < 0.04).sum())
+        k = int((dist < 0.05).sum())
         if k > best[0]:
             best = (k, (n if n[1] > 0 else -n, s[0]))
     n, p0 = best[1]
@@ -108,7 +164,7 @@ def main(twin=os.path.join(ROOT, "eval", "twin", "day")):
     iu = np.clip(((u - lo_u) / CELL).astype(int), 0, nu - 1)
     iv = np.clip(((v - lo_v) / CELL).astype(int), 0, nv - 1)
     floor = np.zeros((nv, nu), int); obst = np.zeros((nv, nu), int); look = {}
-    is_floor = np.abs(up) < 0.06
+    is_floor = np.abs(up) < 0.08
     is_obst = (up > 0.10) & (up < 1.2)          # furniture height (what she can hide behind)
     np.add.at(floor, (iv[is_floor], iu[is_floor]), 1)
     np.add.at(obst, (iv[is_obst], iu[is_obst]), 1)
