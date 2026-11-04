@@ -1,5 +1,14 @@
 # Where the latency is (profiled 2026-11-02)
 
+## Server size
+
+Measured on the reference install (2026-11-04): about 6.4% of one vCPU with nothing happening (MediaMTX recording,
+the audio decoder, WireGuard, the watcher) and 10-17% of one vCPU averaged over a day. A Lightsail nano's sustained
+allowance is 10% of one vCPU (5% per vCPU, 2 vCPUs), so its burst credits run out most afternoons and the box is
+throttled (CPU steal up to 70%), which slows detection and Find. It works, but a plan with more sustained CPU
+(Lightsail $7: 20%, or any VPS with a full shared vCPU) has room for the faster frame path (`FAST_ENABLED` in
+`server/watch.py`, main-stream frames 0.3 s old while Follow is engaged).
+
 The profile was measured on the reference install: a Cinnado D1 running Thingino, WireGuard to an AWS
 Lightsail nano in us-east-1, and a laptop on the east coast. Re-run it with:
 

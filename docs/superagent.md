@@ -4,6 +4,28 @@ The owners asked for a system that runs and improves itself without them invokin
 dashboard) and stays steerable (by talking to Claude Code). This is that system. Code: `tools/superagent.py`
 (brain), `server/agentdb.py` (state), `server/agent.html` (dashboard at `/agent`), `agent/` (goals, steering, policies).
 
+## Running it
+
+If you use [Claude Code](https://claude.com/claude-code), `bash tools/install_autopilot.sh` runs an agent on your
+computer that treats what goes wrong as feedback and fixes it:
+
+- **"Something wrong?"** in the app files a report with the frame, the 90 s of video before it and what the phone
+  showed. The agent diagnoses it, writes a fix with a test, ships it through the checks below and answers you in
+  the app.
+- **Goals** in `agent/goals.json` (find success, CPU, freshness, reports answered, QA) are measured every 30 min.
+  A missed goal becomes work.
+- **Every change is judged by things it can't edit:** tests, a guard against removed assertions, a held-out replay
+  of detection and search, a shadow run for anything that changes how frames become "your pet", a health check
+  with rollback, and a check 24 h later. Rejected attempts are kept and shown to the next attempt.
+- **Fixes are shared.** When a fix has run live and healthy on your install, the agent opens a pull request to this
+  repository so every install gets it. The PR carries a public summary and the checks it passed; nothing from your
+  home (frames, clips, times, names, addresses) goes in, and the public-repo guard and your pet's name are checked
+  again before anything is pushed. Needs a fork as `origin` and `gh` signed in; `CONTRIBUTE=off` keeps fixes local.
+- **Watch it** in the app's **Agent** tab: goals with 7-day trends, what it's working on, every decision.
+  **Steer it** in plain words: edit `agent/steer.md`, or tell Claude Code.
+
+Design and the research it draws on: [docs/superagent.md](superagent.md).
+
 ## Design, after "Exploring Super-agent Design" (DeepSeek Harness, 2026-11-01)
 
 | Idea in the article | Here |

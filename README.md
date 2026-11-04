@@ -5,9 +5,8 @@
   </picture>
 </p>
 
-<p align="center"><b>The open-source pet camera that knows your pet.</b><br>
-Live video, your pet's day at a glance, and a camera that goes looking when they wander off.<br>
-On a $5 server you own. No subscription. No vendor cloud.<br>
+<p align="center"><b>A pet camera that knows your pet, and goes looking when they wander off.</b><br>
+Open source. Runs on a small server you own. No subscription, no vendor cloud.<br>
 <a href="https://crimeacs.github.io/OpenPetCam/"><b>Website &amp; 60-second film →</b></a></p>
 
 <p align="center">
@@ -19,11 +18,34 @@ On a $5 server you own. No subscription. No vendor cloud.<br>
 
 <p align="center"><img src="docs/media/hero.gif" width="720" alt="The camera searches the room and finds the dog on the rug; the verifier rejects her toy"></p>
 
-## Install in three steps
+## What it is
 
-You need a [Thingino](https://thingino.com)-flashed pan/tilt camera on your Wi-Fi (the reference is a Cinnado D1)
-and any Ubuntu 24.04 server with a public IP. The reference runs on an AWS Lightsail nano ($5/month), which is at the
-edge of its CPU allowance: see [Server size](#server-size).
+You put a cheap pan/tilt Wi-Fi camera in your home, and open an app on your phone. OpenPetCam then:
+
+- **shows them live**, with sound, and says what they're doing (resting, active, out of view);
+- **finds them**: when they leave the picture, the camera turns and searches the room until it sees them again,
+  or you tap **Find**;
+- **knows them from their toys**: a small model trained on *your* camera's pictures checks every sighting;
+- **keeps their day**: naps, activity, barks and short clips on a timeline, a nightly highlight reel and a timelapse;
+- **tells you when it matters**: barking, distress sounds, camera offline, view blocked.
+
+Everything runs on hardware you control. Video goes from your camera to your server and nowhere else.
+
+## What you need
+
+| | What | Notes |
+|---|---|---|
+| 📷 | A pan/tilt Wi-Fi camera that runs [Thingino](https://thingino.com) | The reference is a Cinnado D1. Thingino is free, open firmware you flash onto it. |
+| 🖥️ | A small Linux server with a public IP (Ubuntu 24.04) | Any cloud VM works. The reference is an AWS Lightsail nano at $5/month, which is at the edge of its CPU allowance; a plan with a little more sustained CPU is comfortable ([Server size](docs/performance.md#server-size)). |
+| 💻 | A Mac or Linux computer, once | For the 15-minute setup. Needs `git`, `ssh` and `rsync`. |
+| 🐕 | A pet | Dogs first: the sound model and the default verifier are tuned for dogs. |
+
+## Set it up
+
+**1. Flash the camera** with Thingino ([instructions](https://thingino.com)), join it to your Wi-Fi and set its
+password.
+
+**2. Run the setup** on your computer:
 
 ```bash
 git clone https://github.com/crimeacs/OpenPetCam.git && cd OpenPetCam
@@ -31,228 +53,100 @@ git checkout "$(git describe --tags --abbrev=0 2>/dev/null || echo main)"   # th
 ./setup
 ```
 
-`./setup` asks for the server's IP and SSH key, installs everything, tells you exactly what to type into the
-camera's WireGuard page, has you set a password on the server, and prints the address to open on your phone.
-Then *Share → Add to Home Screen*: it runs full screen like an app, with no App Store. It updates itself every night.
+It asks for your server's address and SSH key, installs everything, tells you exactly what to type into the camera's
+WireGuard page (the camera dials out to your server, so nothing is opened on your home network), and has you set a
+password.
 
-<details><summary>Prefer to do it by hand?</summary>
+**3. Open it on your phone.** Go to the address `./setup` prints, sign in, then *Share → Add to Home Screen*. It
+runs full screen like an app and can send notifications. Invite family from Settings.
 
-### Set it up by hand
+That's it. The server installs new releases by itself every night ([how updates work](docs/updates.md)).
+Prefer to do each step yourself? [Install by hand](docs/install.md).
 
-You need:
-- a Thingino-supported pan/tilt camera (reference: Cinnado D1, Ingenic T23N);
-- a Linux VM with a public IP running Ubuntu 24.04 (reference: AWS Lightsail `nano_3_0`, $5/month);
-- a Mac or Linux computer with `git`, `ssh` and `rsync`.
+## Using it
 
-1. **Flash the camera** with Thingino ([supported cameras and instructions](https://thingino.com)), join it to
-   your Wi-Fi and set its root password in the setup portal.
-2. **Create the server.** Open TCP 22, 80 and 443, plus UDP 51820 (WireGuard) and UDP 8189 (WebRTC media), in
-   the cloud firewall. Note its public IP and SSH key.
-3. **Get the latest release and configure it:**
-   ```bash
-   git clone https://github.com/crimeacs/OpenPetCam.git && cd OpenPetCam
-   git checkout "$(git describe --tags --abbrev=0)"     # the latest release, so it can update itself
-   cp config/site.env.example config/site.env           # then fill it in
-   ```
-   Fill in the pet's name, pronoun and description, the server IP, a host name and the time zone. A free host
-   name that needs no DNS is `petcam.<ip-with-dashes>.sslip.io`.
-4. **Deploy:** `./deploy.sh`. It downloads the models (pinned by SHA-256), installs MediaMTX, Caddy and WireGuard,
-   and starts everything. It prints the server's WireGuard public key.
-5. **Connect the camera.** In Thingino's WireGuard page fill in address `10.77.0.2/24`, endpoint
-   `<server IP>:51820`, peer public key (the key printed in step 4), allowed IPs `10.77.0.1/32` and keepalive
-   `25`. Copy the camera's public key into `CAMERA_WG_PUBKEY` in `config/site.env`, then run `./deploy.sh` again.
-6. **Set the passwords** on the server, interactively: `ssh -t <server> 'sudo /opt/petcam/set-secrets.sh'`.
-   It asks for the web app password and the camera's web login, and optionally a new RTSP login (change the
-   default `thingino`/`thingino`).
-7. **Open** `https://<PUBLIC_HOST>` on your phone, sign in once, and *Share → Add to Home Screen*. Opened from
-   the Home Screen it runs full screen and can send notifications. Invite others from Settings.
+<img src="site/media/app-tour.gif" width="220" align="right" alt="The app: live view finding the dog, Today, the agent dashboard, themes">
 
-</details>
+- **Live**: tap the picture to aim the camera, drag the joystick to look around, hold to talk to them. **Find**
+  searches the room now; **Follow** keeps them in view on its own; **Pause** turns off the picture *and* the microphone.
+- **Today**: the moments they were in view, naps and activity, every bark, and the clips.
+- **Something wrong?** Tap it and say what happened (for example "she's in view but it says she isn't"). It saves
+  the picture and the video around it, so the problem can be found and fixed.
 
-## What you get
+<br clear="right">
 
-<p align="center"><img src="site/media/app-tour.gif" width="300" alt="The app: live view finding the dog, Today, the agent dashboard, themes"></p>
+## How it works
 
-- **See them, always.** Live video with sound on your phone, and what they're doing (resting, active, out of
-  view) over the picture.
-- **It finds them.** Out of view for a while? The camera sweeps the room and stops on them, looking where it
-  already points first so it doesn't move for nothing. Or tap **Find**.
-- **It knows them from their toys.** A second model, trained on *your* camera's pictures, checks every sighting.
-- **Their day at a glance.** Today shows the moments they were in view, naps, activity and every bark. The Diary
-  keeps two weeks, with a nightly highlight reel and a timelapse.
-- **Alerts.** Barking, distress sounds, camera offline, view blocked.
-- **Private by design.** Video goes from your camera to your server and nowhere else. One tap turns off the
-  picture **and** the microphone. Family joins with an invite link, not a shared password.
-- **Yours to theme.** Cobalt, Golden or Meadow, light or dark.
+```
+ your home                                   your server
+┌──────────────────────┐  WireGuard (camera   ┌───────────────────────────────────────────┐
+│ camera (Thingino)    │  dials out; nothing  │ MediaMTX: video in, live view out,        │
+│  motors · video · mic│ ───────────────────▶ │           6 h rolling recording           │
+└──────────────────────┘  opened at home      │ watcher:  detects, follows, finds, sounds │
+                                              │ app:      the web app on your phone       │
+ your phone ◀──── HTTPS + live video ──────── │ Caddy:    HTTPS                           │
+                                              └───────────────────────────────────────────┘
+```
 
-## It fixes itself, and shares the fix
+Detection is two steps: a small general detector (YOLOX-nano) proposes "an animal is here", and a verifier
+trained on your own camera's pictures decides whether it is *your* pet (so a plush toy is not). Search turns the
+camera through the places your pet is usually found first, then sweeps the room.
+More: [architecture](docs/architecture.md) · [camera notes](docs/camera-thingino.md) · [performance](docs/performance.md).
 
-Tap **Something wrong?** in the app and say what happened. If you run the optional agent on your computer
-(`bash tools/install_autopilot.sh`, uses [Claude Code](https://claude.com/claude-code)), it reads your report and
-the video around it, writes a fix with a test, checks it against held-out data, ships it to your server and answers
-you in the app. The **Agent** tab shows its goals, what it's working on and every decision.
+## It gets better on its own (optional)
 
-Because it's open source, a fix proven on one camera is offered here as a pull request, and once it's released
-every camera installs it overnight. **[Join the open-source pet community →](#help-make-it-better)**
+- **It learns your pet.** `tools/bootstrap_pet.py` trains the verifier on your camera's pictures, and your 👍/👎 in
+  the app check it ([how](docs/teach-your-pet.md)).
+- **It learns your camera and your pet's habits.** A simulator fitted from the camera's own logs tunes how it follows
+  and where it looks first, and every change is tested live against the old behaviour before it stays
+  ([how, with the numbers](docs/follow-learning.md)).
+- **It fixes what goes wrong.** With [Claude Code](https://claude.com/claude-code) on your computer,
+  `bash tools/install_autopilot.sh` runs an agent that reads your "Something wrong?" reports, writes a fix with a test,
+  checks it against held-out data, ships it and answers you in the app. Fixes that work are offered back here as pull
+  requests ([the agent](docs/superagent.md)).
+
+## Questions
+
+**Is my video private?** Video goes from the camera to your server and nowhere else. One tap pauses the picture and the
+microphone together. Passwords and keys stay on the server; family joins with an invite link
+([privacy and secrets](docs/privacy.md)).
+
+**Which cameras work?** Any pan/tilt camera Thingino supports should, but only the Cinnado D1 (Ingenic T23N) is tested.
+Tell us if you try another.
+
+**Cats?** Not yet: the sound classes and the default verifier are for dogs (`verifier.json`, `watch.py`).
+
+**More than one camera?** One camera per server for now.
+
+**What does it cost?** The camera, plus the server (about $5-7 a month in the cloud). The optional agent uses your
+Claude Code plan.
 
 ## Help make it better
 
-OpenPetCam gets better every time a pet owner tells us what went wrong, and every fix reaches every camera
-overnight. You don't need a camera or any coding to help:
+You don't need a camera or any code to help:
 
-- **Tried it?** Open an [issue](https://github.com/crimeacs/OpenPetCam/issues/new/choose) and say what your pet
-  did that the camera got wrong, or what you wish it did. That's the most useful thing there is.
-- **Have a different camera?** Tell us whether it works with Thingino and what you had to change.
-- **Like to code?** Pick an issue, add a test, open a pull request. Most of the code runs in simulations on a
-  laptop; [CONTRIBUTING.md](CONTRIBUTING.md) gets you running in five minutes.
-- **Running the agent?** Its proven fixes come here as pull requests on their own. Keep `CONTRIBUTE=pr` and your
-  camera helps everyone's.
-
-## How it fits together
-
-```
-camera (Thingino, home Wi-Fi) ──WireGuard (the camera dials out; no ports open at home)──▶ your server
-server: MediaMTX (video in, WebRTC out, 6 h rolling recording) · petcam-watch (detection, search, follow, sounds)
-        petcam-app (the web app) · petcam-alert (push alerts) · petcam-update (nightly releases) · Caddy (HTTPS)
-your computer (optional): the agent, which proposes, tests and ships fixes
-```
-
-Live frames come from the camera's own JPEG snapshots pushed over one SSH channel (about 0.45 s fresher than its
-640x360 H.264 substream, which stays as the fallback). Details: [architecture](docs/architecture.md) ·
-[camera notes](docs/camera-thingino.md) · [performance](docs/performance.md) · [the agent](docs/superagent.md).
-
-### Server size
-
-Measured on the reference install (2026-11-04): about 6.4% of one vCPU with nothing happening (MediaMTX recording,
-the audio decoder, WireGuard, the watcher) and 10-17% of one vCPU averaged over a day. A Lightsail nano's sustained
-allowance is 10% of one vCPU (5% per vCPU, 2 vCPUs), so its burst credits run out most afternoons and the box is
-throttled (CPU steal up to 70%), which slows detection and Find. It works, but a plan with more sustained CPU
-(Lightsail $7: 20%, or any VPS with a full shared vCPU) has room for the faster frame path (`FAST_ENABLED` in
-`server/watch.py`, main-stream frames 0.3 s old while Follow is engaged).
-
-## Updates
-
-Once a day (around 04:20 server time) the server checks this repository's
-[releases](https://github.com/crimeacs/OpenPetCam/releases). When there is a newer one it:
-1. downloads it and checks its SHA-256;
-2. keeps a copy of what is running;
-3. installs it with the same `install.sh` that `./deploy.sh` uses;
-4. checks that the app answers and the watcher sees pictures again within 3 minutes;
-5. puts the previous version back if not, and never retries that release.
-
-Settings in the app shows the version and the last check. Your settings, passwords, keys, trained pet model,
-recordings and history are not part of a release, so an update never touches them.
-
-- **Turn it off:** `UPDATE_CHANNEL=off` in `config/site.env`, then `./deploy.sh`. The app still tells you when a
-  release is out.
-- **Your own fork:** `UPDATE_REPO=you/your-fork`.
-- **Running your own changes:** a server deployed from a checkout that is not exactly a release tag (for example
-  `v0.1.0-3-gabc1234`, or with uncommitted changes) is never overwritten automatically. `./deploy.sh` updates it.
-- **Publishing a release** (maintainers): add a `## [X.Y.Z]` section to `CHANGELOG.md`, then
-  `git tag vX.Y.Z && git push --tags`. The release workflow runs the checks and attaches the archive.
-
-## It learns your camera and pet
-
-`sim/` fits a simulator of *this* camera and pet from the watcher's own logs: motor speed, start delay and gear
-play measured on the camera, where she rests and walks, how long she stays away, how often the detector misses her
-in hard poses (calibrated to the real search outcomes) and the frame delay. A fit is accepted only if it reproduces
-the real metrics on held-out simulated days (`sim/selfcal.py`, gate 1). Follow's tuning constants and Find's search
-order are then trained in it and must beat today's on held-out simulated rooms (gate 2) before they run, and the
-learned policy then alternates with today's in 2-hour blocks on the real camera (`sim/ab_report.py`, gate 3).
-Status and numbers, including what has not worked yet: [docs/follow-learning.md](docs/follow-learning.md).
-
-## Teach it your pet
-
-```bash
-python3 -m venv .venv && .venv/bin/pip install onnxruntime numpy pillow
-.venv/bin/python tools/bootstrap_pet.py all      # collect crops, label them with `claude -p`, train, report
-.venv/bin/python tools/bootstrap_pet.py deploy   # after reading the report
-```
-
-Out of the box the verifier asks "is this any dog breed?". The labeller is told about your pet and its lookalikes
-(`PET_DESCRIPTION`, `PET_LOOKALIKES`); labels are cached, so a re-run only labels new crops. A trained verifier
-replaces the default only once there are enough labels across at least 3 days to test it honestly on held-out
-days, and `./deploy.sh` refuses to replace a trained verifier with the default. The 👍/👎 answers in the app are the
-human labels used to check it. Method and numbers: [docs/evaluation.md](docs/evaluation.md).
-
-To label by hand, `python3 tools/label_ui.py` opens a local page: the full frame with an editable box and one key
-per label, likely mistakes and night crops first. To check Find, `python3 tools/search_review.py pull` copies what
-every search saw (each stop, each sighting, with scores); label them in the page's "Searches" queue, then
-`python3 tools/search_review.py report` gives how often "found her" was really her, by day and night.
-
-## The agent (optional)
-
-If you use [Claude Code](https://claude.com/claude-code), `bash tools/install_autopilot.sh` runs an agent on your
-computer that treats what goes wrong as feedback and fixes it:
-
-- **"Something wrong?"** in the app files a report with the frame, the 90 s of video before it and what the phone
-  showed. The agent diagnoses it, writes a fix with a test, ships it through the checks below and answers you in
-  the app.
-- **Goals** in `agent/goals.json` (find success, CPU, freshness, reports answered, QA) are measured every 30 min.
-  A missed goal becomes work.
-- **Every change is judged by things it can't edit:** tests, a guard against removed assertions, a held-out replay
-  of detection and search, a shadow run for anything that changes how frames become "your pet", a health check
-  with rollback, and a check 24 h later. Rejected attempts are kept and shown to the next attempt.
-- **Fixes are shared.** When a fix has run live and healthy on your install, the agent opens a pull request to this
-  repository so every install gets it. The PR carries a public summary and the checks it passed; nothing from your
-  home (frames, clips, times, names, addresses) goes in, and the public-repo guard and your pet's name are checked
-  again before anything is pushed. Needs a fork as `origin` and `gh` signed in; `CONTRIBUTE=off` keeps fixes local.
-- **Watch it** in the app's **Agent** tab: goals with 7-day trends, what it's working on, every decision.
-  **Steer it** in plain words: edit `agent/steer.md`, or tell Claude Code.
-
-Design and the research it draws on: [docs/superagent.md](docs/superagent.md).
-
-## Secrets and privacy
-
-| What | Where | In git? |
-|---|---|---|
-| Pet name, server address, time zone, SSH settings | `config/site.env` on your computer; non-SSH parts copied to `/etc/petcam/site.env` | no (git-ignored) |
-| Web app password (PBKDF2 hash only), session key, camera web login | `/etc/petcam/app.env` on the server, mode 640, set by `set-secrets.sh` | no, never leaves the server |
-| Camera RTSP login | `/etc/petcam/camera.env` | no |
-| Web push keys, WireGuard private key | generated on the server by `install.sh` | no |
-| Frames, crops, labels and reports from your home | `eval/` on your computer | no (git-ignored) |
-
-Enable the guard once per clone: `git config core.hooksPath .githooks`. The pre-commit hook
-(`tools/check_public.sh`) refuses any commit that contains your server's IP or host name, your camera's address,
-a private key or other secret-shaped strings. Run `tools/check_public.sh --all` before publishing a fork.
-
-Phones stay signed in with a device cookie; the server stores only its SHA-256 hash, and a device can be revoked
-from Settings. Login attempts are rate-limited.
-
-## Repository
+- **Tried it?** [Open an issue](https://github.com/crimeacs/OpenPetCam/issues/new/choose) and say what your pet did
+  that the camera got wrong. That is the most useful thing there is.
+- **Have a different camera?** Tell us whether it works with Thingino and what you changed.
+- **Like to code?** Most of the code runs in simulations on a laptop. Run `tools/run_tests.sh` (no camera or server
+  needed), pick an issue, add a test, open a pull request. [CONTRIBUTING.md](CONTRIBUTING.md) gets you going in five
+  minutes.
 
 | Path | What |
 |---|---|
 | `server/` | everything that runs on the server, plus `install.sh` and `update.py` |
-| `config/site.env.example` | the one file you fill in |
-| `deploy.sh` | sync and install from your computer |
-| `tools/` | run on your computer: `bootstrap_pet.py`, `status.sh` (health report), `triage.py` (reports), `calibrate.py`, `replay.py` (held-out replay), `superagent.py` (the agent), `make_release.sh` |
-| `agent/` | the agent's goals, steering, policies and prompts |
-| `sim/` | the camera-and-pet simulator, its calibration from logs, policy training and the live A/B report |
-| `tests/server/`, `tests/sim/` | tests that run anywhere (`tools/run_tests.sh`, the CI and release gate) |
-| `tests/onserver/` | checks that need a running install, the camera or real recordings |
-| `docs/` | architecture, camera notes, evaluation, performance, the agent, research |
-
-## Limits
-
-- **Dogs first.** The sound model listens for dog classes and the default verifier asks "is this any dog breed?".
-  Cats would need different classes in `verifier.json` and `watch.py`.
-- **One camera per server.**
-- **Tested on one camera model** (Cinnado D1, Ingenic T23N). Pan/tilt geometry is calibrated per mount
-  (`tools/calibrate.py`); some motor quirks may be specific to that model.
-- **Detection runs every 8 s while she moves and every 30 s when the picture is still**, not on every frame, to
-  fit the $5 server's CPU budget. Searches and follows detect continuously while the camera moves.
+| `config/site.env.example` | the one file you fill in (`./setup` does it for you) |
+| `tools/` | run on your computer: setup helpers, training, the agent, `run_tests.sh`, `make_release.sh` |
+| `sim/` | the camera-and-pet simulator, its calibration, policy training and the live A/B report |
+| `tests/` | `server/` and `sim/` run anywhere; `onserver/` needs a running install |
+| `docs/` | install, updates, privacy, architecture, camera notes, performance, learning, the agent |
 
 ## Credits and licenses
 
-OpenPetCam is Apache-2.0 (see `LICENSE`). It builds on:
-- [Thingino](https://github.com/themactep/thingino-firmware) (camera firmware);
-- [MediaMTX](https://github.com/bluenviron/mediamtx) (MIT);
-- [Caddy](https://caddyserver.com) (Apache-2.0);
-- [WireGuard](https://www.wireguard.com);
-- [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX) (Apache-2.0);
-- [MobileNetV2 from the ONNX model zoo](https://github.com/onnx/models) (Apache-2.0);
-- [YAMNet](https://github.com/tensorflow/models/tree/master/research/audioset/yamnet) (Apache-2.0);
-- [pywebpush](https://github.com/web-push-libs/pywebpush).
-
-The models are downloaded at deploy time, not stored in this repository.
+OpenPetCam is Apache-2.0 (see `LICENSE`). It builds on
+[Thingino](https://github.com/themactep/thingino-firmware) (camera firmware),
+[MediaMTX](https://github.com/bluenviron/mediamtx) (MIT), [Caddy](https://caddyserver.com) (Apache-2.0),
+[WireGuard](https://www.wireguard.com), [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX) (Apache-2.0),
+[MobileNetV2 from the ONNX model zoo](https://github.com/onnx/models) (Apache-2.0),
+[YAMNet](https://github.com/tensorflow/models/tree/master/research/audioset/yamnet) (Apache-2.0) and
+[pywebpush](https://github.com/web-push-libs/pywebpush). The models are downloaded at deploy time, not stored here.
