@@ -48,6 +48,24 @@ POLICY_BOUNDS = {"LEAD": (0.0, 2.0), "EDGE": (0.10, 0.35), "MOVE_EVERY": (1.0, 5
                  "TRACK_WINDOW": (2.0, 6.0), "MOTION_CHASE_QUIET": (30.0, 600.0), "SEARCH_AFTER": (15.0, 120.0)}
 
 
+SEARCH_STOPS = []      # a learned search order [(pan, tilt), ...] (sim/train_search.py); empty = the saved views
+
+
+def policy_stops(doc, xm=3700, ym=1000, most=10):
+    """A policy document's learned search stops, validated: pairs of numbers, clamped inside the motor range."""
+    out = []
+    for p in (doc or {}).get("search_stops") or []:
+        try:
+            x, y = float(p[0]), float(p[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if x == x and y == y:                       # not NaN
+            out.append((int(min(xm, max(0, x))), int(min(ym - 40, max(40, y)))))
+        if len(out) == most:                        # validate first, then cap: bad entries cannot crowd out good ones
+            break
+    return out
+
+
 def policy_constants(doc):
     """The whitelisted, clamped constants of a policy document ({"constants": {...}}); anything else is dropped."""
     out = {}
@@ -450,7 +468,8 @@ class Tracker:
             box = self.look()
             if box is not None:
                 return self._found(box, t0, "where the camera already was", reason, centre=False)
-            for p in self.cam.presets():
+            stops = [{"x": x, "y": y} for x, y in SEARCH_STOPS] or self.cam.presets()   # learned order, else saved views
+            for p in stops:
                 halt = self._halt(reason)
                 if halt:
                     return halt

@@ -32,6 +32,9 @@ FREE_DEFAULTS = {
     "p_false_accept": 0.002,      # per judged frame: the verifier passes something that is not her
     "lag_s": 0.7,
     "owner_moves_per_h": 0.0,     # people turning the camera by hand (logged as 'paused'); fitted directly from logs
+    "p_hidden": 0.3,              # lying down inside an occluder (sim/params.json scene, mapped by Claude): hidden for
+                                  # that rest with this probability (calibrated)
+    "rest_place_share": 0.2,      # share of lie-downs at Claude's rest places rather than the logged sighting map
 }
 
 
@@ -73,7 +76,9 @@ class Room:
         self.state_until = self.t + self._lognorm(self.F["rest_med_s"], self.F["rest_sigma"])
         self.goal = None
         self.vx = self.vy = 0.0
-        self.dog_hist = [(0.0, self.px, self.py, False, self.dog_state)]
+        self.hidden = False
+        self.leaving = False
+        self.dog_hist = [(0.0, self.px, self.py, False, self.dog_state, False)]
         self.next_people = self.t + self.rng.exponential(3600 / max(self.F["people_motion_per_h"], 1e-6))
         om = float(self.F.get("owner_moves_per_h") or 0.0)
         self.next_owner = self.t + (self.rng.exponential(3600 / om) if om > 0 else 1e18)
@@ -84,7 +89,26 @@ class Room:
     def _lognorm(self, med, sigma):
         return float(med * math.exp(self.rng.normal(0, sigma)))
 
+    def _scene(self, kind):
+        return (self.P.get("scene") or {}).get(kind) or []
+
+    def _inside(self, kind, x, y):
+        return [r for r in self._scene(kind) if r["pan"][0] <= x <= r["pan"][1] and r["tilt"][0] <= y <= r["tilt"][1]]
+
     def _spot(self):
+        """A place she lies down: Claude's rest places (a share), else the logged 2D map of where she is seen."""
+        rp = self._scene("rest_places")
+        if rp and self.rng.random() < float(self.F.get("rest_place_share", 0.0)):
+            r = rp[int(self.rng.integers(len(rp)))]
+            return (float(self.rng.uniform(*r["pan"])),
+                    min(self.YM - 40.0, max(40.0, float(self.rng.uniform(*r["tilt"])))))
+        rm = self.P["pet"].get("room_map")
+        if rm:
+            w = np.array([r[2] for r in rm], dtype=float)
+            r = rm[int(self.rng.choice(len(rm), p=w / w.sum()))]
+            x = float(r[0] + self.rng.uniform(-self.FW / 4, self.FW / 4))
+            y = float(r[1] + self.rng.uniform(-self.FH / 4, self.FH / 4))
+            return min(self.XM, max(0.0, x)), min(self.YM - 40.0, max(40.0, y))
         x = float(self.rng.choice(self.hot_x, p=self.hot_p) + self.rng.normal(0, self.FW / 6))
         return min(self.XM, max(0.0, x)), float(self.rng.uniform(420, 720))
 
@@ -92,22 +116,38 @@ class Room:
         if self.t >= self.state_until:
             if self.dog_state == "rest":
                 self.dog_state = "move"
+                self.hidden = False
                 away = self.rng.random() < self.F["away_prob"]
-                self.goal = ((-self.FW if self.rng.random() < 0.5 else self.XM + self.FW), self.py) if away else self._spot()
+                ex = self._scene("exits")
+                if away and ex:                              # she leaves through a real doorway (Claude's map)
+                    e = ex[int(self.rng.integers(len(ex)))]
+                    self.goal = (float(sum(e["pan"]) / 2), float(sum(e["tilt"]) / 2))
+                    self.leaving = True
+                else:
+                    self.goal = ((-self.FW if self.rng.random() < 0.5 else self.XM + self.FW), self.py) if away else self._spot()
                 sp = self._lognorm(self.F["walk_speed_med"], self.F["walk_speed_sigma"])
                 d = max(1.0, math.hypot(self.goal[0] - self.px, self.goal[1] - self.py))
                 self.vx, self.vy = sp * (self.goal[0] - self.px) / d, sp * (self.goal[1] - self.py) / d
                 self.state_until = self.t + d / sp
             elif self.dog_state == "move":
-                if self.px < 0 or self.px > self.XM:
+                if getattr(self, "leaving", False) or self.px < 0 or self.px > self.XM:
+                    self.leaving = False
                     self.dog_state = "away"
                     self.state_until = self.t + self._lognorm(self.F["away_med_s"], self.F["away_sigma"])
                 else:
                     self.dog_state = "rest"
                     self.state_until = self.t + self._lognorm(self.F["rest_med_s"], self.F["rest_sigma"])
+                    # behind the sofa, under the stools: hidden for this whole rest, sometimes
+                    self.hidden = bool(self._inside("occluders", self.px, self.py)) and \
+                        self.rng.random() < float(self.F.get("p_hidden", 0.0))
                 self.vx = self.vy = 0.0
-            else:                                       # back from away: walk in from an edge to a favourite spot
-                self.px = -self.FW / 2 if self.rng.random() < 0.5 else self.XM + self.FW / 2
+            else:                                       # back from away: through a doorway (or an edge) to a spot
+                ex = self._scene("exits")
+                if ex:
+                    e = ex[int(self.rng.integers(len(ex)))]
+                    self.px, self.py = float(sum(e["pan"]) / 2), float(sum(e["tilt"]) / 2)
+                else:
+                    self.px = -self.FW / 2 if self.rng.random() < 0.5 else self.XM + self.FW / 2
                 self.goal = self._spot()
                 sp = self._lognorm(self.F["walk_speed_med"], self.F["walk_speed_sigma"])
                 d = max(1.0, math.hypot(self.goal[0] - self.px, self.goal[1] - self.py))
@@ -148,7 +188,7 @@ class Room:
                 self.next_people = self.t + self.rng.exponential(3600 / max(self.F["people_motion_per_h"], 1e-6))
             self.t += self.dt
             self.cam_hist.append((self.t, self.X, self.Y))
-            self.dog_hist.append((self.t, self.px, self.py, self.dog_state == "move", self.dog_state))
+            self.dog_hist.append((self.t, self.px, self.py, self.dog_state == "move", self.dog_state, self.hidden))
             self.truth.append((self.t, self.dt, self.in_view(), self.dog_state != "away"))
         if len(self.cam_hist) > 400:
             self.cam_hist = self.cam_hist[-200:]
@@ -166,7 +206,7 @@ class Room:
         return (X - px) / self.FW, (Y - py) / self.FH       # +f = she is right of centre (view right = lower pan)
 
     def in_view(self, X=None, Y=None, px=None, py=None):
-        if self.dog_state == "away" and px is None:
+        if px is None and (self.dog_state == "away" or self.hidden):
             return False
         f, g = self.offset(X, Y, px, py)
         return abs(f) < 0.45 and abs(g) < 0.45
@@ -182,9 +222,9 @@ class Room:
         """What a frame arriving now shows: the scene `lag` seconds ago. Returns (box or None, moving, weak boxes)."""
         lag = self.F["lag_s"]
         _, X, Y = self._past(self.cam_hist, lag)
-        _, px, py, mv, st = self._past(self.dog_hist, lag)    # camera AND pet at the same exposure time
+        _, px, py, mv, st, hid = self._past(self.dog_hist, lag)    # camera AND pet at the same exposure time
         weak = []
-        if st != "away" and self.in_view(X, Y, px, py):
+        if st != "away" and not hid and self.in_view(X, Y, px, py):
             f, g = self.offset(X, Y, px, py)
             p = self.P["detect_persist"]["moving" if mv else "still"]["p"]
             box = [0.5 + f - 0.08, 0.5 + g - 0.1, 0.5 + f + 0.08, 0.5 + g + 0.1]
@@ -203,7 +243,7 @@ class Room:
         """The frame reader's motion centroid, if the picture changed lately: her, at or near the edge, or people."""
         lag = self.F["lag_s"]
         _, X, Y = self._past(self.cam_hist, lag)
-        _, px, py, mv, st = self._past(self.dog_hist, lag)
+        _, px, py, mv, st, _hid = self._past(self.dog_hist, lag)
         if mv and st != "away":
             f, g = self.offset(X, Y, px, py)
             if abs(f) < 0.6 and abs(g) < 0.6:

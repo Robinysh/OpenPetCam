@@ -823,16 +823,18 @@ class Watch:
         no file, a bad file or no valid constants -> today's constants, logged as 'base'."""
         if not hasattr(self, "policy_base"):
             self.policy_base = {k: getattr(T, k) for k in T.POLICY_BOUNDS}
-            self.policy_doc, self.policy_mtime = {}, None
+            self.policy_doc, self.policy_mtime, self.policy_stops = {}, None, []
         try:
             m = os.path.getmtime(FOLLOW_POLICY)
             if m != self.policy_mtime:
                 with open(FOLLOW_POLICY) as f:
-                    self.policy_doc = T.policy_constants(json.load(f))
+                    doc = json.load(f)
+                self.policy_doc = T.policy_constants(doc)
+                self.policy_stops = T.policy_stops(doc)
                 self.policy_mtime = m
                 log("follow policy:", self.policy_doc or "none valid")
         except (OSError, ValueError):
-            self.policy_doc, self.policy_mtime = {}, None
+            self.policy_doc, self.policy_mtime, self.policy_stops = {}, None, []
         if not hasattr(self, "ppo"):
             self.ppo = None
             if os.path.exists(FOLLOW_PPO):
@@ -843,7 +845,7 @@ class Watch:
                     log("follow policy: PPO controller loaded")
                 except Exception as e:  # noqa: BLE001 - a broken model must never stop following: base runs instead
                     log("follow policy: PPO controller unavailable:", e)
-        arms = ["base"] + (["learned"] if self.policy_doc else []) + (["ppo"] if self.ppo else [])
+        arms = ["base"] + (["learned"] if self.policy_doc or self.policy_stops else []) + (["ppo"] if self.ppo else [])
         arm = arms[int(t // POLICY_BLOCK_S) % len(arms)]   # 2-hour blocks rotate through every policy present
         try:
             want, until = open(POLICY_OVERRIDE).read().split()[:2]
@@ -853,6 +855,7 @@ class Watch:
             pass
         for k, v in self.policy_base.items():
             setattr(T, k, self.policy_doc.get(k, v) if arm == "learned" else v)
+        T.SEARCH_STOPS = self.policy_stops if arm == "learned" else []
         if arm == "ppo" and self.policy_arm != "ppo":
             self.ppo.reset()                                # a fresh memory at the start of each PPO block
         self.policy_arm = arm

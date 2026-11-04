@@ -20,7 +20,7 @@ from room import load_params  # noqa: E402
 
 # (name, low, high, log-scale)
 SPACE = [("walk_speed_med", 30, 400, True), ("rest_med_s", 30, 1800, True), ("away_prob", 0.05, 0.6, False),
-         ("away_med_s", 120, 3600, True), ("people_motion_per_h", 0.5, 30, True)]
+         ("away_med_s", 120, 3600, True), ("people_motion_per_h", 0.5, 30, True), ("p_hidden", 0.0, 0.9, False)]
 TARGETS = [("in_view_share_while_home", None, 0.05), ("losses_per_home_hour", None, 2.0),
            ("seen_again_within_s", 30, 0.08), ("seen_again_within_s", 60, 0.08),
            ("follow_actions_per_hour", "chase", 1.5), ("follow_actions_per_hour", "search", 1.0),

@@ -123,6 +123,83 @@
     "p95": 470.3307
    }
   },
+  "room_map": [
+   [
+    1283,
+    530,
+    0.8363
+   ],
+   [
+    916,
+    530,
+    0.0721
+   ],
+   [
+    2016,
+    742,
+    0.0175
+   ],
+   [
+    2016,
+    530,
+    0.0171
+   ],
+   [
+    550,
+    530,
+    0.0126
+   ],
+   [
+    2382,
+    530,
+    0.0094
+   ],
+   [
+    1283,
+    318,
+    0.0094
+   ],
+   [
+    2382,
+    742,
+    0.009
+   ],
+   [
+    183,
+    530,
+    0.0065
+   ],
+   [
+    1649,
+    530,
+    0.0057
+   ],
+   [
+    1649,
+    742,
+    0.0016
+   ],
+   [
+    1283,
+    742,
+    0.0012
+   ],
+   [
+    2382,
+    318,
+    0.0008
+   ],
+   [
+    916,
+    318,
+    0.0004
+   ],
+   [
+    2016,
+    318,
+    0.0004
+   ]
+  ],
   "pan_hotspots": {
    "0": 0.0065,
    "366": 0.0126,
@@ -181,60 +258,61 @@
   }
  },
  "free": {
-  "walk_speed_med": 387.103,
-  "rest_med_s": 92.0096,
-  "away_prob": 0.0513,
-  "away_med_s": 2544.6321,
-  "people_motion_per_h": 9.8214,
-  "owner_moves_per_h": 2.93
+  "walk_speed_med": 285.9964,
+  "rest_med_s": 229.4746,
+  "away_prob": 0.426,
+  "away_med_s": 216.5326,
+  "people_motion_per_h": 6.0996,
+  "owner_moves_per_h": 2.93,
+  "p_hidden": 0.757
  },
  "calibration": {
-  "loss": 3.033,
+  "loss": 5.932,
   "hours": 4,
   "seeds": 4,
   "evals": 128,
   "fit": {
    "in_view_share_while_home": {
     "real": 0.756,
-    "sim_min": 0.656,
-    "sim_max": 0.781,
-    "sim_mean": 0.731
+    "sim_min": 0.662,
+    "sim_max": 0.762,
+    "sim_mean": 0.717
    },
    "losses_per_home_hour": {
     "real": 12.18,
-    "sim_min": 8.62,
-    "sim_max": 13.16,
-    "sim_mean": 10.887
+    "sim_min": 9.41,
+    "sim_max": 12.43,
+    "sim_mean": 11.152
    },
    "seen_again_within_s/30": {
     "real": 0.279,
-    "sim_min": 0.2,
-    "sim_max": 0.55,
-    "sim_mean": 0.392
+    "sim_min": 0.355,
+    "sim_max": 0.421,
+    "sim_mean": 0.382
    },
    "seen_again_within_s/60": {
     "real": 0.505,
-    "sim_min": 0.333,
-    "sim_max": 0.65,
-    "sim_mean": 0.475
+    "sim_min": 0.375,
+    "sim_max": 0.421,
+    "sim_mean": 0.408
    },
    "follow_actions_per_hour/chase": {
     "real": 5.85,
-    "sim_min": 3.75,
-    "sim_max": 8.75,
-    "sim_mean": 6.062
+    "sim_min": 3.25,
+    "sim_max": 6.5,
+    "sim_mean": 4.938
    },
    "follow_actions_per_hour/search": {
     "real": 2.85,
-    "sim_min": 2.25,
-    "sim_max": 4.25,
-    "sim_mean": 3.312
+    "sim_min": 2.75,
+    "sim_max": 5.0,
+    "sim_mean": 4.062
    },
    "follow_actions_per_hour/track": {
     "real": 4.26,
-    "sim_min": 1.75,
-    "sim_max": 5.75,
-    "sim_mean": 4.125
+    "sim_min": 0.75,
+    "sim_max": 6.0,
+    "sim_mean": 3.75
    }
   }
  },
@@ -255,5 +333,174 @@
    "people_motion_per_h": 7.8338,
    "owner_moves_per_h": 0.41
   }
+ },
+ "scene": {
+  "exits": [
+   {
+    "name": "doorway",
+    "pan": [
+     1065,
+     1440
+    ],
+    "tilt": [
+     443,
+     1000
+    ]
+   },
+   {
+    "name": "hallway end",
+    "pan": [
+     214,
+     434
+    ],
+    "tilt": [
+     489,
+     1000
+    ]
+   }
+  ],
+  "occluders": [
+   {
+    "name": "stools",
+    "pan": [
+     2270,
+     3333
+    ],
+    "tilt": [
+     0,
+     711
+    ],
+    "hides": "floor behind and between the stool legs, by the kitchen counter"
+   },
+   {
+    "name": "sofa",
+    "pan": [
+     2204,
+     2480
+    ],
+    "tilt": [
+     489,
+     665
+    ],
+    "hides": "floor behind the sofa, toward the window and radiator"
+   },
+   {
+    "name": "TV stand",
+    "pan": [
+     1850,
+     2005
+    ],
+    "tilt": [
+     549,
+     654
+    ],
+    "hides": "the space under and behind the TV stand"
+   }
+  ],
+  "rest_places": [
+   {
+    "name": "rug",
+    "pan": [
+     1817,
+     2293
+    ],
+    "tilt": [
+     448,
+     619
+    ]
+   },
+   {
+    "name": "sofa",
+    "pan": [
+     2204,
+     2480
+    ],
+    "tilt": [
+     489,
+     665
+    ]
+   },
+   {
+    "name": "pet bed",
+    "pan": [
+     280,
+     568
+    ],
+    "tilt": [
+     408,
+     536
+    ]
+   },
+   {
+    "name": "bowls",
+    "pan": [
+     169,
+     744
+    ],
+    "tilt": [
+     0,
+     360
+    ]
+   }
+  ],
+  "blank": [
+   {
+    "name": "near side, left edge",
+    "pan": [
+     3266,
+     3700
+    ],
+    "tilt": [
+     0,
+     1000
+    ]
+   },
+   {
+    "name": "overhead, top left",
+    "pan": [
+     2823,
+     3700
+    ],
+    "tilt": [
+     700,
+     1000
+    ]
+   },
+   {
+    "name": "ceiling",
+    "pan": [
+     1806,
+     2823
+    ],
+    "tilt": [
+     911,
+     1000
+    ]
+   },
+   {
+    "name": "bare wall",
+    "pan": [
+     1485,
+     1806
+    ],
+    "tilt": [
+     560,
+     1000
+    ]
+   },
+   {
+    "name": "near wall at the right edge",
+    "pan": [
+     0,
+     214
+    ],
+    "tilt": [
+     0,
+     1000
+    ]
+   }
+  ],
+  "source": "claude -p on the camera's own panorama (sim/scene_from_claude.py)",
+  "rejected": 0
  }
 }

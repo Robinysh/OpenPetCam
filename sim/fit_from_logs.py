@@ -86,6 +86,13 @@ def main(export, follow_log, out):
             run_state, run_t0 = st, p[0]
         prev = p
     P["pet"] = {"room_points": len(pts), "speed_steps_s_moving": q(speeds), "dwell_s": {k: q(v) for k, v in dwell.items()}}
+    # where she is found in 2D (pan x tilt, half-frame bins): the simulator places her here and the search is learned
+    # from it (sim/train_search.py)
+    grid = Counter((int(max(0, min(PAN_MAX, p[1])) // (PAN_FRAME / 2)), int(max(0, min(TILT_MAX, p[2])) // (TILT_FRAME / 2)))
+                   for p in pts)
+    gt = sum(grid.values()) or 1
+    P["pet"]["room_map"] = [[round((i + 0.5) * PAN_FRAME / 2), round((j + 0.5) * TILT_FRAME / 2), round(v / gt, 4)]
+                            for (i, j), v in sorted(grid.items(), key=lambda kv: -kv[1])]
     # where she is found: a coarse room map for the search prior (pan bins of half a frame)
     hist = Counter(int(max(0, min(PAN_MAX, p[1])) // (PAN_FRAME / 2)) for p in pts)
     tot = sum(hist.values()) or 1
@@ -128,6 +135,8 @@ def main(export, follow_log, out):
     if P["pet"]["room_points"] < 200 and (old.get("pet") or {}).get("pan_hotspots"):
         # too few sightings with a camera pose (e.g. a day before the pose log existed): keep the known room map
         P["pet"]["pan_hotspots"] = old["pet"]["pan_hotspots"]
+        if old["pet"].get("room_map"):
+            P["pet"]["room_map"] = old["pet"]["room_map"]
         P["pet"]["hotspots_from"] = "previous fit (too few located sightings in these logs)"
     old.update({k: P[k] for k in ("source", "cycle_s", "detect_persist", "pet", "real_metrics")})
     paused = (P["real_metrics"].get("follow_actions_per_hour") or {}).get("paused")
