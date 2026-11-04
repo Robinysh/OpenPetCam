@@ -54,6 +54,8 @@ HOUSE_FILE = f"{STATE}/housekeeping_day"            # date of the last nightly h
 MODEL = "/opt/petcam/models/yolox_nano.onnx"
 YAMNET_MODEL = "/opt/petcam/models/yamnet.tflite"
 VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.py
+FOLLOW_POLICY = "/opt/petcam/models/follow_policy.json"   # from sim/train_policy.py (learned on this camera's simulator)
+POLICY_BLOCK_S = 7200          # live A/B: the learned constants and today's alternate in 2-hour blocks
 REPORTS = f"{STATE}/reports"                         # "Something wrong?" reports from the app
 CANDIDATES = f"{STATE}/candidates"                  # frames with dog-like things, for the next bootstrap
 SEARCHES = f"{STATE}/searches"                      # what each search saw, to label Find right/wrong (tools/search_review.py)
@@ -141,6 +143,10 @@ def init_db():
                                       clip TEXT, thumb TEXT, label TEXT, labelled_by TEXT);
     CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
     """)
+    try:
+        con.execute("ALTER TABLE track ADD COLUMN policy TEXT")   # which Follow policy ran this cycle (A/B)
+    except sqlite3.OperationalError:
+        pass                                                         # already there
     con.close()
 
 
@@ -774,6 +780,11 @@ class Watch:
         self.gone_since = now()
         self.rest_since = None
         self.moving_since = None
+        self.policy_arm = "base"                   # which Follow policy the last cycle ran (apply_policy)
+        try:                                       # the code version that ran (deploy.sh writes git describe here)
+            self.code_version = open("/opt/petcam/VERSION").read().strip()[:40]
+        except OSError:
+            self.code_version = "unknown"
         self.minute = None
         self.acc = None
         self.imaging = {}
@@ -804,6 +815,26 @@ class Watch:
             time.sleep(max(0.0, MIN_CYCLE - (now() - t0)))
             self.frames.wake.wait(max(0.0, PERIOD - (now() - t0)))
             self.frames.wake.clear()
+
+    def apply_policy(self, t):
+        """Live A/B of a learned Follow policy: odd 2-hour blocks run its constants, even blocks today's. Fails closed:
+        no file, a bad file or no valid constants -> today's constants, logged as 'base'."""
+        if not hasattr(self, "policy_base"):
+            self.policy_base = {k: getattr(T, k) for k in T.POLICY_BOUNDS}
+            self.policy_doc, self.policy_mtime = {}, None
+        try:
+            m = os.path.getmtime(FOLLOW_POLICY)
+            if m != self.policy_mtime:
+                with open(FOLLOW_POLICY) as f:
+                    self.policy_doc = T.policy_constants(json.load(f))
+                self.policy_mtime = m
+                log("follow policy:", self.policy_doc or "none valid")
+        except (OSError, ValueError):
+            self.policy_doc, self.policy_mtime = {}, None
+        learned = bool(self.policy_doc) and int(t // POLICY_BLOCK_S) % 2 == 1
+        for k, v in self.policy_base.items():
+            setattr(T, k, self.policy_doc.get(k, v) if learned else v)
+        self.policy_arm = "learned" if learned else "base"
 
     def check_stream_stall(self):
         """Video stopped but snapshots still work: after a stream-settings change (2026-11-02 10:28) the
@@ -985,6 +1016,7 @@ class Watch:
         if not privacy and self.find_requested(t):
             self.find(con, best if best and score >= PRESENT_SCORE else None)
         elif self.setting("follow", False) and not privacy:
+            self.apply_policy(t)
             try:
                 weak = None
                 if self.verifier and self.last_detect == t:   # only from this cycle's detector run, never a stale one
@@ -995,8 +1027,9 @@ class Watch:
                                         weak=weak, box_t=self.last_detect)
                 try:   # per cycle: where the camera pointed and what Follow did, to fit and replay its simulator
                     pose = self.current_pose(t) or (None, None)
-                    con.execute("INSERT INTO track VALUES(?,?,?,?,?)", (t, pose[0], pose[1], (act or "")[:80] or None,
-                                                                         len(weak or [])))
+                    con.execute("INSERT INTO track(ts, pan, tilt, act, weak, policy) VALUES(?,?,?,?,?,?)",
+                                (t, pose[0], pose[1], (act or "")[:80] or None, len(weak or []),
+                                 f"{self.policy_arm}@{self.code_version}"))   # replayable: arm + exact code
                 except Exception as e:  # noqa: BLE001 - logging must never stop following
                     log("track log:", e)
                 if act:

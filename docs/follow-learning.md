@@ -1,0 +1,56 @@
+# Follow that learns your camera and your pet
+
+Every camera is different: its motor speed, its lag, how far one motor step turns the picture, how much slack the gears
+have. So is every pet: where they lie, how fast they walk, how long they stay. A Follow policy tuned for one home is a
+guess in the next. OpenPetCam therefore learns both from the camera's own logs, builds a simulator of that home, trains a
+policy there, and only keeps it if it wins, first in simulation on rooms it never trained on, then live.
+
+```bash
+python3 sim/selfcal.py --sysid --deploy      # the whole loop for this install
+python3 sim/ab_report.py 3                    # after a few days: does the learned policy stay?
+```
+
+## The loop
+
+| Step | What it does | Check that must pass |
+|---|---|---|
+| 1. Export | Pulls the watcher's own logs: one row per cycle (detection, box), the camera pose and Follow's action per cycle, searches and comings and goings. Numbers only; pictures never leave the server. | |
+| 2. Fit (`sim/fit_from_logs.py`) | Cycle timing by state, detection persistence, where the pet is found (a map in motor coordinates), rest and move durations. Also measures the real metrics: share of time in view while home, losses per hour, how fast she is seen again, actions per hour. | |
+| 3. Measure the camera (`sim/sysid_camera.py`) | Motor delay and speed, whether a new command queues, frame size in motor steps and gear backlash from image shifts (phase correlation). Refuses while the pet is resting in view; pauses Follow; undoes every move. | Each measurement repeated; accepted only if trials agree within 5% |
+| 4. Calibrate (`sim/calibrate.py`) | What logs cannot show directly (true walking speed, time away, how often people set off motion) is fitted by running the real controller in the simulator and matching the statistics it would have logged to the real ones (CMA-ES, the same seeds for every candidate). | |
+| 5. Gate 1 (`sim/gate1.py`) | The unchanged controller, in the simulator, on seeds never used for calibration. | Real metrics inside the simulator's range |
+| 6. Train (`sim/train_policy.py`) | Direct policy search (CMA-ES) over the controller's tuning constants, on randomised rooms around the calibrated ones, scored by the worst quarter of rooms, with no more motor moves than today. A recurrent PPO policy (`sim/train_ppo.py`) is trained on the same environment as a challenger. | |
+| 7. Gate 2 | Learned vs today's constants on 32 held-out rooms (different seeds and parameter draws). | More time in view, better worst quarter, no more moves |
+| 8. Live A/B (gate 3, `sim/ab_report.py`) | The watcher alternates the learned constants and today's in 2-hour blocks and logs which one ran. | Logged in-view share not lower and moves per home hour not higher, over 8+ home hours per arm; else remove `models/follow_policy.json` |
+
+The policy is the existing controller with learned constants, so it costs nothing to run on a $5 server, stays readable,
+and keeps every hard rule: the server accepts only whitelisted constants clamped to fixed bounds
+(`server/tracker.py` `POLICY_BOUNDS`), and "no automatic moves near a resting pet" is enforced in code, never learned.
+
+## Measured on the reference install (Cinnado D1, 2026-11-04)
+
+- **Camera (sysid):** 216-218 steps/s at the quiet speed, 50-120 ms from command to first motion, a new command waits for
+  the move in progress; frame 740 steps wide (configured 733); **27 steps of gear play**: after a reversal the step
+  counter moves at once and the picture only after the play (the simulator models counter and optics separately).
+  Tilt could not be measured in a busy room (phase correlation needs a still scene); the configured value is kept.
+- **Sensing:** frames 0.7 s late; the detector runs every 30 s while she rests (8 s while lively, at once on motion),
+  so one missed detection becomes a 30-second "loss" in the logs, and the simulator runs the same schedule.
+- **You:** people turn the camera by hand about 3 times an hour, which pauses Follow for 3 minutes; measured from the
+  logs and part of the simulated room.
+- **Gate 1:** 7 of 7 real metrics inside the simulator's range on held-out seeds (logged in-view 0.756 real, 0.731 sim).
+- **Gate 2:** learned constants vs today's on 32 held-out rooms: true in-view while home 0.624 -> 0.659, worst
+  quarter 0.431 -> 0.484, motor moves 31.2 -> 26.7 per hour, better in 15 of 32 rooms. The policy re-aims at most
+  every ~5 s, chases only from a clear edge exit, and searches later.
+
+## What is not yet established
+
+- **Predicting a held-out real day.** Leave-one-day-out (fit on one real day, predict the other) put only 1-3 of 7
+  real metrics inside the simulator's range. Two reasons: the two days differed (a calm day, 1.8 tracking aims an hour;
+  an active day with walks, 7.8 an hour), and about 20 versions of the tracker ran in those two days, so the logs
+  cannot be replayed with one controller. Since 2026-11-04 every cycle logs `arm@version`
+  (`track.policy`), and `sim/gate1.py load_tracker(rev=...)` replays the exact code; `sim/validate_real.py` becomes a
+  fair test once a week of logs from one version exists. Until then the live A/B (gate 3) is the deciding test.
+- **One parameter set is not enough.** Day-to-day variation is real, so calibration should produce a distribution
+  (one fit per day or per block) and training should randomise across it, as BayesSim and SimOpt do.
+- **A camera other than the reference one** has not been run through the loop yet.
+

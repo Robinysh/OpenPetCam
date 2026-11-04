@@ -10,3 +10,6 @@ models/
 eval/
 # Release archives built by tools/make_release.sh
 dist/
+
+# per-install learned Follow policies (sim/train_policy.py); deployed from models/follow_policy.json
+sim/policy*.json

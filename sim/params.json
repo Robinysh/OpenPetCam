@@ -1,0 +1,206 @@
+{
+ "source": {
+  "obs_rows": 61786,
+  "track_rows": 12695,
+  "obs_hours": 56.1,
+  "track_hours": 11.8
+ },
+ "geometry": {
+  "pan_max": 3700,
+  "tilt_max": 1000,
+  "pan_frame": 740.0,
+  "tilt_frame": 424.0,
+  "frame_measurement": {
+   "pan": {
+    "steps_per_frame": 740,
+    "backlash_steps": 27,
+    "method": "2 trials same-direction vs reversed 200-step moves, phase correlation, 2026-11-04",
+    "accepted": true
+   },
+   "tilt": {
+    "accepted": false,
+    "note": "busy room (owner and dog playing) broke phase correlation; configured 424 kept"
+   }
+  },
+  "pan_backlash": 27.0
+ },
+ "cycle_s": {
+  "moving": {
+   "p10": 1.0001,
+   "p25": 1.0008,
+   "p50": 2.8836,
+   "p75": 3.0003,
+   "p90": 3.1202,
+   "p95": 4.4788
+  },
+  "still": {
+   "p10": 2.5904,
+   "p25": 2.9835,
+   "p50": 3.0001,
+   "p75": 3.004,
+   "p90": 3.0397,
+   "p95": 3.0868
+  },
+  "absent": {
+   "p10": 2.0104,
+   "p25": 2.9614,
+   "p50": 3.0001,
+   "p75": 3.0128,
+   "p90": 3.0663,
+   "p95": 3.1435
+  }
+ },
+ "detect_persist": {
+  "moving": {
+   "p": 0.9505,
+   "n": 1090
+  },
+  "still": {
+   "p": 0.9876,
+   "n": 21503
+  }
+ },
+ "pet": {
+  "room_points": 2456,
+  "speed_steps_s_moving": {
+   "p10": 0.0,
+   "p25": 0.0,
+   "p50": 2.9853,
+   "p75": 16.6239,
+   "p90": 45.5915,
+   "p95": 90.2009
+  },
+  "dwell_s": {
+   "move": {
+    "p10": 0.0,
+    "p25": 0.0,
+    "p50": 0.0,
+    "p75": 2.97,
+    "p90": 6.4023,
+    "p95": 11.6793
+   },
+   "rest": {
+    "p10": 0.0,
+    "p25": 0.0,
+    "p50": 3.0002,
+    "p75": 23.6917,
+    "p90": 240.061,
+    "p95": 470.3307
+   }
+  },
+  "pan_hotspots": {
+   "0": 0.0065,
+   "366": 0.0126,
+   "733": 0.0725,
+   "1099": 0.8469,
+   "1466": 0.0073,
+   "1832": 0.035,
+   "2199": 0.0191
+  }
+ },
+ "real_metrics": {
+  "home_hours": 24.7,
+  "in_view_share_while_home": 0.756,
+  "losses": 301,
+  "losses_per_home_hour": 12.18,
+  "seen_again_within_s": {
+   "10": 0.023,
+   "30": 0.279,
+   "60": 0.505,
+   "600": 0.91
+  },
+  "follow_actions_per_hour": {
+   "re": 0.22,
+   "paused": 2.93,
+   "track": 4.26,
+   "search": 2.85,
+   "chase": 5.85
+  }
+ },
+ "motor": {
+  "measured": "2026-11-04",
+  "first_motion_ms": [
+   60,
+   50,
+   70
+  ],
+  "speed_steps_s": {
+   "250": 216,
+   "900": 752
+  },
+  "second_command": "queues behind the move in progress",
+  "raw": {
+   "A": {
+    "first_motion_ms": 60,
+    "speed": 216
+   },
+   "B": {
+    "first_motion_ms": 50,
+    "speed": 24,
+    "queues": true
+   },
+   "C": {
+    "first_motion_ms": 70,
+    "speed": 752
+   }
+  }
+ },
+ "free": {
+  "walk_speed_med": 387.103,
+  "rest_med_s": 92.0096,
+  "away_prob": 0.0513,
+  "away_med_s": 2544.6321,
+  "people_motion_per_h": 9.8214,
+  "owner_moves_per_h": 2.93
+ },
+ "calibration": {
+  "loss": 3.033,
+  "hours": 4,
+  "seeds": 4,
+  "evals": 128,
+  "fit": {
+   "in_view_share_while_home": {
+    "real": 0.756,
+    "sim_min": 0.656,
+    "sim_max": 0.781,
+    "sim_mean": 0.731
+   },
+   "losses_per_home_hour": {
+    "real": 12.18,
+    "sim_min": 8.62,
+    "sim_max": 13.16,
+    "sim_mean": 10.887
+   },
+   "seen_again_within_s/30": {
+    "real": 0.279,
+    "sim_min": 0.2,
+    "sim_max": 0.55,
+    "sim_mean": 0.392
+   },
+   "seen_again_within_s/60": {
+    "real": 0.505,
+    "sim_min": 0.333,
+    "sim_max": 0.65,
+    "sim_mean": 0.475
+   },
+   "follow_actions_per_hour/chase": {
+    "real": 5.85,
+    "sim_min": 3.75,
+    "sim_max": 8.75,
+    "sim_mean": 6.062
+   },
+   "follow_actions_per_hour/search": {
+    "real": 2.85,
+    "sim_min": 2.25,
+    "sim_max": 4.25,
+    "sim_mean": 3.312
+   },
+   "follow_actions_per_hour/track": {
+    "real": 4.26,
+    "sim_min": 1.75,
+    "sim_max": 5.75,
+    "sim_mean": 4.125
+   }
+  }
+ }
+}
