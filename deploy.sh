@@ -33,7 +33,7 @@ if trained "$LIVE_MODE" && ! trained "$LOCAL_MODE" && [ "${PETCAM_ALLOW_DEFAULT:
 fi
 "${SSH[@]}" "$SSH_HOST" "mkdir -p -m 700 ~/$DEST/models"
 rsync -az --delete --exclude __pycache__ -e "${SSH[*]}" server/ "$SSH_HOST:$DEST/" --exclude models
-rsync -az -e "${SSH[*]}" models/ "$SSH_HOST:$DEST/models/"
+rsync -az --delete -e "${SSH[*]}" models/ "$SSH_HOST:$DEST/models/"   # --delete: a model removed here must not come back
 rsync -az -e "${SSH[*]}" "$CONF" "$SSH_HOST:$DEST/site.env"
 # The version being installed: a release tag exactly (vX.Y.Z), or a git description such as v1.0.0-3-gabc1234
 # or -dirty for anything else. Only an exact release is updated automatically from GitHub (server/update.py).

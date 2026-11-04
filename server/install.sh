@@ -86,6 +86,12 @@ install -d -m 755 /opt/petcam/models
 for m in yolox_nano.onnx yamnet.tflite yamnet_class_map.csv mobilenetv2-12.onnx petnet.onnx verifier.json follow_policy.json follow_ppo.onnx; do
   [ -f "$SRC/models/$m" ] && install -m 644 "$SRC/models/$m" /opt/petcam/models/
 done
+# A learned Follow policy that is no longer shipped must stop running: set it aside (not deleted, for the record).
+for m in follow_policy.json follow_ppo.onnx; do
+  if [ ! -f "$SRC/models/$m" ] && [ -f "/opt/petcam/models/$m" ]; then
+    mv "/opt/petcam/models/$m" "/opt/petcam/models/$m.retired-$(date +%Y%m%d%H%M%S)"
+  fi
+done
 echo "10c95ea3eb9a7bb4cb8bddf6feb023250381008177ac162ce169694d05c317de  /opt/petcam/models/yamnet.tflite" | sha256sum -c --quiet -
 
 render $SRC/mediamtx.yml > /etc/mediamtx/mediamtx.yml && chmod 644 /etc/mediamtx/mediamtx.yml

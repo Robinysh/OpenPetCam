@@ -483,7 +483,8 @@ class Tracker:
                 self.sleep(SETTLE)
                 box = self.look()
                 if box is not None:
-                    return self._found(box, t0, f"at the saved view ({p['x']}, {p['y']})", reason)
+                    where = "the learned stop" if SEARCH_STOPS else "the saved view"
+                    return self._found(box, t0, f"at {where} ({p['x']}, {p['y']})", reason)
             for (tx, ty) in self.sweep_plan(y0):
                 halt = self._halt(reason)
                 if halt:
