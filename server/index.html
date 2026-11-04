@@ -834,7 +834,9 @@ function petText(l) {
   if (l.searching) return [`${l.settings && l.settings.follow ? "Follow: l" : "L"}ooking for ${PET.name}…`, ""];
   if (l.present) {
     const unseen = l.last_seen ? Date.now() / 1000 - l.last_seen : 0;
-    if (unseen > 30) return [`${PET.name} · out of sight, seen ${unseen < 90 ? Math.round(unseen) + " s ago" : ago(l.last_seen)}`, ""];
+    // > 20 s: the last detector run (every 12 s even when still) did not see her, so don't still claim "resting"
+    // (report 2026-11-04 17:23: "resting 2m" with her gone from the picture)
+    if (unseen > 20) return [`${PET.name} · out of sight, seen ${unseen < 90 ? Math.round(unseen) + " s ago" : ago(l.last_seen)}`, ""];
     if (l.moving_since) return [`${PET.name} is moving`, "active"];
     if (l.rest_since) return [`${PET.name} · resting ${fmtDur((Date.now() / 1000 - l.rest_since) / 60)}`, "here"];
     return [`${PET.name} is here`, "here"];

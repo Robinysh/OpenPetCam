@@ -732,7 +732,9 @@ json.dump({"t": now, "cpu": cur}, open(p, "w"))
 restarted = prev and any(cur[u] < prev["cpu"].get(u, 0) for u in units)
 if prev and now - prev["t"] > 300 and not restarted:
     out["cpu"] = round(sum(cur[u] - prev["cpu"].get(u, cur[u]) for u in units) / 1e9 / (now - prev["t"]) * 100, 1)
-out["live_age"] = round(now - json.load(open(f"{S}/live.json"))["t"], 1)
+# read the clock when reading the file: `now` was taken before the CPU and search queries, so a fresh status could
+# read as -10 s old (plot 2026-11-04)
+out["live_age"] = round(time.time() - json.load(open(f"{S}/live.json"))["t"], 1)
 c = sqlite3.connect(f"{S}/petcam.db")
 ev = c.execute("select ts, detail from events where kind='search' and ts > ?", (now - 86400,)).fetchall()
 home = found = 0

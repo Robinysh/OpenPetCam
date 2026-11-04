@@ -24,7 +24,17 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
   The app now reports the time since it opened on the first video of each open. Baseline (connect to first frame,
   174 starts): median 1.2 s, 90th percentile 4.6 s.
 
+### From the owner's reports (11 waiting while the agent's daily worker budget was spent)
+- The detector runs every 12 s when the picture is still (was 30 s): in 6 reports the app said she was not in view or
+  out of sight while the report's own frame showed her, and the detector and verifier see her in it (raw 0.19-0.85,
+  verifier 0.82-1.00); the answer was simply 30 s old.
+- The app says "seen N s ago" once her last sighting is over 20 s old (was 30 s), instead of still saying "resting".
+- Day/night flapping locks night for 20 min, doubling only if it flaps again right after (up to 2 h): a dawn flap held
+  a 2 h night lock and the picture stayed infrared in daylight until 08:13.
+- The agent's status-age metric reads the clock when it reads the status (it could read as -10 s).
+
 ### Tests
+- `tests/server/flap_test.py`: the night lock.
 - `tests/server/js_syntax_test.py`: every script in the app's pages parses (a syntax error would blank the app).
 - `tests/server/search_overshoot_test.py`: the late mid-pan sighting case.
 

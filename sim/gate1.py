@@ -15,7 +15,8 @@ sys.path.insert(0, HERE)
 from room import Room, load_params  # noqa: E402
 
 SEEN, LOSS_GAP, LEAVE_AFTER = 0.30, 6.0, 180.0
-DETECT_EVERY, DETECT_STILL = 8.0, 30.0   # server/watch.py
+DETECT_EVERY, DETECT_STILL = 8.0, 30.0   # server/watch.py as the fitted logs were recorded (DETECT_STILL is 12 since
+                                         # 2026-11-04; switch here and re-fit once a week of logs at 12 s exists)
 
 
 def load_tracker(path=os.path.join(HERE, "..", "server", "tracker.py"), rev=None):

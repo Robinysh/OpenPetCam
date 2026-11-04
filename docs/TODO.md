@@ -22,7 +22,8 @@ Worked top to bottom. Each item moves to Done with the commit or date that shipp
    execution layer that enforces the manual pause, cancellation, the per-move budget (counting each motor command of a
    search) and frame requirements, used by the server and the simulator alike; the fast-detection action either works
    live or is removed from training; the resting guard works at the real detection cadence.
-7. **Predict a held-out real day** with one frozen code version (`sim/validate_real.py`), calibration exports that
+7. **Re-fit the simulator on logs recorded with DETECT_STILL = 12 s** (changed 2026-11-04; `sim/gate1.py` still mirrors
+   30 s, the cadence of the logs it was fitted to). Then **predict a held-out real day** with one frozen code version (`sim/validate_real.py`), calibration exports that
    keep `arm@version`, and a distribution of fits rather than one.
 8. **On-camera tracker** (owner, 2026-11-03): a tiny model inside prudynt's frame path (a hardware-scaled ~96x54 NV12
    channel) tracking 5-10 times a second next to the motor. First student: 11,851 params, 1.5 MMAC/frame, held-out recall

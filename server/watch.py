@@ -128,13 +128,15 @@ FREEZE_AFTER = 90             # seconds of a bit-identical picture before the en
 OFFLINE_AFTER = 180           # seconds of failed snapshots before "camera offline"
 CLIP_BEFORE, CLIP_LEN = 8, 30
 DETECT_EVERY = 8              # seconds between detector runs while she is active, followed or searched for
-DETECT_STILL = 30             # ...and while the picture is still and nobody moved for a minute (profiled 2026-11-02:
+DETECT_STILL = 12             # ...and while the picture is still and nobody moved for a minute (profiled 2026-11-02:
                               # the detector was ~18% of a core on a box allowed ~10% sustained; motion still
                               # triggers a run at once, so arrivals are seen as fast as before)
 LOUD_PER_HOUR = 6             # at most this many "loud sound" moments per hour (barking is not capped)
 FLAP_SWITCHES = 4             # this many day/night switches within FLAP_WINDOW = flapping
 FLAP_WINDOW = 600
-FLAP_LOCK = 7200              # lock to night this long, then back to auto
+FLAP_LOCK = 1200              # lock to night this long, then back to auto; doubled (up to FLAP_LOCK_MAX) if it flaps
+FLAP_LOCK_MAX = 7200          # again within FLAP_RELAPSE of a release (report 2026-11-04 08:07: a dawn flap at 06:13 held
+FLAP_RELAPSE = 1800           # a 2 h night lock, so the picture stayed infrared in daylight until 08:13)
 AUDIO_LOST = 90                # s without audio samples (mic on, not paused) before the streamer is restarted
 IMAGING_EVERY = 20            # seconds between reads of the camera's day/night state
 BLOCKED_SHARPNESS = 60.0      # Laplacian variance (160x90 gray). Night 1: normal views >= 132, a wall
@@ -1399,6 +1401,7 @@ class Watch:
         mode = im.get("daynight_mode")
         if self.flap_lock_until and t > self.flap_lock_until:
             self.flap_lock_until = 0.0
+            self.flap_released_t = t
             self.mode_changes = []
             try:
                 os.remove(FLAP_LOCK_FILE)
@@ -1420,10 +1423,12 @@ class Watch:
         if len(self.mode_changes) >= FLAP_SWITCHES:
             try:
                 camapi.set_imaging("night")
-                self.flap_lock_until = t + FLAP_LOCK
+                relapse = t - getattr(self, "flap_released_t", -1e9) < FLAP_RELAPSE
+                self.flap_lock_s = min(FLAP_LOCK_MAX, 2 * getattr(self, "flap_lock_s", FLAP_LOCK)) if relapse else FLAP_LOCK
+                self.flap_lock_until = t + self.flap_lock_s
                 with open(FLAP_LOCK_FILE, "w") as f:
                     f.write(str(self.flap_lock_until))
-                add_event(con, "daynight_flapping", {"switches": len(self.mode_changes), "locked_s": FLAP_LOCK})
+                add_event(con, "daynight_flapping", {"switches": len(self.mode_changes), "locked_s": self.flap_lock_s})
             except Exception as e:  # noqa: BLE001
                 log("lock night:", e)
 
