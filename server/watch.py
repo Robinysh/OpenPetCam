@@ -133,6 +133,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS obs(ts REAL, score REAL, person REAL, box TEXT, motion REAL,
                                    present INT, moving INT);
     CREATE INDEX IF NOT EXISTS obs_ts ON obs(ts);
+    CREATE TABLE IF NOT EXISTS track(ts REAL, pan INT, tilt INT, act TEXT, weak INT);
+    CREATE INDEX IF NOT EXISTS track_ts ON track(ts);
     CREATE TABLE IF NOT EXISTS minute(ts INTEGER PRIMARY KEY, n INT, present INT, moving INT,
                                       person INT, motion REAL, noise_db REAL, sounds INT, snap TEXT);
     CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, ts REAL, kind TEXT, detail TEXT,
@@ -708,6 +710,7 @@ def housekeeping():
     prune_dirs(HIGHLIGHTS, RETAIN["highlights_days"])
     con = db()
     con.execute("DELETE FROM obs WHERE ts < ?", (now() - RETAIN["obs_days"] * 86400,))
+    con.execute("DELETE FROM track WHERE ts < ?", (now() - RETAIN["obs_days"] * 86400,))
     con.execute("UPDATE events SET clip=NULL WHERE clip IS NOT NULL AND ts < ?", (now() - RETAIN["clips_days"] * 86400,))
     con.close()
 
@@ -980,6 +983,12 @@ class Watch:
                                         sound=self.dog_sound_pending and not self.present,
                                         motion=self.frames.motion_c if person < 0.5 else None,   # a person leaving is not her
                                         weak=weak)
+                try:   # per cycle: where the camera pointed and what Follow did, to fit and replay its simulator
+                    pose = self.current_pose(t) or (None, None)
+                    con.execute("INSERT INTO track VALUES(?,?,?,?,?)", (t, pose[0], pose[1], (act or "")[:80] or None,
+                                                                         len(weak or [])))
+                except Exception as e:  # noqa: BLE001 - logging must never stop following
+                    log("track log:", e)
                 if act:
                     log("follow:", act)
                     if act.startswith("search"):
