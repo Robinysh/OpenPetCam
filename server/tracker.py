@@ -387,8 +387,12 @@ class Tracker:
         hits = []
         self.last_glimpse = None
         pose = None
+        # One boundary for the whole look: every frame must be taken after the camera settled, but each later frame
+        # need only be a NEW one, not wait the transport delay again (that wait came back per frame: ~2.7 s for
+        # two confirmations on the substream).
+        boundary = self.clock()
         for n in range(frames):
-            box = self.find_pet(self.clock())
+            box = self.find_pet(boundary)
             if box is not None:
                 c = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
                 agree = [h for h in hits if abs(h[0][0] - c[0]) <= AGREE and abs(h[0][1] - c[1]) <= AGREE]

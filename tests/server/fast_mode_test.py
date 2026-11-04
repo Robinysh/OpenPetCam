@@ -85,6 +85,9 @@ assert fs.read_frame(proc, "push", 0).size == 0, "a torn JPEG is skipped, not fa
 b = fs.read_frame(proc, "push", 0)
 assert b.shape == (360, 640, 3) and b[90, 160, 1] > 150, "another size is scaled to the frame size"
 assert fs.read_frame(proc, "push", 0) is None, "a truncated frame ends the source"
+for bad in (b"J abc\n", b"J\n", b"J -5\n", b"J 99999999\n" + b"x" * 10):
+    pb = type("P", (), {"stdout": io.BytesIO(bad)})()
+    assert fs.read_frame(pb, "push", 0) is None, ("broken framing must end the session, not crash", bad[:12])
 cmd = " ".join(fs.push_cmd())
 assert "/tmp/.push.pid" in cmd and "|| break" in cmd and str(watch.PUSH_MAX_S) in cmd, "one loop, stops on a failed write, bounded"
 print("fast mode: ok")

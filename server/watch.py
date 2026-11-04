@@ -85,6 +85,10 @@ PUSH_FPS = 5
 PUSH_QUALITY = 60
 PUSH_MAX_S = 900               # the camera-side loop ends by itself after this; the watcher simply starts a new one
 PUSH_RETRY_S = 600             # after a failed push, use the substream this long
+PUSH_MAX_BYTES = 400_000       # a ch1 JPEG is ~20-40 KB; a larger length means the framing is broken
+PUSH_SHORT_S = 60              # a push session that ends sooner than this (other than by our own stop) counts as a failure
+PUSH_SHORT_MAX = 3             # ...and this many in a row fall back to the substream
+FRAME_PROGRESS_S = 10          # no complete frame for this long: the source is stuck (connected but silent); restart it
 # Fast mode: while Follow is engaged with her (seen moving, or a search), frames come from the main stream (0.26 s
 # instead of 0.9 s old) and the detector runs every FAST_CYCLE. Costs ~9.4% of a core to decode (1080p25 with the
 # loop filter skipped, scaled fast_bilinear) plus ~10% for detecting at 2 Hz, so a governor turns it off whenever
@@ -285,7 +289,12 @@ class FrameSource:
                 return None
             if line.startswith(b"J "):
                 break
-        size = int(line.split()[1])
+        try:
+            size = int(line.split()[1])
+        except (IndexError, ValueError):
+            return None                                   # broken framing: end this session (counted as a failure)
+        if not 0 < size <= PUSH_MAX_BYTES:
+            return None
         b = p.stdout.read(size)
         if len(b) < size:
             return None
@@ -312,14 +321,31 @@ class FrameSource:
                 src = ["-skip_loop_filter", "all", "-rtsp_transport", "tcp", "-i", MAIN_URL]
                 vf = MAIN_VF.format(w=self.W, h=self.H)
             else:
-                src, vf = ["-rtsp_transport", "tcp", "-i", self.url], f"fps={FRAME_FPS},scale={self.W}:{self.H}"
+                # no fps filter: the substream is natively FRAME_FPS, and the filter waits for the NEXT frame to decide
+                # which to emit (~one frame interval of lag, 200 ms at 5 fps)
+                src, vf = ["-rtsp_transport", "tcp", "-i", self.url], f"scale={self.W}:{self.H}"
             if mode == "push":
                 p = subprocess.Popen(self.push_cmd(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             else:
-                p = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-nostdin", "-threads", "1", *src,
-                                      "-an", "-vf", vf, "-pix_fmt", "rgb24",
-                                      "-f", "rawvideo", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                # "-threads 1" before -i limits the decoder only; the rawvideo output encoder is frame-threaded and,
+                # left automatic, can hold frames too (a local reproduction measured ~200 ms at 5 fps), so limit it as well
+                p = subprocess.Popen(["ffmpeg", "-loglevel", "error", "-nostdin", "-threads:v", "1", *src,
+                                      "-an", "-vf", vf, "-c:v", "rawvideo", "-threads:v", "1", "-pix_fmt", "rgb24",
+                                      "-flush_packets", "1", "-f", "rawvideo", "-"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             started, got = now(), 0
+            progress = {"t": now(), "done": False}
+
+            def stall_watch(p=p, progress=progress, mode=mode):
+                # A source can stay connected and send nothing (ssh keepalives answer, the producer is stuck): a
+                # blocked read would never return. Kill the session when no complete frame arrives for a while.
+                while not progress["done"]:
+                    time.sleep(1)
+                    if now() - progress["t"] > FRAME_PROGRESS_S + (10 if got == 0 else 0):
+                        log(f"frames: no new {mode} frame for {FRAME_PROGRESS_S} s, restarting the source")
+                        p.kill()
+                        return
+            threading.Thread(target=stall_watch, daemon=True).start()
             switched = False
             every = max(1, round(MAIN_FPS / FRAME_FPS)) if mode == "main" else 1   # motion compares frames 0.2 s apart
             k = 0
@@ -343,6 +369,7 @@ class FrameSource:
                         continue
                     backoff = 2
                     got += 1
+                    progress["t"] = now()
                     k += 1
                     if k % every:                       # newest frame for the detector; motion on every `every`-th
                         with self.lock:
@@ -364,17 +391,25 @@ class FrameSource:
                         self.frame, self.t = arr, now()
                         self.mode, self.lag = mode, STREAM_LAG[mode]
             finally:
+                progress["done"] = True
                 p.kill()
                 p.wait()
             if stopped or switched:
+                self.push_short = 0
                 continue
             if mode == "push":
-                if got == 0 or now() - started < PUSH_MAX_S - 30:     # failed, not the loop's own time limit
-                    if got == 0:
-                        log(f"frames: camera push failed, substream for {PUSH_RETRY_S // 60} min")
-                        self.push_down_until = now() + PUSH_RETRY_S
-                    else:
-                        time.sleep(1)
+                lasted = now() - started
+                if got == 0 or lasted < PUSH_SHORT_S:
+                    self.push_short = getattr(self, "push_short", 0) + 1
+                elif lasted >= PUSH_MAX_S - 30:
+                    self.push_short = 0                        # the loop's own time limit: a healthy end
+                if got == 0 or self.push_short >= PUSH_SHORT_MAX:
+                    log(f"frames: camera push failed ({got} frames, {self.push_short} short sessions), "
+                        f"substream for {PUSH_RETRY_S // 60} min")
+                    self.push_down_until = now() + PUSH_RETRY_S
+                    self.push_short = 0
+                else:
+                    time.sleep(1)
                 continue
             time.sleep(backoff)
             backoff = min(backoff * 2, 60)
@@ -1442,11 +1477,14 @@ class Watch:
         img = None
         while now() < deadline:
             with self.frames.lock:
-                fresh = self.frames.frame is not None and self.frames.t > after_t + self.frames.lag
+                t = self.frames.t
+                # taken after the boundary, and a frame this search has not judged yet (looks share one boundary)
+                fresh = self.frames.frame is not None and t > after_t + self.frames.lag and t > getattr(self, "last_find_t", 0)
             if fresh:
                 img = self.frames.latest()
+                self.last_find_t = t
                 break
-            time.sleep(0.1)
+            time.sleep(0.05)
         if img is None:
             try:
                 img = Image.open(io.BytesIO(snapshot("ch1"))).convert("RGB")
