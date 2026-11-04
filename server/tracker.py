@@ -78,7 +78,6 @@ def policy_constants(doc):
 
 REST_NAMES = ("default", "corridor")   # a saved view named with one of these is where a failed search waits
 USER_PAUSE = 180.0     # a move by a person pauses following/searching this long
-MEMORY_MAX_AGE = 3600.0  # a saved search count older than this is ignored after a restart
 SETTLE = 0.9            # seconds after a move before a frame is trusted (motion blur, stream latency)
 ROW_STEP = 0.55         # the second search row is this many frame heights toward the floor
 LOOK_FRAMES = 4         # frames judged when stopped (one frame can miss her)
@@ -106,8 +105,7 @@ class SearchHalted(Exception):
 
 
 class Tracker:
-    def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None, can_scan=None, tick=None, cancelled=None,
-                 memory=None):
+    def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None, can_scan=None, tick=None, cancelled=None):
         """cam: position() -> (x, y); home() -> (x, y); goto(x, y) (returns at once); aim(fx, fy); wait_idle(); busy(); stop();
                  limits() -> (xmax, ymax);
                  frame_steps() -> (pan steps per frame width, tilt steps per frame height);
@@ -149,38 +147,6 @@ class Tracker:
         self.offcentre_since = None
         self.searching = False
         self.was_paused = False
-        # memory: a small file that keeps the empty-search count across restarts. Report 2026-11-04 15:28: two
-        # sweeps of the empty flat had already given up on the timer, then a deploy restarted the watcher, the
-        # count went back to 0 and a third 2.5-min sweep started 66 s later, just as the owner opened the app.
-        self.memory = memory
-        self._load_memory()
-
-    def _load_memory(self):
-        if not self.memory:
-            return
-        try:
-            import json
-            with open(self.memory) as f:
-                m = json.load(f)
-            age = self.clock() - float(m["last_search"])
-            if 0 <= age < MEMORY_MAX_AGE:
-                self.last_search = float(m["last_search"])
-                self.failed_searches = int(m["failed_searches"])
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-
-    def _save_memory(self):
-        if not self.memory or self.last_search < 0:
-            return
-        try:
-            import json
-            import os
-            tmp = self.memory + ".tmp"
-            with open(tmp, "w") as f:
-                json.dump({"last_search": self.last_search, "failed_searches": self.failed_searches}, f)
-            os.replace(tmp, self.memory)
-        except OSError:
-            pass
 
     # ---- helpers -------------------------------------------------------------------------
     def _move(self, fn, *a, shift=None):
@@ -286,9 +252,7 @@ class Tracker:
         recent = t - self.last_seen_t < 3.0
         self.chase_dir, self.chase_steps = None, 0
         self.motion_chase_t = -1e9
-        if self.failed_searches:
-            self.failed_searches = 0
-            self._save_memory()
+        self.failed_searches = 0
         self.last_moving = bool(moving)
         self.last_seen_t, self.last_seen_c = t, (cx, cy)
         if len(self.hist) >= 2 and self.hist[-1][0] - self.hist[0][0] >= 0.8:
@@ -376,7 +340,6 @@ class Tracker:
                     res += f"; {GIVE_UP_AFTER} empty searches, waiting for movement or a sound before the next"
             elif "found her" in res:
                 self.failed_searches = 0
-            self._save_memory()
             return res
         return None
 
