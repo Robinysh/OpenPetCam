@@ -28,15 +28,23 @@ HOURS = 2.0
 
 
 def rooms(n, seed0, P, spread=True):
+    """n rooms around the calibrated parameters; with per-day fits (sim/per_day.py) each room starts from one real
+    day's fit in turn, so the bank spans the calm days and the busy ones."""
     rng = np.random.default_rng(seed0)
+    bases = list((P.get("free_days") or {}).values()) or [P["free"]]
     out = []
     for i in range(n):
-        f = dict(P["free"])
+        f = dict(P["free"], **bases[i % len(bases)])
         if spread:
             for k in ("walk_speed_med", "rest_med_s", "away_med_s", "people_motion_per_h"):
                 f[k] = f[k] * float(rng.uniform(0.6, 1.6))
             f["away_prob"] = float(np.clip(f["away_prob"] * rng.uniform(0.6, 1.4), 0.02, 0.8))
             f["lag_s"] = float(rng.uniform(0.5, 1.1))
+            g = P.get("geometry") or {}
+            for k in ("pan_frame", "pan_backlash"):        # measured ranges (sim/sysid_camera.py, several poses)
+                if g.get(f"{k}_range"):
+                    lo, hi = g[f"{k}_range"]
+                    f[k] = float(rng.uniform(lo, hi))
         out.append((seed0 + i, f))
     return out
 

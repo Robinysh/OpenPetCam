@@ -125,6 +125,10 @@ def main(export, follow_log, out):
     # update only what this script fits; keep measured sections (motor, measured geometry, backlash) and the calibration
     old = json.load(open(out)) if os.path.exists(out) else {}
     geo = dict(P["geometry"], **{k: v for k, v in (old.get("geometry") or {}).items()})
+    if P["pet"]["room_points"] < 200 and (old.get("pet") or {}).get("pan_hotspots"):
+        # too few sightings with a camera pose (e.g. a day before the pose log existed): keep the known room map
+        P["pet"]["pan_hotspots"] = old["pet"]["pan_hotspots"]
+        P["pet"]["hotspots_from"] = "previous fit (too few located sightings in these logs)"
     old.update({k: P[k] for k in ("source", "cycle_s", "detect_persist", "pet", "real_metrics")})
     paused = (P["real_metrics"].get("follow_actions_per_hour") or {}).get("paused")
     if paused is not None:          # observable directly: how often people turn the camera by hand

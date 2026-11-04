@@ -96,9 +96,29 @@ def hold_follow():
     server("sudo touch /var/lib/petcam/moved_at")
 
 
+GOTO = r"""
+import sys
+sys.path.insert(0, "/opt/petcam")
+import app
+app.goto(%d, %d, app.QUIET_SPEED)
+app.wait_idle(timeout=40)
+print(app.motor_status())
+"""
+
+
+def server_goto(x, y):
+    """An absolute move through the app's own goto(): it handles this mount's inverted tilt range check (one tilt step
+    can only reach [2y - 1000, 2y], so long tilts go in steps) and keeps 40 steps off the tilt ends, where a tilt can
+    otherwise get stuck until homing (2026-11-04: a naive sweep left tilt at 0)."""
+    out = server("sudo -u petcam /opt/petcam/venv/bin/python -", input_=GOTO % (int(x), int(y)), timeout=90)
+    st = eval(out.strip().splitlines()[-1])        # ('0', x, y) printed by app.motor_status()
+    return int(st[1]), int(st[2])
+
+
 def centre(cam=None, pan=1850, tilt=500):
     """Start from mid-range so no test move can reach an end stop (a run from pan 2700 hit the 3700 limit)."""
-    cam = cam or camera
+    if cam is None or cam is camera:
+        return server_goto(pan, tilt)
     m = json.loads(cam("motors -j"))
     x, y = int(float(m["xpos"])), int(float(m["ypos"]))
     # tilt commands are inverted on this mount (docs/camera-thingino.md: invert 2, commands only)
@@ -131,6 +151,32 @@ motors -d g -s 250 -x 0 -y 0 >/dev/null; echo "END $(pos)"
     return out
 
 
+def tilt_steps_real(trials=3):
+    """Tilt frame size and gear play on the real camera, with every compared frame inside the textured band
+    (tilt 300-600): above ~650 this camera sees a blank ceiling, where phase correlation cannot lock on."""
+    m = json.loads(camera("motors -j"))
+    x = int(float(m["xpos"]))
+    same, rev, conf = [], [], []
+    for _ in range(trials):
+        hold_follow()
+        server_goto(x, 150); server_goto(x, 300); time.sleep(0.8); a = snapshot()
+        server_goto(x, 500); time.sleep(0.8); b = snapshot()
+        s1 = shift(a, b)
+        hold_follow()
+        server_goto(x, 650); server_goto(x, 400); time.sleep(0.8); a = snapshot()
+        server_goto(x, 600); time.sleep(0.8); b = snapshot()
+        s2 = shift(a, b)
+        same.append(abs(s1[1]))
+        rev.append(abs(s2[1]))
+        conf += [s1[2], s2[2]]
+    h = snapshot().shape[0]
+    ps = float(np.median(same))
+    server_goto(x, 500)
+    return {"steps_per_frame": round(200 * h / ps, 1) if ps > 2 else None,
+            "backlash_steps": round(200 * (1 - float(np.median(rev)) / ps), 1) if ps > 2 else None,
+            "shift_px_same": same, "shift_px_reversed": rev, "min_confidence": round(min(conf), 1)}
+
+
 def frame_steps(axis, steps=200, trials=3, cam=None, snap=None):
     cam, snap = cam or camera, snap or snapshot
     """Steps per frame width/height and backlash, from image shifts (phase correlation). Each trial measures a move that
@@ -139,6 +185,11 @@ def frame_steps(axis, steps=200, trials=3, cam=None, snap=None):
     def move(n):
         if cam is camera:
             hold_follow()
+            if axis == "tilt":                    # relative tilt steps trip the inverted range check: go absolute
+                m = json.loads(cam("motors -j"))
+                server_goto(int(float(m["xpos"])), int(float(m["ypos"])) + n)
+                time.sleep(0.8)
+                return
         d = f"-x {n} -y 0" if axis == "pan" else f"-x 0 -y {n}"
         cam(f"motors -d g -s 250 {d} >/dev/null; sleep 0.3; " + IDLE + "; sleep 0.8")
     k = 0 if axis == "pan" else 1
@@ -183,7 +234,7 @@ def main(argv):
     motor = motor_runs()
     hold_follow()
     centre()
-    geo = {"pan": frame_steps("pan"), "tilt": frame_steps("tilt")}
+    geo = {"pan": frame_steps("pan"), "tilt": tilt_steps_real()}
     centre(pan=start[0], tilt=start[1])                        # leave it where the test started (mid-range)
     lim = json.loads(camera("motors -j"))
     p_path = os.path.join(HERE, "params.json")

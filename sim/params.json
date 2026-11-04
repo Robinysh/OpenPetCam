@@ -8,21 +8,56 @@
  "geometry": {
   "pan_max": 3700,
   "tilt_max": 1000,
-  "pan_frame": 740.0,
-  "tilt_frame": 424.0,
+  "pan_frame": 723.6,
+  "tilt_frame": 431.1,
   "frame_measurement": {
    "pan": {
-    "steps_per_frame": 740,
-    "backlash_steps": 27,
-    "method": "2 trials same-direction vs reversed 200-step moves, phase correlation, 2026-11-04",
+    "runs": [
+     {
+      "at_pan": "~2000-2250",
+      "steps_per_frame": 740.0,
+      "backlash": 27.0
+     },
+     {
+      "at_pan": 1850,
+      "steps_per_frame": 707.2,
+      "backlash": 40.9
+     }
+    ],
+    "note": "consistent within a run, different between poses: the lens is likely off the pan axis, so scene depth changes the shift per step; training randomises over the range",
     "accepted": true
    },
    "tilt": {
-    "accepted": false,
-    "note": "busy room (owner and dog playing) broke phase correlation; configured 424 kept"
+    "steps_per_frame": 431.1,
+    "backlash_steps": 1.2,
+    "shift_px_same": [
+     167,
+     167,
+     167
+    ],
+    "shift_px_reversed": [
+     167,
+     166,
+     156
+    ],
+    "method": "absolute moves via app.goto, all compared frames in the textured band tilt 300-600 (2026-11-04)",
+    "accepted": true
    }
   },
-  "pan_backlash": 27.0
+  "pan_backlash": 34.0,
+  "pose_at_test": [
+   1850,
+   0
+  ],
+  "pan_frame_range": [
+   707.2,
+   740.0
+  ],
+  "pan_backlash_range": [
+   27.0,
+   40.9
+  ],
+  "tilt_backlash": 1.2
  },
  "cycle_s": {
   "moving": {
@@ -120,28 +155,28 @@
  "motor": {
   "measured": "2026-11-04",
   "first_motion_ms": [
-   60,
    50,
-   70
+   60,
+   60
   ],
   "speed_steps_s": {
-   "250": 216,
-   "900": 752
+   "250": 214,
+   "900": null
   },
   "second_command": "queues behind the move in progress",
   "raw": {
    "A": {
-    "first_motion_ms": 60,
-    "speed": 216
+    "first_motion_ms": 50,
+    "speed": 212
    },
    "B": {
-    "first_motion_ms": 50,
-    "speed": 24,
+    "first_motion_ms": 60,
+    "speed": 19,
     "queues": true
    },
    "C": {
-    "first_motion_ms": 70,
-    "speed": 752
+    "first_motion_ms": 60,
+    "speed": null
    }
   }
  },
@@ -201,6 +236,24 @@
     "sim_max": 5.75,
     "sim_mean": 4.125
    }
+  }
+ },
+ "free_days": {
+  "2026-11-02": {
+   "walk_speed_med": 36.9223,
+   "rest_med_s": 1426.6536,
+   "away_prob": 0.2937,
+   "away_med_s": 2769.0266,
+   "people_motion_per_h": 24.014,
+   "owner_moves_per_h": 6.58
+  },
+  "2026-11-03": {
+   "walk_speed_med": 321.5348,
+   "rest_med_s": 62.632,
+   "away_prob": 0.2733,
+   "away_med_s": 266.5198,
+   "people_motion_per_h": 7.8338,
+   "owner_moves_per_h": 0.41
   }
  }
 }

@@ -45,6 +45,8 @@ class Room:
         self.F = dict(FREE_DEFAULTS, **(free or {}))
         g = self.P["geometry"]
         self.XM, self.YM, self.FW, self.FH = g["pan_max"], g["tilt_max"], g["pan_frame"], g["tilt_frame"]
+        if (free or {}).get("pan_frame"):                # a measured range is randomised per room (sim/train_policy.py)
+            self.FW = float(free["pan_frame"])
         self.speed = float(self.P["motor"]["speed_steps_s"]["250"])
         self.rng = np.random.default_rng(seed)
         self.dt = 0.05
@@ -53,7 +55,7 @@ class Room:
         self.X, self.Y = 1019.0, 534.0                  # where the picture points (optical), 'Corridor' rest view
         self.C = self.X                                 # the pan step counter (motors -j); X follows it with gear play
         self.target = None                              # (x, y, start_time)
-        self.backlash = float(g.get("pan_backlash", 0.0))   # gear play: the picture lags the counter by up to this
+        self.backlash = float((free or {}).get("pan_backlash") or g.get("pan_backlash", 0.0))   # gear play
         self.cam_hist = [(0.0, self.X, self.Y)]
         self.moved = -1e9
         self.moved_by_owner = -1e9
