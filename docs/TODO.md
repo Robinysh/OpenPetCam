@@ -45,3 +45,18 @@ Worked top to bottom. Each item moves to Done with the commit that shipped it.
 - QA suite tools/qa.py: 20 pass, 0 fail (2 Nov 19:10)
 - Pause = picture and mic off; sound self-heal; Find <pet> button; searches keep the app fresh (2 Nov)
 - Toy accepted as the dog, "moving" while asleep, searching an empty flat every 10 min: `1db6fba` (2 Nov)
+
+13. **On-camera tracker (owner, 2026-11-03: "squeeze as much as possible from the camera").** A tiny model baked into a
+   static MIPS binary on the camera tracks her 5-10 times a second next to the motor; the server keeps the "is it her"
+   check every few seconds. Measured constraints: Ingenic T23N, one MIPS32 XBurst core (~1185 BogoMIPS), no NN
+   accelerator, 37 MB RAM (~7 MB free); camera busy 45% after noise suppression off (was 67%), so ~25-35% is spendable.
+   - Data: ~7,500 frames (server candidates/ with same-cycle detections, per-minute snaps, eval/bootstrap/frames) +
+     452 owner/Claude-labelled crops. Teacher: the server's YOLOX-nano + verifier (owner labels override).
+   - Model: grayscale ~96x54 input, int8 or binary weights compiled into C, a few MMAC per frame (YOLOX-nano is ~1 GMAC);
+     output: her box or "not in view". Train on the laptop; judge held-out by day against the teacher.
+   - Ship gate: camera stays under ~70% busy (per-thread /proc profile), tracking beats today's 2.5 s detections in
+     the Follow sim fitted to the track table (pan/tilt per cycle, logged since 2026-11-03), and a live A/B.
+14. **Server CPU allowance.** The $5 box ran pinned at its 5% cap all day (credits 0%). Shipped 2026-11-03: integer grey
+   for motion (18x cheaper), audio floor every 2 s, one multiplexed SSH connection (~3,700 logins/day before). If the
+   credits still don't refill: camera motion detection + webhook instead of server polling, keyframe-only decode when
+   idle, microSD recording on the camera; int8 on this CPU is likely slower (VNNI hidden by the hypervisor).
