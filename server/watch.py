@@ -387,6 +387,14 @@ class FrameSource:
             return Image.fromarray(self.frame)
 
 
+class VerifiedBox(list):
+    """A verified pet box [x0, y0, x1, y1] that also carries the verifier's probability (.p), for the tracker."""
+
+    def __init__(self, box, p):
+        super().__init__(box)
+        self.p = float(p)
+
+
 class StealGovernor:
     """Is there CPU to spare for fast mode? On a burstable VM, steal time appears once the burst credits are spent;
     then fast mode would only slow everything else down. Reads /proc/stat at most every 10 s."""
@@ -1457,7 +1465,7 @@ class Watch:
                 best = (p, f["box"])
         if self.tracker.searching:
             self.record_search_frame(img, judged, best[1] if best else None, settled)
-        return best[1] if best else None
+        return VerifiedBox(best[1], best[0]) if best else None
 
     # ------------------------------------------------------------ search evidence (step 0: measure Find honestly)
     # (infrared(): a night-vision frame is grayscale, so its colour channels agree)

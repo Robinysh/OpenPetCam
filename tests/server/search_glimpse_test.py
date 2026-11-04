@@ -51,7 +51,24 @@ assert "found her" in res and "where the camera already was" in res, res
 assert not any(m[0] == "goto" for m in w.moves), ("drove away from a glimpse of her", w.moves)
 print("edge of the current view:", res, "; moves:", w.moves)
 
-# 3. Nothing anywhere: no glimpse, no extra aims; the search ends as before.
+# 3. A weak glimpse (the toy under the stool at night scored 0.86-0.956) is not followed up: no aim at it.
+class ToyWorld(EdgeWorld):
+    def find_pet(self, after):
+        b = EdgeWorld.find_pet(self, after)
+        if b is None:
+            return None
+        v = type("VB", (list,), {})(b)
+        v.p = 0.9
+        return v
+
+
+w = ToyWorld(X=1850, pet=400, pet_y=500 + 0.40 * FH)
+tr = tracker_for(w)
+res = tr.search("test")
+assert "after aiming at a glimpse" not in res, res
+print("weak glimpse not followed up:", res)
+
+# 4. Nothing anywhere: no glimpse, no extra aims; the search ends as before.
 w = EdgeWorld(X=1850, pet=99999)
 tr = tracker_for(w)
 res = tr.search("test")

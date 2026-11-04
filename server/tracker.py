@@ -85,6 +85,9 @@ CONFIRM_FRAMES = 2      # ...and this many of them must show her in the same pla
                         # 2026-11-02/03, 31 of 43 finds were at night, where one infrared frame of a clothes pile
                         # or a slipper could pass the verifier and end the search. Two agreeing frames out of four
                         # still tolerate one frame that misses a curled-up dog.
+GLIMPSE_P = 0.97        # a single verified box is followed up (aim + look again) only this sure. Fitted by eye on the 12
+                        # failed searches 2026-11-03/04 that had one: the 8 real ones scored >= 0.977, the 4 false ones
+                        # (one toy under the stool at night) <= 0.956. 12 cases, no held-out set: revisit with more.
 AGREE = 0.15            # two boxes agree when their centres are within this share of the frame
 SCAN_POLL = 0.2         # check a new frame this often while panning (the stream delivers 5 fps)
 # Keeping the track through weak detections (ByteTrack's idea, arXiv 2110.06864): a moving, blurred dog often scores
@@ -391,7 +394,8 @@ class Tracker:
                 if len(agree) + 1 >= need:
                     return box
                 hits.append((c, box))
-                self.last_glimpse = box
+                if getattr(box, "p", 1.0) >= GLIMPSE_P:
+                    self.last_glimpse = box
             best = max([sum(1 for k in hits if abs(k[0][0] - h[0][0]) <= AGREE and abs(k[0][1] - h[0][1]) <= AGREE)
                         for h in hits] or [0])
             if best + (frames - n - 1) < need:       # even if every remaining frame agrees, not enough
