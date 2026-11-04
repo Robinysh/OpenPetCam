@@ -83,6 +83,25 @@ moves 44.5 -> 40.4 per hour (calm-day rooms 0.645 -> 0.679, active-day rooms unc
   searches), occlusion-aware visibility, longer training.
 - The lesson kept as a rule: every learned policy gets a forced live smoke test before its A/B block.
 
+## Finding: where to look first, learned
+
+- `sim/train_search.py` learns the search order from where she is actually found (a 2D sighting map from the logs, 20%
+  uniform, Claude's rest places), greedy by probability covered per second of travel and look, skipping blank views.
+  Judged by the real tracker search in the simulator on 120 held-out trials: median time to find 15.2 -> 11.0 s, found
+  within 60 s 0.908 -> 0.950; with her placed uniformly anywhere 36.4 -> 29.6 s, 0.683 -> 0.742.
+- Live check 2026-11-04: turned away from her, Follow's own search visited the learned stops and found her at the 5th
+  (the Door area) in 44 s. One trial; the live A/B decides whether it is faster on average.
+
+## Claude builds the scene
+
+`sim/scene_from_claude.py` gives Claude the camera's own panorama and gets back exits, occluders, rest places and blank
+views, converted to motor coordinates. Without being told, it put the sofa, rug, hallway end and corridor where the
+owner's saved views are. The simulator walks her out through those doorways, hides her for a rest behind or under
+furniture (calibrated: 76% of rests inside an occluder), and the search skips blank walls. With the scene, gate 1 holds
+(6/7), the tracking constants tuned without occlusion LOST to today's (0.535 vs 0.564), and constants retrained on it
+win on 32 held-out rooms: in-view 0.564 -> 0.583, worst quarter 0.275 -> 0.383, moves 42.6 -> 40.5 per hour. Those, with
+the learned search, are the live learned arm.
+
 ## What is not yet established
 
 - **Predicting a held-out real day.** Leave-one-day-out (fit on one real day, predict the other) put only 1-3 of 7
