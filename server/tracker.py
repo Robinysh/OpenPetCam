@@ -453,6 +453,11 @@ class Tracker:
             else:
                 bx, by, label = x0, y0, "where it was"
             self._move(self.cam.goto, bx, by)
+            # Report 2026-11-03 16:10: the slow drive home outlasts the frame reader's 4 s blind window, so the
+            # picture sliding past read as "something moved since the last sweep" and re-armed the timer: a full
+            # sweep every 10 min for 1.5 h with nobody there. Count our own move as lasting until the motor stops.
+            self._wait_idle()
+            self.own_move_t = self.last_move = self.clock()
             return f"search ({reason}): not found on {len(self.rows(y0))} rows, back to {label} ({bx}, {by})"
         finally:
             self.searching = False

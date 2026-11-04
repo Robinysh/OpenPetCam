@@ -291,4 +291,22 @@ w.advance(2.0)
 b = tr.step(seen_box, moving=False)                    # the next frame sees her again
 assert not (a or "").startswith("chase") and not w.moves and w.box() is not None, (a, b, w.moves)
 print("resting pet missed for one frame: no motion chase away from her")
+
+# 19. Report 2026-11-03 16:10: nobody in view for 1.5 h, yet a full sweep ran every 10 min. Each empty search
+#     ended with a slow drive back to the saved 'Corridor' view; the frame reader ignores motion only 4 s after a
+#     move command, so the picture sliding past 5 s later counted as "something moved since the last sweep" and
+#     re-armed the timer. The camera's own drive home must not re-arm it: still only GIVE_UP_AFTER sweeps an hour.
+w = World(X=1200, pet=99999)
+w.presets = lambda: [{"name": "Corridor", "x": 2252, "y": 704}]   # ~9 s drive from the pan end stop where the sweep ends
+tr = tracker_for(w); log = []; last_motion = None  # the watcher passes the LAST motion it saw (frames.motion_c)
+for _ in range(3600):
+    w.advance(1.0)
+    if w.busy() and w.t - w.moved > 4.0:            # still driving after the reader's 4 s blind window
+        last_motion = (w.t - 0.2, 0.3, 0.0)
+    a = tr.step(None, moving=False, motion=last_motion)
+    if a:
+        log.append((round(w.t), a))
+s19 = [a for _, a in log if a.startswith("search")]
+assert len(s19) == T.GIVE_UP_AFTER, (len(s19), s19[:4])
+print(f"empty room: {len(s19)} sweeps in an hour; the drive back to the saved view does not re-arm the timer")
 print("tracker ok")
