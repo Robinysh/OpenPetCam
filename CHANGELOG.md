@@ -33,11 +33,21 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
   a 2 h night lock and the picture stayed infrared in daylight until 08:13.
 - The agent's status-age metric reads the clock when it reads the status (it could read as -10 s).
 
-### Agent
+### The self-improvement loop runs again
+- It had stalled since 2026-11-03: 26 attempts, 7 shipped, 17 queued and never retried, 11 owner reports waiting up to
+  21 h. The nightly job rewrote a tracked file (`agent/lessons.md`), so the checkout was never clean and the agent
+  refused to retry or ship ("the code is being edited"). The file is now git-ignored (it also held report times from the
+  home).
+- A queued fix that no longer applies to the latest code is dropped and redone by a worker on the current code (it was
+  retried, and failed the same way, every 2 minutes), and the owner is told.
+- Owner reports have their own daily worker budget (12), separate from goal and meta work (10); up to 6 fixes a day go
+  live (was 3, which had queued 11 of the 17).
+- New goal `fix_queue`: the oldest queued fix ships within 24 h, so a stalled loop shows as a missed goal.
 - `tools/agent_plot.py`: every goal over time against its target, and every improvement attempt with its verdict
   (`eval/superagent/agent_timeline.png`); the loop's schedule and what it measured are in docs/superagent.md.
 
 ### Tests
+- `tests/server/agent_loop_test.py`: the loop cannot stall on its own housekeeping.
 - `tests/server/flap_test.py`: the night lock.
 - `tests/server/js_syntax_test.py`: every script in the app's pages parses (a syntax error would blank the app).
 - `tests/server/search_overshoot_test.py`: the late mid-pan sighting case.

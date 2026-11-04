@@ -42,7 +42,7 @@ STATE = os.path.join(ROOT, "eval", "report_agent_state.json")
 LOG = os.path.join(ROOT, "eval", "report_agent.log")
 BOOT = os.path.join(ROOT, "eval", "bootstrap")
 AGENT_TIMEOUT = 25 * 60
-MAX_DEPLOYS_PER_DAY = 3
+MAX_DEPLOYS_PER_DAY = 6   # was 3: 11 of 17 fixes queued on it (2026-11-03/04)
 ENV = dict(os.environ, GIT_TERMINAL_PROMPT="0", CLAUDE_CODE_HOOKS_ENABLED="false")
 
 

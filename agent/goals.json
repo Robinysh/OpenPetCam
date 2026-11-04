@@ -65,6 +65,14 @@
       "target": "p50 <= 1, p90 <= 2",
       "ground_truth": "the app's own live_first_frame events (/api/usage)",
       "note": "owner, 2026-11-04. Baseline (connect -> first frame, 174 starts): median 1.2 s, p90 4.6 s, worst 24.6 s"
+    },
+    {
+      "id": "fix_queue",
+      "what": "A finished fix ships within a day",
+      "metric": "hours the oldest queued fix (eval/superagent/queued_*.json) has waited, sampled each collect",
+      "target": "<= 24",
+      "ground_truth": "the queue files on the agent's computer",
+      "note": "2026-11-04: 17 fixes had queued since 11-03 and none was retried: the checkout was never clean because the nightly job rewrote a tracked file (agent/lessons.md)"
     }
   ]
 }

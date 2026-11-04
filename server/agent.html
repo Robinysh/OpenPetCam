@@ -76,7 +76,7 @@ const $ = (id) => document.getElementById(id);
 const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 90 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
 const NAMES = { reports_answered: "Reports answered", owner_reports: "Owner reports / day", search_success: "Find success",
   cpu: "CPU (% of a core)", burst_credits: "CPU credits", qa: "QA failures", app_status_fresh: "App freshness (s)",
-  video_start: "Video start (s, median)" };
+  video_start: "Video start (s, median)", fix_queue: "Oldest queued fix (h)" };
 function spark(pts) {
   if (!pts || pts.length < 2) return "";
   const vs = pts.map((p) => p[1]).filter((v) => v !== null), lo = Math.min(...vs), hi = Math.max(...vs), r = hi - lo || 1;

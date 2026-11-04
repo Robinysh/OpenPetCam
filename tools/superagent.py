@@ -37,7 +37,9 @@ ARCHIVE = os.path.join(RUN, "archive.jsonl")
 ROUTER_TIMEOUT = 300
 WORKER_TIMEOUT = 40 * 60
 MAX_WORKERS = 2
-BUDGET = {"router_calls": 60, "worker_runs": 10}          # per day: a spend cap that fails closed
+# per day: spend caps that fail closed. Owner reports have their own budget: on 2026-11-04 goal and re-run work used all
+# 10 shared runs by 07:05 and 11 reports waited up to 21 h.
+BUDGET = {"router_calls": 60, "worker_runs": 10, "report_runs": 12}
 ENV = dict(os.environ, GIT_TERMINAL_PROMPT="0", CLAUDE_CODE_HOOKS_ENABLED="false")
 
 
@@ -236,7 +238,8 @@ def touched_heldout(stream):
     return False
 
 def start_worker(thread, kind, brief):
-    left, _, _ = budget_left("worker_runs")
+    pool = "report_runs" if kind == "report" else "worker_runs"
+    left, _, _ = budget_left(pool)
     if left <= 0 or len(running_workers()) >= MAX_WORKERS:
         return False
     safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", thread)
@@ -247,7 +250,7 @@ def start_worker(thread, kind, brief):
     with open(os.path.join(RUN, f"worker_{safe}.pid"), "w") as f:
         f.write(str(p.pid))
     adb("thread", {"id": thread, "worker": f"pid:{p.pid}", "kind": kind})
-    spend("worker_runs")
+    spend(pool)
     note("router", f"started a {kind} worker: {brief[:300]}", thread, "dispatch")
     return True
 
@@ -306,6 +309,25 @@ def retry_queued():
         with open(ARCHIVE, "a") as fa:
             fa.write(json.dumps({"ts": time.time(), "thread": q["thread"], "kind": "retry", "commit": q.get("commit"),
                                  "verdict": status, "detail": detail[:300], "replay": rep}) + "\n")
+        if status == "queued" and ("no longer applies" in detail or "code moved on" in detail):
+            # A fix that cannot be replayed on the latest code is never "redone" by waiting: retrying the same rebase
+            # every tick changed nothing (2026-11-03/04). Drop it and file a fresh trigger, so a worker writes it again
+            # on today's code; for a report, the owner was told "goes live shortly", so say what happens instead.
+            subprocess.run(["git", "worktree", "remove", "--force", q["wt"]], cwd=ROOT, capture_output=True)
+            subprocess.run(["git", "branch", "-D", q["branch"]], cwd=ROOT, capture_output=True)
+            rid = q.get("report")
+            adb("add_trigger", {"source": "harness", "kind": "report" if rid else "goal", "thread": q["thread"],
+                                "dedupe": f"redo:{q['thread']}:{int(time.time())}",
+                                "summary": f"redo a fix that no longer applies ({q.get('commit')})",
+                                "payload": {"rid": rid} if rid else {"redo": q.get("commit")}, "title": f"Redo {q['thread']}"})
+            if rid:
+                try:
+                    ra.write_reply(rid, "answered", "The fix for this report no longer fits the latest code, so it is being "
+                                   "written again on the current version.", {"status": "redo", "commit": q.get("commit")})
+                except Exception as e:  # noqa: BLE001
+                    log("report follow-up failed:", e)
+            note("harness", f"dropped a queued fix that no longer applies ({q.get('commit')}); filed a redo", q["thread"], "result")
+            return
         if status == "queued":
             if "tomorrow" in detail:                   # the daily deploy cap: try again after midnight, not every tick
                 t = time.localtime(); q["not_before"] = time.mktime((t.tm_year, t.tm_mon, t.tm_mday + 1, 0, 5, 0, 0, 0, -1))
@@ -415,7 +437,7 @@ def work(thread):
                         res = json.load(open(os.path.join(ROOT, "eval", "reports", rid, "agent_result.json")))
                     except (OSError, ValueError):
                         res = {}
-                    json.dump({"thread": f"report:{rid}", "wt": wt, "branch": branch, "report": rid,
+                    json.dump({"thread": f"report:{rid}", "wt": wt, "branch": branch, "report": rid, "queued_at": time.time(),
                                "commit": ra.git("rev-parse", "--short", "HEAD", cwd=wt),
                                "res": {k: res.get(k) for k in ("fix_summary", "public_summary", "tests_run")}},
                               open(os.path.join(RUN, f"queued_report_{rid}.json"), "w"))
@@ -488,7 +510,7 @@ def work(thread):
                                 "baseline": res.get("baseline", "")[:300], "expected_after": res.get("expected_after", "")[:300],
                                 "fix_summary": res.get("fix_summary", "")[:300], "replay": res.get("replay")}) + "\n")
         if status == "queued":
-            json.dump({"thread": thread, "wt": wt, "branch": branch, "commit": commit,
+            json.dump({"thread": thread, "wt": wt, "branch": branch, "commit": commit, "queued_at": time.time(),
                        "res": {k: res.get(k) for k in ("fix_summary", "public_summary", "tests_run")}},
                       open(os.path.join(RUN, f"queued_{safe}.json"), "w"))
         if status == "live" and thread.startswith("goal:"):
@@ -804,6 +826,18 @@ def metrics():
         add("video_start", vs["p50"], "p50 <= 1, p90 <= 2", ok,
             f"seconds from {'opening the app' if vs['from'] == 'open' else 'connecting'} to the first video frame; "
             f"p90 {vs['p90']} s, {vs['n']} starts in 7 days")
+    # the loop's own health: a finished fix that cannot ship is a stuck loop (2026-11-03/04: 17 waited, none retried,
+    # because the checkout was never clean); measured on this computer, where the queue lives
+    waits = []
+    for f in os.listdir(RUN):
+        if f.startswith("queued_"):
+            try:
+                q = json.load(open(os.path.join(RUN, f)))
+            except (OSError, ValueError):
+                continue
+            waits.append(q.get("queued_at") or os.path.getmtime(os.path.join(RUN, f)))
+    qh = round((time.time() - min(waits)) / 3600, 1) if waits else 0.0
+    add("fix_queue", qh, "<= 24", qh <= 24, f"hours the oldest finished fix has waited to ship; {len(waits)} waiting")
     add("reports_answered", m.get("oldest_unanswered_min", 0), "<= 15", m.get("oldest_unanswered_min", 0) <= 15, "minutes")
     add("owner_reports", m.get("owner_reports_per_day", 0), "<= 1", m.get("owner_reports_per_day", 0) <= 1, "per day, 7-day average")
     try:
