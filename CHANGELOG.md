@@ -3,22 +3,70 @@
 Releases are published from version tags; servers on `UPDATE_CHANNEL=release` install them within a day.
 
 ## [Unreleased]
-### Changed
-- The fine-tuned verifier's cut-off is calibrated from the pet's own photos (just below the weakest training photo
-  of her) instead of a fixed 0.5. Held out by day on 452 owner-labelled crops: 9 missed / 1 false accept, against
-  23 / 9 for the previous logistic-regression verifier and 0 / 16 at 0.5.
-- Find says "found her" only when 2 of up to 4 still frames show her in the same place, not on the first frame
-  the verifier accepts. Night lookalikes (a clothes pile, a slipper) could end a search on one infrared frame.
-- Follow keeps tracking through frames where a moving, blurred dog scores just under the verifier's cut-off: a
-  dog-like box where the track predicts her continues it, for at most 8 s since the last confirmed sighting (her
-  toys, scored near zero, never do). After its own small moves the tracker shifts what it remembers of her by the
-  same amount instead of forgetting her speed, and ignores frames that may predate the move. In a simulation with
-  realistic detection (tests/server/follow_test.py): in view while she walks across the room 33% -> 77%, walking
-  past a lookalike 41% -> 73%, with no more time spent on the lookalike.
-### Added
-- Every search keeps the frame at each stop and every sighting, with each box and score (kept 21 days), so Find
-  can be checked by hand: `tools/search_review.py` and the "Searches" queue in `tools/label_ui.py`.
-- `tools/label_ui.py`: label crops by keyboard with an editable box.
+
+## [0.2.0] - 2026-11-04
+
+The camera learns this camera and this pet, Find was rebuilt from an audit of real searches, and the live picture is
+fresher. Everything below was measured on the reference install unless it says simulator.
+
+### Learning (new)
+- `sim/`: a simulator of this camera and pet fitted from the watcher's own logs: motor speed, start delay and gear play
+  measured on the camera (`sim/sysid_camera.py`), where she rests and walks, how long she stays away, hard poses the
+  detector rarely sees, the frame delay, and Claude's map of the room from the camera's own panorama (exits,
+  furniture, rest places, bare walls). A fit is accepted only if it reproduces the real metrics on held-out simulated
+  days: the current one passes 7/7 and reproduces Find's real success rate (40% vs 39%).
+- Follow's constants and Find's search order are trained in it and must beat today's on held-out simulated rooms; the
+  learned policy then alternates with today's in 2-hour blocks on the real camera (`track.policy`), scored by
+  `sim/ab_report.py`. The current learned constants: in view 0.460 vs 0.437, fewer moves (simulator, 32 held-out rooms).
+- A recurrent PPO policy exists but is off the camera: in its live smoke test it had learned to use searches as free
+  looks. Every learned policy gets a self-expiring live smoke test (`/var/lib/petcam/policy_override`) first.
+
+### Find
+- A single sure sighting is followed up (aim at it, look again) instead of moving on, and sure sightings add up across
+  looks by their position in the room; weak ones (a toy at night scored at most 0.956) count for neither.
+- Confirms on 2 of up to 4 still frames, not the first frame the verifier accepts; a look waits for the camera's frame
+  delay once, not before every frame.
+- "Already in view" only from a fresh detection (an old one could answer Find without looking).
+- A cancel, or a person moving the camera, stops a search at every motor command and look.
+- Every search keeps the frame at each stop and every sighting with its scores (21 days): `tools/search_review.py` and
+  the "Searches" queue in `tools/label_ui.py`. The learned search order visits likely places first.
+
+### Follow
+- Keeps the track through frames where a moving, blurred dog scores just under the verifier's cut-off (at most 8 s
+  since the last confirmed sighting), shifts what it remembers after its own small moves, ignores boxes older than its
+  last move, and does not chase motion right after she was seen lying still.
+
+### Live picture and latency
+- Live frames come from the camera's JPEG snapshots pushed over one SSH channel: on the same moves 0.95 s vs 1.40 s for
+  the H.264 substream by day. The substream stays as the fallback (after a failed push, repeated short sessions, or no
+  new frame for 10 s). Measured on the camera: ch1's extra delay is added in its encoder/RTSP output, not the image
+  pipeline; no encoder setting removed it (CBR crashes the streamer).
+- The substream reader has no fps filter and one output thread (each could hold a frame).
+- A faster path (main-stream frames, 0.3 s old, while Follow is engaged) is built behind a CPU governor and off by
+  default (`FAST_ENABLED`): the $5 server cannot afford it.
+- Camera noise suppression off: the camera's CPU 67% -> 45% busy. Server CPU cut: integer grey for motion, audio floor
+  every 2 s, one shared SSH connection.
+
+### Detection
+- The fine-tuned verifier's cut-off is calibrated from the pet's own photos (held out by day on 452 owner-labelled
+  crops: 9 missed / 1 false accept, against 23 / 9 before).
+
+### App
+- Find becomes "Stop looking" while a search runs; Hold to talk sits left of the joystick; the saved view nearest the
+  camera is highlighted; the clip player reports a clip it cannot play.
+
+### Releases and tests
+- A release install keeps the learned Follow policy (it used to retire it: releases carry no models).
+- One offline test gate, `tools/run_tests.sh` (24 server tests and the simulator tests), runs in CI and in the release
+  workflow; it needs no camera, server or private config. Checks that need a running install moved to `tests/onserver/`.
+- The live A/B report no longer rewards losing her: visibility over all watched time, compared hour of day by hour of
+  day, every motor command counted (`track.moves`), and the rotation shifts one block per day.
+- The agent's shadow gate holds when its evidence is missing (a failed replay, too few labels) instead of shipping.
+
+### Known limits
+- The live A/B verdict needs ~3 days of the corrected blocks. Find still fails most often because she is out of the
+  room or behind furniture; inferring that is the next step (docs/TODO.md).
+- The $5 Lightsail nano runs out of CPU credits most afternoons (README, Server size).
 
 ## [0.1.0] - 2026-11-03
 

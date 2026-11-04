@@ -95,7 +95,7 @@ dog min 0.393 on 16 Claude-labelled crops; no held-out test yet). See [evaluatio
   4 Mbit/s CBR the camera alone would have used 1.4 TB/month; VBR ≤1.6 Mbit/s is ~0.5 TB.
 - Ubuntu's `fwupd`, `snapd`, `multipathd` etc. don't fit in 512 MB; `install.sh` disables them.
 - The web app must reset per-request auth state (`handle_one_request`): with HTTP keep-alive,
-  Caddy reuses one upstream connection across users. Regression test: `tests/server/authleak.py`.
+  Caddy reuses one upstream connection across users. Regression test: `tests/onserver/authleak.py`.
 
 ## Detector
 

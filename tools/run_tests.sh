@@ -7,7 +7,8 @@ cd "$(dirname "$0")/.."
 export PETCAM_SITE_ENV=config/site.env.example       # the server code's settings
 export PETCAM_CONFIG=config/site.env.example         # tools/siteconf.py (the simulator's camera tools import it)
 for t in tracker events presence stall disconnect pill search_here_first update pet_name theme search_evidence \
-         follow search_cancel spot_highlight talk_button policy fast_mode search_glimpse install_retire; do
+         follow search_cancel spot_highlight talk_button policy fast_mode search_glimpse install_retire \
+         clip_player coverage zones; do
   echo "== $t"
   timeout 300 python3 "tests/server/${t}_test.py"
 done

@@ -4,7 +4,7 @@ The profile was measured on the reference install: a Cinnado D1 running Thingino
 Lightsail nano in us-east-1, and a laptop on the east coast. Re-run it with:
 
 ```bash
-scp tests/server/profile_latency.py <server>:/tmp/
+scp tests/onserver/profile_latency.py <server>:/tmp/
 ssh <server> 'sudo -u petcam /opt/petcam/venv/bin/python /tmp/profile_latency.py --n 12 --motor --video'
 ```
 

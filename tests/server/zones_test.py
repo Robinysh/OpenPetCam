@@ -1,5 +1,7 @@
 """Zone-visit decisions with simulated detections (camera, events and clips mocked)."""
+import os
 import sys, json
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "server"))
 sys.path.insert(0, "/opt/petcam")
 import watch
 events, updates = [], []
@@ -31,3 +33,6 @@ for t in (500, 510, 520):   step(t, inside, "camera panned away")
 w.pose = (1700, 450)
 for t in (600, 603, 606, 609): step(t, inside, "back at view, after cooldown")
 print("visits started:", len(events))
+assert updates, "the first visit must close when she walks away"
+assert len(events) == 2, ("one visit, none inside the cooldown or with the camera elsewhere, one after the cooldown", events)
+print("zones ok")

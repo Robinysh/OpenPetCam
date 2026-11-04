@@ -1,6 +1,6 @@
 # OpenPetCam
 
-> OpenPetCam is a free, open-source (Apache-2.0), self-hosted pet camera. It runs on a Thingino-flashed pan/tilt Wi-Fi camera and a small Ubuntu server you own (an AWS Lightsail nano at about $5/month is enough). It gives live video on your phone, searches the room with the camera's motors when your pet is out of view, tells your pet from toys with a model trained on your own camera, and sends alerts. No subscription and no vendor cloud. Current release: v0.1.0. Built and tested for dogs first.
+> OpenPetCam is a free, open-source (Apache-2.0), self-hosted pet camera. It runs on a Thingino-flashed pan/tilt Wi-Fi camera and a small Ubuntu server you own (the reference is an AWS Lightsail nano at about $5/month, at the edge of its CPU allowance). It gives live video on your phone, searches the room with the camera's motors when your pet is out of view, tells your pet from toys with a model trained on your own camera, and sends alerts. No subscription and no vendor cloud. Current release: v0.2.0. It learns this camera and pet: a simulator fitted from its own logs, tuning trained in it and checked live. Built and tested for dogs first.
 
 Key facts:
 - Camera: any Thingino-supported pan/tilt camera; reference Cinnado D1 (Ingenic T23N).

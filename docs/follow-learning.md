@@ -102,7 +102,37 @@ furniture (calibrated: 76% of rests inside an occluder), and the search skips bl
 win on 32 held-out rooms: in-view 0.564 -> 0.583, worst quarter 0.275 -> 0.383, moves 42.6 -> 40.5 per hour. Those, with
 the learned search, are the live learned arm.
 
+## 2026-11-04: what an audit of real searches and an outside review changed
+
+- **The simulator thought Find was easy.** On its own held-out trials Find succeeded 98% of the time; the 84 real
+  searches since 2026-11-03 succeeded 39% (automatic ones). Labelling the failures by eye: 8 of 12 failures that had a
+  sighting were really her, two lying fully in view; the detector's raw score on a lying dog sat at 0.10-0.53, so it
+  proposed her on few frames while the verifier was sure whenever it did. The 99%-per-frame detection the simulator
+  used was measured while she was already being tracked, i.e. on the poses it sees well.
+- **Hard poses** are now part of the model: each lie-down is hard with `q_hard` and then seen on `p_hard` of frames,
+  calibrated together with the real search success rate (fit: about half the lie-downs, 4% of frames).
+- **Frame timing parity** (outside review): the simulated settled look returned a frame exposed before the requested
+  time and ignored "since" mid-pan; it now follows the watcher's rule (a frame taken after the request, a new one per
+  look, on the 5 fps grid). Sensing has its own random stream, so policies are compared on the same dog.
+- **Result:** the re-fit passes gate 1 on held-out seeds (7/7, 8 seeds x 4 h; the ranges are wide) and reproduces Find
+  (40% vs 39% real). On it, the previously deployed learned constants were no better than today's (robust 0.132 vs
+  0.141); constants retrained on it pass gate 2 against both (in-view 0.460 vs 0.437 / 0.440, robust 0.152, moves 52.8 vs
+  53.6 per hour; 13 of 32 rooms won, so the gain is on average and in the worst rooms, not everywhere). They are the
+  learned arm from 2026-11-04 14:02. Two earlier retrains on intermediate fits failed gate 2 and were not shipped.
+- **Where Find's failures are** (calibrated simulator, 169 searches on held-out days): she was out of the room for 85
+  (found 2), behind furniture for 15 (found 0), in a hard pose for 13 (found 4), lying normally for 55 (found 55). The
+  next Find work is therefore inference (where did she go: an exit, behind the sofa) before sweeping, not a faster
+  sweep. Shipped the same day: a single sure glimpse is followed up (aim at it, look again), and sure sightings add up
+  across looks by room position; in the simulator Find went 31% -> 35%.
+- **The live A/B was not a valid gate** (outside review). "Home" was inferred from the detections being judged, so an
+  arm that lost her for long stretches dropped them from its own denominator (a 25%-visible arm scored 95%); a search
+  counted as one move; and two arms in 2-hour blocks got the same hours every day. `sim/ab_report.py` now scores
+  visibility over all watched time, hour of day by hour of day on hours both arms covered, counts every motor command
+  (`track.moves`), and the rotation shifts one block per day. The A/B restarted with these on 2026-11-04.
+
 ## What is not yet established
+
+- **A live verdict.** The corrected A/B needs about three days of blocks before it can decide.
 
 - **Predicting a held-out real day.** Leave-one-day-out (fit on one real day, predict the other) put only 1-3 of 7
   real metrics inside the simulator's range. Two reasons: the two days differed (a calm day, 1.8 tracking aims an hour;

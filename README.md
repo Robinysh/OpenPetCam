@@ -22,7 +22,8 @@ On a $5 server you own. No subscription. No vendor cloud.<br>
 ## Install in three steps
 
 You need a [Thingino](https://thingino.com)-flashed pan/tilt camera on your Wi-Fi (the reference is a Cinnado D1)
-and any Ubuntu 24.04 server with a public IP (an AWS Lightsail nano at $5/month is plenty).
+and any Ubuntu 24.04 server with a public IP. The reference runs on an AWS Lightsail nano ($5/month), which is at the
+edge of its CPU allowance: see [Server size](#server-size).
 
 ```bash
 git clone https://github.com/crimeacs/OpenPetCam.git && cd OpenPetCam
@@ -70,7 +71,7 @@ You need:
 
 ## What you get
 
-<p align="center"><img src="docs/media/app-tour.gif" width="300" alt="The app: live view finding the dog, Today, the agent dashboard, themes"></p>
+<p align="center"><img src="site/media/app-tour.gif" width="300" alt="The app: live view finding the dog, Today, the agent dashboard, themes"></p>
 
 - **See them, always.** Live video with sound on your phone, and what they're doing (resting, active, out of
   view) over the picture.
@@ -116,8 +117,18 @@ server: MediaMTX (video in, WebRTC out, 6 h rolling recording) · petcam-watch (
 your computer (optional): the agent, which proposes, tests and ships fixes
 ```
 
-It runs at about 5% of one CPU core on a 512 MB server. Details: [architecture](docs/architecture.md) ·
+Live frames come from the camera's own JPEG snapshots pushed over one SSH channel (about 0.45 s fresher than its
+640x360 H.264 substream, which stays as the fallback). Details: [architecture](docs/architecture.md) ·
 [camera notes](docs/camera-thingino.md) · [performance](docs/performance.md) · [the agent](docs/superagent.md).
+
+### Server size
+
+Measured on the reference install (2026-11-04): about 6.4% of one vCPU with nothing happening (MediaMTX recording,
+the audio decoder, WireGuard, the watcher) and 10-17% of one vCPU averaged over a day. A Lightsail nano's sustained
+allowance is 10% of one vCPU (5% per vCPU, 2 vCPUs), so its burst credits run out most afternoons and the box is
+throttled (CPU steal up to 70%), which slows detection and Find. It works, but a plan with more sustained CPU
+(Lightsail $7: 20%, or any VPS with a full shared vCPU) has room for the faster frame path (`FAST_ENABLED` in
+`server/watch.py`, main-stream frames 0.3 s old while Follow is engaged).
 
 ## Updates
 
@@ -139,6 +150,16 @@ recordings and history are not part of a release, so an update never touches the
   `v0.1.0-3-gabc1234`, or with uncommitted changes) is never overwritten automatically. `./deploy.sh` updates it.
 - **Publishing a release** (maintainers): add a `## [X.Y.Z]` section to `CHANGELOG.md`, then
   `git tag vX.Y.Z && git push --tags`. The release workflow runs the checks and attaches the archive.
+
+## It learns your camera and pet
+
+`sim/` fits a simulator of *this* camera and pet from the watcher's own logs: motor speed, start delay and gear
+play measured on the camera, where she rests and walks, how long she stays away, how often the detector misses her
+in hard poses (calibrated to the real search outcomes) and the frame delay. A fit is accepted only if it reproduces
+the real metrics on held-out simulated days (`sim/selfcal.py`, gate 1). Follow's tuning constants and Find's search
+order are then trained in it and must beat today's on held-out simulated rooms (gate 2) before they run, and the
+learned policy then alternates with today's in 2-hour blocks on the real camera (`sim/ab_report.py`, gate 3).
+Status and numbers, including what has not worked yet: [docs/follow-learning.md](docs/follow-learning.md).
 
 ## Teach it your pet
 
@@ -207,7 +228,9 @@ from Settings. Login attempts are rate-limited.
 | `deploy.sh` | sync and install from your computer |
 | `tools/` | run on your computer: `bootstrap_pet.py`, `status.sh` (health report), `triage.py` (reports), `calibrate.py`, `replay.py` (held-out replay), `superagent.py` (the agent), `make_release.sh` |
 | `agent/` | the agent's goals, steering, policies and prompts |
-| `tests/server/` | simulations that run anywhere (tracker, presence, search, updates) and checks that run against a live install |
+| `sim/` | the camera-and-pet simulator, its calibration from logs, policy training and the live A/B report |
+| `tests/server/`, `tests/sim/` | tests that run anywhere (`tools/run_tests.sh`, the CI and release gate) |
+| `tests/onserver/` | checks that need a running install, the camera or real recordings |
 | `docs/` | architecture, camera notes, evaluation, performance, the agent, research |
 
 ## Limits

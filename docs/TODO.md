@@ -1,83 +1,47 @@
-# Owner requests, in order
+# Open work, in order
 
-Worked top to bottom. Each item moves to Done with the commit that shipped it.
+Worked top to bottom. Each item moves to Done with the commit or date that shipped it.
 
-1. ~~**Live and Today redesign (prototype)**~~ done, canvas v22: Live is camera-first: full-bleed video that keeps the dog framed, what she is doing laid over it, joystick below. Today is visual: photo mosaic, day split, scrubbable timeline, moments as photos. (2 Nov)
-2. ~~**Report agent:**~~ done (every 5 min, probe answered 18:30): every "Something wrong?" report is handled as continuous feedback, as the owner's agent: labels from the owner's words, diagnosis, a gated fix and deploy, and a reply in the app and on the phone. A report unanswered for 6 h pages. (2 Nov)
-3. **Exhaustive QA** of the setup, software and hardware: check every assumption, test every behaviour. The checks
-   become a repeatable suite (tools/qa.py) that the loop re-runs nightly, so a regression is caught without the owner. (2 Nov)
-4. **Self-improving loop.** The owner's prompts are signals the system should catch itself. North star: the owner
-   always knows what the dog is doing and can see her. Nightly: measure it (detector errors against owner labels,
-   time to find her, searches that failed, video start time, reports, usage friction), compare with the trend, and
-   have an agent make one improvement under the same gates as the report agent, then report what changed. (2 Nov)
-   Rigour (owner: "measure and improve rigorously"): every metric has ground truth from outside the system being
-   measured (owner labels, owner reports, hand-checked frames, the motor's own position), a fixed definition and a
-   history; a change is scored on held-out days against the current version AND the free baseline, ships only if it
-   wins on the north-star metrics without regressing the others, and is re-measured after it ships (kept or reverted).
-5. **Learn her hotspots:** infer where she likes to be from where the camera finds her (pan/tilt pose + box over days);
-   use them for search order, suggested places, and Today. The first improvement the loop makes from its own data. (2 Nov)
-6. ~~Build the approved prototype into the real app~~ done 2 Nov 19:50 (camera-first Live, visual Today). Still open: views and
-   zones as one 'place' in the backend (the app shows them in one row for now).
-7. Report agent: a fix queued because the code moved on is never retried; rebase it in its worktree, re-run the gates, ship.
-8. Motor loudness per speed (tools/noise_study.py loudness): waits for a safe moment; then decide resting moves and search style.
-
-9. **Weakness mining** (Self-Harness, arXiv 2606.09498): a nightly pass over worker and router transcripts, the
-   archive and owner reports that names recurring failure patterns before a goal misses, and opens threads for
-   them. Today only goal misses and reports start work.
-10. **Pairwise gate for changes with no metric** (`~/Documents/auto-improve`, after karpathy/autoresearch): app copy,
-   push wording, prompts. An independent judge compares champion and candidate in both orders and keeps the candidate
-   only on a 2-0 win; it never grades its own work. Router prompt changes would use it alongside the router cases.
-11. **Fixed budget per experiment** (autoresearch): every worker run gets the same wall-clock and token budget so attempts
-   in the archive are comparable, and the archive records cost per accepted change.
-
-12. **Fine-tune the pet classifier on footage collected over weeks** (owner, 2026-11-03), replacing the
-   logistic regression on frozen MobileNetV2 features, which memorises scenes (rug 0.11 on 2 Nov).
-   - Collect: keep every candidate crop with its context (time, pan/tilt, IR or day), deduplicated, bounded in size.
-   - Label: bootstrap with `claude -p` as today, owner 👍/👎 as the independent labels, plus hard negatives (toys,
-     empty rug, people) and hard positives (curled up, IR, partial).
-   - Train on the laptop or the Jetson: unfreeze the last MobileNetV2 blocks (or a small EfficientNet), strong
-     augmentation (IR-like grayscale, crops, light), ONNX export at the same speed budget.
-   - Judge: held-out by day (never seen days), the 118-frame walk set must stay at 0 false accepts, then a
-     shadow run on live frames before it ships; retrain weekly as footage grows.
+1. **Live A/B verdict** (gate 3). The corrected report (`sim/ab_report.py`) needs ~3 days of blocks with the
+   day-shifted rotation; then promote or remove the learned arm (constants retrained 2026-11-04 on the validated
+   simulator). Add labelled spot checks (is she really in view?) as the ground truth the telemetry cannot give.
+2. **Find v2: infer where she is before sweeping.** In the calibrated simulator half the automatic searches start while
+   she is out of the room. Track where a lost track ended (Claude's exits on the room map): if she left through a
+   doorway, watch that doorway and say so ("left through the corridor 12 min ago") instead of sweeping; if she lay down
+   by furniture and never came out, say "probably behind the sofa" and look there first. Measure in the simulator and
+   on the saved search records before shipping.
+3. **Hard-pose detection at search stops**: accept weaker detector proposals during a search (the verifier is the real
+   gate), and try the 1080p frame at each stop. Measure offline on the saved search frames, labelled by eye.
+4. **Latency, measured on a box that is not throttled** (`docs/performance.md`): the four-way ffmpeg comparison
+   (fps filter x output threads), corrected ch1 against the JPEG push on the same moves, the camera's native
+   `prudyntctl mjpeg`, then ch1's encoded-output queue on the camera (`IMP_Encoder_GetMaxStreamCnt`/`Query`) only
+   if ch1 still lags. 30+ paired trials per condition, day and night, with CPU steal recorded.
+5. **Server with sustained CPU** (owner's choice): the $5 nano is throttled most afternoons. Then `FAST_ENABLED`
+   (main-stream frames 0.3 s old while Follow is engaged) can be measured and switched on.
+6. **PPO back on the camera only after its execution path is shared with the tuned controller** (outside review): one
+   execution layer that enforces the manual pause, cancellation, the per-move budget (counting each motor command of a
+   search) and frame requirements, used by the server and the simulator alike; the fast-detection action either works
+   live or is removed from training; the resting guard works at the real detection cadence.
+7. **Predict a held-out real day** with one frozen code version (`sim/validate_real.py`), calibration exports that
+   keep `arm@version`, and a distribution of fits rather than one.
+8. **On-camera tracker** (owner, 2026-11-03): a tiny model inside prudynt's frame path (a hardware-scaled ~96x54 NV12
+   channel) tracking 5-10 times a second next to the motor. First student: 11,851 params, 1.5 MMAC/frame, held-out recall
+   0.88 / precision 0.57 against the server's detector. Ship gate: camera under ~70% busy, beats the server path in the
+   simulator and in a live A/B.
+9. **Fine-tune the pet classifier on weeks of footage** (owner, 2026-11-03), held out by day, the 118-frame walk set
+   at 0 false accepts, a shadow run before it ships.
+10. **Agent**: weakness mining over transcripts and reports; a pairwise judge for changes with no metric (copy,
+    prompts); a fixed budget per experiment; rebase queued fixes instead of dropping them.
+11. Motor loudness per speed (`tools/noise_study.py`), when a safe moment allows.
 
 ## Done
 
-- QA suite tools/qa.py: 20 pass, 0 fail (2 Nov 19:10)
-- Pause = picture and mic off; sound self-heal; Find <pet> button; searches keep the app fresh (2 Nov)
-- Toy accepted as the dog, "moving" while asleep, searching an empty flat every 10 min: `1db6fba` (2 Nov)
-
-13. **On-camera tracker (owner, 2026-11-03: "squeeze as much as possible from the camera").** A tiny model baked into a
-   static MIPS binary on the camera tracks her 5-10 times a second next to the motor; the server keeps the "is it her"
-   check every few seconds. Measured constraints: Ingenic T23N, one MIPS32 XBurst core (~1185 BogoMIPS), no NN
-   accelerator, 37 MB RAM (~7 MB free); camera busy 45% after noise suppression off (was 67%), so ~25-35% is spendable.
-   - Data: ~7,500 frames (server candidates/ with same-cycle detections, per-minute snaps, eval/bootstrap/frames) +
-     452 owner/Claude-labelled crops. Teacher: the server's YOLOX-nano + verifier (owner labels override).
-   - Model: grayscale ~96x54 input, int8 or binary weights compiled into C, a few MMAC per frame (YOLOX-nano is ~1 GMAC);
-     output: her box or "not in view". Train on the laptop; judge held-out by day against the teacher.
-   - First student (2026-11-03, eval/tiny/): 11,851 params, 1.5 MMAC/frame (~700x less than YOLOX-nano). Teacher-labelled
-     3,457 frames (1,434 with her). Held out 11-03: recall 0.88 / precision 0.57 at 0.3, median centre error 0.08 frame.
-     Weak on identity (expected: the camera only follows near the server's last confirmed box).
-   - Blocker: frames on the camera. prudynt owns the ISP; JPEG/H.264 decode would cost more than the model. Path: run
-     the model inside prudynt's IVS/motion frame path (open source, Thingino toolchain), output a box to the motor loop.
-     Lead (gtxaspec/prudynt-t src/Motion.cpp): motion binds a framesource channel to Ingenic's IVS with IMP_System_Bind.
-     A dedicated small framesource channel (hardware-scaled ~96x54 NV12) read with IMP_FrameSource_GetFrame gives the
-     Y plane as the grey input for free. Checked 2026-11-03 (/proc/jz/isp/isp-fs): framesource 2 exists and is stopped;
-     ch0 1080p (scaler off) and ch1 640x360 (hardware scaler on) are in use, so a ~96x54 NV12 ch2 is available.
-   - Ship gate: camera stays under ~70% busy (per-thread /proc profile), tracking beats today's 2.5 s detections in
-     the Follow sim fitted to the track table (pan/tilt per cycle, logged since 2026-11-03), and a live A/B.
-14. **Server CPU allowance.** The $5 box ran pinned at its 5% cap all day (credits 0%). Shipped 2026-11-03: integer grey
-   for motion (18x cheaper), audio floor every 2 s, one multiplexed SSH connection (~3,700 logins/day before). If the
-   credits still don't refill: camera motion detection + webhook instead of server polling, keyframe-only decode when
-   idle, microSD recording on the camera; int8 on this CPU is likely slower (VNNI hidden by the hypervisor).
-
-15. **Follow and Find as active visual tracking (owner-supplied research, 2026-11-03).** Baseline from 3 days of obs
-   (loss = seen, then unseen >= 6 s): 280 losses; seen again within 10 s 2%, 30 s 28%, 60 s 51%, 10 min 91%; median 53 s.
-   Many "lost while still" (234) are cadence gaps (detector every 8-30 s at rest), not real losses: split losses into
-   edge exit / occlusion / perception miss before judging recovery. Order:
-   1. Measure the camera: command-to-motion delay, speed vs command, replace-or-queue, settle/blur time, real frame age.
-   2. Track bearing = pan/tilt pose (track table) + pixel, in a rest/moving Kalman filter; drop the constant 0.7 s lag.
-   3. Belief search: hotspot prior (item 5) x last motion; next view by P(find | view) / (move + settle + look time);
-      a negative look lowers, never erases, a region.
-   4. Recurrent policy (RL) on the log-fitted, randomised sim, against 2-3 with the same perception.
-   5. Live A/B on the real camera, scored by visibility share, losses/hour, recovery within 1/3/10 s (timeouts included),
-      p95, wrong-target switches.
+- 2026-11-04: Find follows up a single sure glimpse and adds sightings up across looks; a cancel stops a search at
+  every motor command and look; "already in view" only from a fresh detection; the simulator models hard poses and the
+  watcher's frame-freshness rule and passes gate 1 on held-out seeds (7/7); the A/B report scores visibility over all
+  watched time; live frames from the camera's JPEG push; a release keeps the learned policy; one test gate for CI and
+  releases.
+- 2026-11-03: fine-tuned verifier with a cut-off calibrated from her own photos; Find needs 2 of 4 frames; Follow keeps
+  weak tracks; search evidence kept and reviewable; server CPU cut (integer grey, audio floor, one SSH connection).
+- 2026-11-02: camera-first Live and visual Today; the report agent; QA suite `tools/qa.py`; Pause turns off the picture
+  and the microphone; toy rejection.
