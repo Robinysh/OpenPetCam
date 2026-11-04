@@ -69,3 +69,24 @@ What we apply:
 - **Steer:** tell Claude Code. It edits `agent/steer.md` (read every turn), `agent/goals.json` or `agent/policies.md`, and pushes the change.
 - **Pause or resume:** `tools/install_autopilot.sh --remove` / `tools/install_autopilot.sh`.
 - **Logs:** `eval/superagent/superagent.log`, `launchd-*.log` and `archive.jsonl`.
+
+## Schedule and measurement (where to look)
+
+Four launchd jobs on the owner's computer (`tools/install_autopilot.sh`):
+
+| Job | Every | Does |
+|---|---|---|
+| `ai.openpetcam.agent.tick` | 2 min | collects triggers (owner reports, goal misses), routes them, starts at most 2 workers (10 worker runs and 60 router calls a day) |
+| `ai.openpetcam.agent.metrics` | 30 min | measures every goal in `agent/goals.json` and writes it to `metrics` in the server's `agent.db` |
+| `ai.openpetcam.agent.watchdog` | 15 min | stuck workers, a stalled tick, stale goals, triggers piling up |
+| `ai.openpetcam.autopilot` | 03:30 | nightly: detector retraining, the check-in message, QA |
+
+The jobs run only while that computer is awake: 55 measurements in the first 44 hours instead of ~88.
+
+- **Goals over time and every attempt:** `python3 tools/agent_plot.py [hours]` writes `eval/superagent/agent_timeline.png`
+  (each goal against its target, misses marked; the attempts and their verdicts below). The app's Agent tab shows
+  7-day trends.
+- **Every attempt, kept:** `eval/superagent/archive.jsonl` (append-only, verdicts live / queued / rejected / duplicate).
+
+Measured 2026-11-04, first 44 hours: 26 attempts, 7 shipped live (all on 2026-11-03), 17 queued and never retried,
+1 rejected; the daily worker budget ran out at 07:05 and 11 owner reports waited up to 21 h (docs/TODO.md item 10).
