@@ -160,3 +160,9 @@ costs the same as 5) plus ~10% for 2 Hz detection. A governor turns it off for 1
 It is off because the box cannot pay for it: average use sits at or above the burst baseline, and on 2026-11-04 the
 credits ran out (71% steal; the main stream decoded at 6.6 of 25 fps). Turning it on needs either CPU headroom
 (cut the baseline load) or a camera-side fix for ch1's lag, which would cost the server nothing.
+
+Where ch1's extra delay is (2026-11-04, from the camera itself): JPEG snapshots taken on the camera and streamed out
+show a pan 0.49-0.60 s after the command on ch1 and 0.61-0.69 s on ch0 (each including the ~0.1 s motor start and
+its own JPEG encode). ch1's raw frames are therefore fresh, while its H.264 stream is ~1.0 s old: the extra ~0.5 s
+is added in ch1's encoder or RTSP output, which is configuration, not the image pipeline. The camera has ~2 MB of
+free RAM and /tmp is RAM: never store test files there (a snapshot loop doing so rebooted it once).
