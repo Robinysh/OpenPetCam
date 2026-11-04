@@ -465,9 +465,10 @@ class FrameSource:
 class VerifiedBox(list):
     """A verified pet box [x0, y0, x1, y1] that also carries the verifier's probability (.p), for the tracker."""
 
-    def __init__(self, box, p):
+    def __init__(self, box, p, captured=None):
         super().__init__(box)
         self.p = float(p)
+        self.captured = captured
 
 
 class StealGovernor:
@@ -1615,7 +1616,11 @@ class Watch:
         if not fresh:
             return None
         img = self.frames.latest()
-        return self.verified_box(img, settled=False) if img is not None else None
+        box = self.verified_box(img, settled=False) if img is not None else None
+        if box is not None:
+            arrived, lag, _mode = self.frames.got
+            box.captured = arrived - lag             # when the frame was taken: the scan places her by it
+        return box
 
     def privacy_on(self):
         try:

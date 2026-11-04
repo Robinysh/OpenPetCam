@@ -711,7 +711,7 @@ function stopLive() {
   if (pc) { try { pc.close(); } catch (e) {} pc = null; }
   if (whepUrl) { fetch(whepUrl, { method: "DELETE" }).catch(() => {}); whepUrl = null; }
 }
-let liveT0 = 0, liveFirst = false;
+let liveT0 = 0, liveFirst = false, liveOpenPending = true;   // the first video since the page opened
 async function startLive() {
   liveWanted = true; clearTimeout(retryTimer); stopLive();
   liveT0 = Date.now(); liveFirst = false;
@@ -721,7 +721,16 @@ async function startLive() {
   conn.addTransceiver("video", { direction: "recvonly" });
   conn.addTransceiver("audio", { direction: "recvonly" });
   conn.ontrack = (ev) => { const v = $("live"); if (v.srcObject !== ev.streams[0]) { v.srcObject = ev.streams[0]; v.play().catch(() => {}); } };
-  $("live").onplaying = () => { if (!liveFirst && liveT0) { liveFirst = true; track("live_first_frame", {}, Date.now() - liveT0); } };
+  // ms = connect -> first frame; open_ms = page opened -> first frame, on the first video of each app open (the
+  // "open the app and see her" time, the video_start goal)
+  $("live").onplaying = () => {
+    if (!liveFirst && liveT0) {
+      liveFirst = true;
+      const d = liveOpenPending ? { open_ms: Math.round(performance.now()) } : {};
+      liveOpenPending = false;
+      track("live_first_frame", d, Date.now() - liveT0);
+    }
+  };
   conn.onconnectionstatechange = () => {
     if (conn !== pc) return;
     if (conn.connectionState === "connected") $("conn").classList.add("hidden");

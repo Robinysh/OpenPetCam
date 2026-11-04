@@ -49,6 +49,10 @@ def load_params(path=os.path.join(HERE, "params.json")):
     return json.load(open(path))
 
 
+class _Seen(list):
+    """A box with the time its frame was taken (the watcher's find_pet_now gives the tracker the same)."""
+
+
 class Room:
     def __init__(self, seed=0, params=None, free=None, presets=None):
         self.P = params or load_params()
@@ -311,4 +315,8 @@ class Room:
         if newest <= since or newest <= getattr(self, "last_judged", -1.0):
             return None
         self.last_judged = newest
-        return self.frame()[0]
+        box = self.frame()[0]
+        if box is not None:
+            box = _Seen(box)
+            box.captured = newest - self.F["lag_s"]     # the frame shows the scene lag_s before it arrived
+        return box

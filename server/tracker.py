@@ -88,6 +88,7 @@ CONFIRM_FRAMES = 2      # ...and this many of them must show her in the same pla
 GLIMPSE_P = 0.97        # a single verified box is followed up (aim + look again) only this sure. Fitted by eye on the 12
                         # failed searches 2026-11-03/04 that had one: the 8 real ones scored >= 0.977, the 4 false ones
                         # (one toy under the stool at night) <= 0.956. 12 cases, no held-out set: revisit with more.
+BACKS_MAX = 3           # mid-pan sightings the search goes back to, at most, per search (see _back_to_sighting)
 AGREE = 0.15            # two boxes agree when their centres are within this share of the frame
 SCAN_POLL = 0.2         # check a new frame this often while panning (the stream delivers 5 fps)
 # Keeping the track through weak detections (ByteTrack's idea, arXiv 2110.06864): a moving, blurred dog often scores
@@ -465,7 +466,7 @@ class Tracker:
         if abs(x_now - b) < 5 and abs(y_now - y) < 5:
             return None
         self._move(self.cam.goto, b, y)              # returns at once; the motor keeps going
-        seen_t = self.clock()
+        seen_t = t_start = self.clock()
         while self.cam.busy():
             self.tick()
             halt = self._halt(reason)
@@ -475,8 +476,10 @@ class Tracker:
             box = self.find_now(seen_t)
             seen_t = self.clock()
             if box is not None:
+                t_stop = self.clock()
                 self.cam.stop()
                 self._wait_idle()
+                self._back_to_sighting(box, x_now, y_now, t_start, t_stop)
                 self.sleep(SETTLE)
                 confirm = self.look()
                 x, _ = self.cam.position()
@@ -493,6 +496,38 @@ class Tracker:
         if box is not None:
             return self._found(box, t0, f"at ({b}, {y})", reason)
         return self._glimpse(t0, f"at ({b}, {y})", reason)
+
+    def _back_to_sighting(self, box, x0, y0, t_start, t_stop):
+        """A mid-pan sighting comes from a frame taken some time ago (its delay, detection, the stop): by the time the
+        motor stops the camera has panned on, at ~215 steps/s about 0.3 frame per second, and she can be out of the
+        picture (report 2026-11-04 14:45: three sure sightings, each look at the stop showed the next view and the search
+        ended "not found"). Place her where the camera pointed when the frame was taken (linear motion from the move's
+        start to the stop), count it as one sure sighting, and aim back at her if the camera has overshot."""
+        x1, y1 = self.cam.position()
+        t_seen = getattr(box, "captured", None)
+        if t_seen is None:
+            t_seen = t_stop
+        span = max(1e-6, t_stop - t_start)
+        f = min(1.0, max(0.0, (t_seen - t_start) / span))
+        xc, yc = x0 + (x1 - x0) * f, y0 + (y1 - y0) * f
+        fw, fh = self.cam.frame_steps()
+        cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
+        rx, ry = xc - cx * fw, yc - cy * fh
+        seen = getattr(self, "search_hits", None)
+        if seen is not None and getattr(box, "p", 1.0) >= GLIMPSE_P:
+            seen.append((rx, ry, self.clock()))
+        backs = getattr(self, "search_backs", None)
+        if backs is None:
+            backs = self.search_backs = []
+        # At most once per place and BACKS_MAX per search: a look that fails after going back must not send the scan
+        # past her again and back again forever (it did, in the glimpse test, before this bound).
+        if any(abs(bx - rx) <= 0.5 * fw and abs(by - ry) <= 0.5 * fh for bx, by in backs) or len(backs) >= BACKS_MAX:
+            return
+        if abs(rx - x1) > 0.15 * fw or abs(ry - y1) > 0.15 * fh:
+            backs.append((rx, ry))
+            self.log(f"search: the sighting was at ({rx:.0f}, {ry:.0f}), the camera stopped at ({x1}, {y1}): going back")
+            self._move(self.cam.goto, rx, ry)
+            self._wait_idle()
 
     def rest_view(self):
         """The saved view a failed search parks at: the first one whose name contains a REST_NAMES word
@@ -518,7 +553,8 @@ class Tracker:
         self.search_t0 = t0
         self.searching = True
         self.search_reason = reason
-        self.search_hits = []            # sure sightings of this search, room coordinates (pan, tilt steps)
+        self.search_hits = []
+        self.search_backs = []            # sure sightings of this search, room coordinates (pan, tilt steps)
         try:
             x0, y0 = self.cam.position()
             fw, _ = self.cam.frame_steps()
