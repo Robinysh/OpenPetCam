@@ -22,12 +22,12 @@ from PIL import Image, ImageDraw
 HERE = os.path.dirname(os.path.abspath(__file__))
 SERVER = os.path.join(HERE, "..", "server")
 sys.path.insert(0, HERE)
-from siteconf import HOST, KEY  # noqa: E402
+from siteconf import HOST, KEY, SSH  # noqa: E402
 
 
 def pull(d):
     os.makedirs(f"{d}/frames", exist_ok=True)
-    subprocess.run(["ssh", "-i", KEY, "-o", "BatchMode=yes", HOST,
+    subprocess.run(SSH + [
                     "sudo tar -C /var/lib/petcam/snaps -czf /tmp/snaps.tgz . && sudo chmod 644 /tmp/snaps.tgz"], check=True)
     subprocess.run(["scp", "-q", "-i", KEY, f"{HOST}:/tmp/snaps.tgz", f"{d}/snaps.tgz"], check=True)
     subprocess.run(["tar", "-xzf", f"{d}/snaps.tgz", "-C", f"{d}/frames"], check=True)

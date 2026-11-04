@@ -50,7 +50,7 @@ sys.path.insert(0, HERE)
 
 
 def ssh(cmd):
-    return subprocess.run(["ssh", "-i", KEY, "-o", "BatchMode=yes", HOST, cmd], check=True, capture_output=True, text=True).stdout
+    return subprocess.run(SSH + [cmd], check=True, capture_output=True, text=True).stdout
 
 
 def load_jsonl(path):
