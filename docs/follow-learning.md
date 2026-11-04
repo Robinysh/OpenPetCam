@@ -42,6 +42,11 @@ and keeps every hard rule: the server accepts only whitelisted constants clamped
   quarter 0.431 -> 0.484, motor moves 31.2 -> 26.7 per hour, better in 15 of 32 rooms. The policy re-aims at most
   every ~5 s, chases only from a clear edge exit, and searches later.
 
+- **RL challenger:** recurrent PPO (64-unit LSTM, 600k steps, 18 min on the laptop CPU) on the same environment and
+  the same 32 held-out rooms: in-view 0.596, worst quarter 0.251, **237 motor moves per hour**. It lost to both, so the
+  deployed policy is the tuned controller. Before trying again: a much higher per-move cost (or the move budget as a
+  hard constraint), the resting shield plus a move budget in the action mask, and longer training (Modal CPU sweeps).
+
 ## What is not yet established
 
 - **Predicting a held-out real day.** Leave-one-day-out (fit on one real day, predict the other) put only 1-3 of 7
