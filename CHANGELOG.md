@@ -4,6 +4,17 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-05
+
+### Fixed
+- Follow no longer chases motion into a wall and stays there. A chase turn is skipped when an end stop would take
+  most of it, or when the room map shows the pose has no floor; a chase that finds nothing goes back to where the
+  camera was looking. (Three turns from her resting spot had run the camera to the end of its pan, facing the wall
+  beside the mount, until a search minutes later; 5 of one day's 6 three-turn chases ended at an end stop.)
+
+### Room tab
+- The scripted-check handle (`window.__room`) also exposes the 3D scene, for recording the room's views.
+
 ## [0.3.3] - 2026-11-05
 
 ### Fixed

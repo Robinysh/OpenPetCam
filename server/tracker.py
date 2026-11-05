@@ -305,7 +305,7 @@ class Tracker:
         while self.hist and t - self.hist[0][0] > TRACK_WINDOW:
             self.hist.popleft()
         recent = t - self.last_seen_t < 3.0
-        self.chase_dir, self.chase_steps = None, 0
+        self.chase_dir, self.chase_steps, self.chase_origin = None, 0, None
         self.motion_chase_t = -1e9
         self.failed_searches = 0
         self.last_moving = bool(moving)
@@ -381,10 +381,49 @@ class Tracker:
             return f"track (room): aim ({fx:+.2f}, {fy:+.2f}), {speed:.2f} m/s"
         return None
 
+    def _chase_target(self, fx, fy):
+        """Where a chase turn of (fx, fy) would point the camera, and whether it is worth making: not when an end
+        stop takes most of the turn, nor onto a pose the room map shows has no floor (owner report 2026-11-05 14:56:
+        three turns from her resting spot ran the camera to pan 3666, facing the wall beside the mount, and it
+        stayed there; 5 of the day's 6 three-step chases ended at an end stop)."""
+        try:
+            cx, cy = self.cam.position()
+            fw, fh = self.cam.frame_steps()
+            xm, ym = self.cam.limits()
+        except Exception:  # noqa: BLE001 - no pose: chase as before
+            return None, True
+        nx, ny = min(max(cx - fx * fw, 0), xm), min(max(cy - fy * fh, 0), ym)
+        moved = abs(nx - cx) + abs(ny - cy)
+        if moved < 0.4 * (abs(fx) * fw + abs(fy) * fh):
+            return (cx, cy), False
+        if ROOM_MAP is not None and not ROOM_MAP.has_floor(nx, ny):
+            return (cx, cy), False
+        return (cx, cy), True
+
     def _chase(self, fx, fy, why):
+        origin, ok = self._chase_target(fx, fy)
+        if self.chase_steps == 0 or getattr(self, "chase_origin", None) is None:
+            self.chase_origin = origin
+        if not ok:
+            return self._chase_back("the next turn shows no floor" if ROOM_MAP is not None else "at the end of its turn")
         self.chase_dir, self.chase_steps = (fx, fy), self.chase_steps + 1
         self._move(self.cam.aim, fx, fy)
         return f"chase: {why}, turned ({fx:+.2f}, {fy:+.2f})"
+
+    def _chase_back(self, why):
+        """A chase that found nothing goes back to where it was looking (where she was), instead of staying put."""
+        o, self.chase_origin, self.chase_dir = getattr(self, "chase_origin", None), None, None
+        self.chase_steps = 3
+        if o is None:
+            return None
+        try:
+            here = self.cam.position()
+        except Exception:  # noqa: BLE001
+            here = None
+        if here is not None and abs(here[0] - o[0]) + abs(here[1] - o[1]) < 20:
+            return f"chase: stopped, {why}"
+        self._move(self.cam.goto, *o)
+        return f"chase: not found, {why}; back to where it was looking ({o[0]:.0f}, {o[1]:.0f})"
 
     def _lost(self, t, sound, motion=None):
         gone = t - self.last_seen_t
@@ -393,6 +432,8 @@ class Tracker:
         # keep going the way she went: one turn rarely catches up with a trotting dog
         if self.chase_dir and self.chase_steps < 3 and t - self.last_move >= MOVE_EVERY:
             return self._chase(*self.chase_dir, f"still not in view, continuing ({self.chase_steps + 1}/3)")
+        if self.chase_dir and self.chase_steps >= 3 and t - self.last_move >= MOVE_EVERY:
+            return self._chase_back("3 turns")
         # chase on motion: she crossed too fast to be detected twice (or at all), but the frame reader
         # saw where the picture changed. Motion near an edge, just now, with no pet in view: look there.
         resting_here = gone < REST_MISS_HOLD and self.lay_still()

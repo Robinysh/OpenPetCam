@@ -428,7 +428,7 @@ export async function mountRoom(root, pet) {
   return {
     show() { visible = true; bg(); resize(); loadDay(); clearInterval(poll); poll = setInterval(() => { if (S.live) loadDay(); }, 30000); },
     hide() { visible = false; clearInterval(poll); },
-    state: S, cam, controls, redraw: draw, // for scripted checks
+    state: S, cam, controls, scene, world, THREE, redraw: draw, // for scripted checks (and filmed renders)
     scrubTo(t) { S.T = Math.min(t, Date.now() / 1000); S.live = false; apply(); },
     probe() {                                                   // what is drawn, in model coordinates
       return { marker: dot.visible ? dot.position.toArray() : null, coneVisible: cone.visible,

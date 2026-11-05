@@ -203,7 +203,9 @@ for i in range(240):
         log.append((round(w.t), a))
 chases = [a for _, a in log if a.startswith("chase")]
 starts = [a for a in chases if "motion at the edge" in a]
-assert len(starts) <= 2 and len(chases) <= 6, (len(starts), len(chases), chases)
+backs = [a for a in chases if "back to where it was looking" in a]   # a fruitless chase returns (2026-11-05)
+turns = [a for a in chases if a not in backs]
+assert len(starts) <= 2 and len(turns) <= 6 and len(backs) <= len(starts), (len(starts), len(chases), chases)
 # ...but once she is seen, motion may start a chase again right away
 w.pet = w.X; tr.step(w.box(), moving=False); w.pet = 99999; w.advance(T.REST_MISS_HOLD + 1.0)
 assert (tr.step(None, moving=False, motion=(w.t - 0.2, 0.45, 0.0)) or "").startswith("chase: motion"), "chase not re-armed"
