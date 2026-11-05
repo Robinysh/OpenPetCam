@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Claude reads the camera's own panorama (sim/sweep.py) and maps the scene the simulator needs: where the pet leaves
 the camera's reach (exits), furniture she can lie behind and be hidden (occluders), and places she rests. Pixel boxes
-are converted to motor coordinates with the panorama's own geometry and written to sim/params.json "scene".
+are converted to motor coordinates with the panorama's own geometry and written to sim/params.json "scene" under
+generic names (exit 1, occluder 2, ...): params.json is in the public repository, so Claude's descriptions of your
+rooms stay in your twin folder (scene_claude_raw.json, git-ignored).
 
     python3 sim/scene_from_claude.py [eval/twin/day]
 
@@ -64,7 +66,7 @@ def main(twin=os.path.join(ROOT, "eval", "twin", "day")):
     raw = ask_claude(os.path.abspath(pano), w, h)
     json.dump(raw, open(os.path.join(twin, "scene_claude_raw.json"), "w"), indent=1)
     scene, bad = {}, []
-    for kind in ("exits", "occluders", "rest_places", "blank"):
+    for kind, word in (("exits", "exit"), ("occluders", "occluder"), ("rest_places", "rest place"), ("blank", "blank view")):
         scene[kind] = []
         for r in raw.get(kind) or []:
             b = r.get("box") or []
@@ -72,7 +74,7 @@ def main(twin=os.path.join(ROOT, "eval", "twin", "day")):
                 bad.append((kind, r))
                 continue
             pan0, pan1, tilt0, tilt1 = to_motor(b, meta, w, h)
-            scene[kind].append({"name": r.get("name", ""), "pan": [pan0, pan1], "tilt": [tilt0, tilt1],
+            scene[kind].append({"name": f"{word} {len(scene[kind]) + 1}", "pan": [pan0, pan1], "tilt": [tilt0, tilt1],
                                 **({"hides": r["hides"]} if r.get("hides") else {})})
     path = os.path.join(HERE, "params.json")
     P = load_params(path)

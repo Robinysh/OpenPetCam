@@ -342,7 +342,7 @@
  "scene": {
   "exits": [
    {
-    "name": "doorway",
+    "name": "exit 1",
     "pan": [
      1065,
      1440
@@ -353,7 +353,7 @@
     ]
    },
    {
-    "name": "hallway end",
+    "name": "exit 2",
     "pan": [
      214,
      434
@@ -366,7 +366,7 @@
   ],
   "occluders": [
    {
-    "name": "stools",
+    "name": "occluder 1",
     "pan": [
      2270,
      3333
@@ -378,7 +378,7 @@
     "hides": "floor behind and between the stool legs, by the kitchen counter"
    },
    {
-    "name": "sofa",
+    "name": "occluder 2",
     "pan": [
      2204,
      2480
@@ -390,7 +390,7 @@
     "hides": "floor behind the sofa, toward the window and radiator"
    },
    {
-    "name": "TV stand",
+    "name": "occluder 3",
     "pan": [
      1850,
      2005
@@ -404,7 +404,7 @@
   ],
   "rest_places": [
    {
-    "name": "rug",
+    "name": "rest place 1",
     "pan": [
      1817,
      2293
@@ -415,7 +415,7 @@
     ]
    },
    {
-    "name": "sofa",
+    "name": "rest place 2",
     "pan": [
      2204,
      2480
@@ -426,7 +426,7 @@
     ]
    },
    {
-    "name": "pet bed",
+    "name": "rest place 3",
     "pan": [
      280,
      568
@@ -437,7 +437,7 @@
     ]
    },
    {
-    "name": "bowls",
+    "name": "rest place 4",
     "pan": [
      169,
      744
@@ -450,7 +450,7 @@
   ],
   "blank": [
    {
-    "name": "near side, left edge",
+    "name": "blank view 1",
     "pan": [
      3266,
      3700
@@ -461,7 +461,7 @@
     ]
    },
    {
-    "name": "overhead, top left",
+    "name": "blank view 2",
     "pan": [
      2823,
      3700
@@ -472,7 +472,7 @@
     ]
    },
    {
-    "name": "ceiling",
+    "name": "blank view 3",
     "pan": [
      1806,
      2823
@@ -483,7 +483,7 @@
     ]
    },
    {
-    "name": "bare wall",
+    "name": "blank view 4",
     "pan": [
      1485,
      1806
@@ -494,7 +494,7 @@
     ]
    },
    {
-    "name": "near wall at the right edge",
+    "name": "blank view 5",
     "pan": [
      0,
      214

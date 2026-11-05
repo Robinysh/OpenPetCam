@@ -95,8 +95,8 @@ moves 44.5 -> 40.4 per hour (calm-day rooms 0.645 -> 0.679, active-day rooms unc
 ## Claude builds the scene
 
 `sim/scene_from_claude.py` gives Claude the camera's own panorama and gets back exits, occluders, rest places and blank
-views, converted to motor coordinates. Without being told, it put the sofa, rug, hallway end and corridor where the
-owner's saved views are. The simulator walks her out through those doorways, hides her for a rest behind or under
+views, converted to motor coordinates. Without being told, it put the furniture and doorways where the owner's saved
+views are. The simulator walks her out through those doorways, hides her for a rest behind or under
 furniture (calibrated: 76% of rests inside an occluder), and the search skips blank walls. With the scene, gate 1 holds
 (6/7), the tracking constants tuned without occlusion LOST to today's (0.535 vs 0.564), and constants retrained on it
 win on 32 held-out rooms: in-view 0.564 -> 0.583, worst quarter 0.275 -> 0.383, moves 42.6 -> 40.5 per hour. Those, with
