@@ -172,6 +172,7 @@ export async function mountRoom(root, pet) {
   const coneEdge = new THREE.LineSegments(coneLines, new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.85 }));
   cone.renderOrder = coneEdge.renderOrder = 3; world.add(cone, coneEdge);
   const axis = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), 0.45, accent.getHex(), 0.12, 0.08); world.add(axis);
+  function camRayFor(T) { let pose = null; for (const p of S.poses || []) { if (p[0] <= T) pose = p; else break; } return pose ? camRay(pose[1], pose[2], 0.5, 0.5) : []; }
   function showCamera(pose) {
     cone.visible = coneEdge.visible = axis.visible = !!pose;
     if (!pose) return;
@@ -404,5 +405,12 @@ export async function mountRoom(root, pet) {
     show() { visible = true; bg(); resize(); loadDay(); clearInterval(poll); poll = setInterval(() => { if (S.live) loadDay(); }, 30000); },
     hide() { visible = false; clearInterval(poll); },
     state: S, cam, controls, redraw: draw, // for scripted checks
+    scrubTo(t) { S.T = Math.min(t, Date.now() / 1000); S.live = false; apply(); },
+    probe() {                                                   // what is drawn, in model coordinates
+      return { marker: dot.visible ? dot.position.toArray() : null, coneVisible: cone.visible,
+               axis: axis.visible ? axis.getWorldDirection(new THREE.Vector3()).toArray() : null,
+               axisLocal: axis.visible ? [...camRayFor(S.T)] : null, heatSum: heatData.reduce((a, b) => a + b, 0),
+               pill: pill.textContent, floorH: H };
+    },
   };
 }
