@@ -4,6 +4,14 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-11-05
+
+### Server
+- Scheduled sweeps (`server/scheduled_sweep.py`): the server photographs a list of poses at a set time on its own,
+  without the owner's computer, e.g. after a re-mount, at night (infrared) and in daylight. Each run has a hard time
+  limit and pauses Follow while it runs. It skips, and says why, when privacy is on or another capture holds the
+  camera. alert.py sends one notice when a sweep fails or has no result an hour after its time.
+
 ## [0.3.5] - 2026-11-05
 
 ### Room model

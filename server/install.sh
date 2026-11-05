@@ -107,7 +107,7 @@ elif [ -f "$SRC/models/yolox_nano.onnx" ] && [ -d /opt/petcam/models/room ]; the
 fi
 
 render $SRC/mediamtx.yml > /etc/mediamtx/mediamtx.yml && chmod 644 /etc/mediamtx/mediamtx.yml
-install -m 644 $SRC/petconf.py $SRC/agentdb.py $SRC/tracker.py $SRC/roommap.py $SRC/roomcam.py $SRC/roomapi.py $SRC/roomfollow.py $SRC/fasttrack.py $SRC/room.js $SRC/follow_obs.py $SRC/ppo_follow.py $SRC/app.py $SRC/watch.py $SRC/detector.py $SRC/alert.py $SRC/update.py $SRC/index.html $SRC/agent.html $SRC/login.html $SRC/join.html \
+install -m 644 $SRC/petconf.py $SRC/agentdb.py $SRC/tracker.py $SRC/roommap.py $SRC/roomcam.py $SRC/roomapi.py $SRC/roomfollow.py $SRC/fasttrack.py $SRC/scheduled_sweep.py $SRC/room.js $SRC/follow_obs.py $SRC/ppo_follow.py $SRC/app.py $SRC/watch.py $SRC/detector.py $SRC/alert.py $SRC/update.py $SRC/index.html $SRC/agent.html $SRC/login.html $SRC/join.html \
   $SRC/manifest.webmanifest $SRC/icon.png $SRC/apple-touch-icon.png $SRC/favicon.png $SRC/favicon.svg $SRC/icon-maskable.png $SRC/badge.png $SRC/logo.png $SRC/logo-light.png $SRC/themes.css $SRC/theme-controller.js $SRC/theme-data.js $SRC/theme-app.js $SRC/sw.js /opt/petcam/
 install -d -m 755 /opt/petcam/vendor && install -m 644 $SRC/vendor/three.module.min.js $SRC/vendor/OrbitControls.js /opt/petcam/vendor/
 render $SRC/Caddyfile > /etc/caddy/Caddyfile && chmod 644 /etc/caddy/Caddyfile
@@ -240,6 +240,20 @@ AccuracySec=15s
 
 [Install]
 WantedBy=timers.target
+UNIT
+
+# Scheduled sweeps (server/scheduled_sweep.py): `scheduled_sweep.py schedule TAG "YYYY-MM-DD HH:MM" poses.json` writes a
+# one-shot timer for this unit; the run has a hard wall-clock limit, and alert.py says when one fails or never ran.
+cat > /etc/systemd/system/petcam-sweep@.service <<UNIT
+[Unit]
+Description=petcam scheduled sweep %i
+After=network-online.target petcam-app.service
+
+[Service]
+Type=oneshot
+Environment=TZ=$TZ
+ExecStart=/usr/bin/timeout -k 15 1500 /opt/petcam/venv/bin/python /opt/petcam/scheduled_sweep.py run %i
+TimeoutStartSec=1560
 UNIT
 
 # Updates from GitHub releases (server/update.py): daily at a quiet hour, as root because it runs this script.

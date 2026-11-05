@@ -175,6 +175,17 @@ def check():
                  (f"{APP}: nightly check-up hasn't run", "The computer that retrains the pet detector hasn't checked in "
                   "for a day and a half. Is it asleep or off? Everything else keeps working."),
                  (f"{APP}: nightly check-up is back", "It ran again"))
+    # 3a. Scheduled sweeps (scheduled_sweep.py): one that failed, or has no result an hour after its time.
+    try:
+        import scheduled_sweep
+        probs = scheduled_sweep.check()
+    except Exception as e:  # noqa: BLE001 - a broken check must not stop the other alerts
+        probs = [("sweep-check", f"check failed: {e}")]
+    for tag, why in probs:
+        key = f"sweep:{tag}"
+        if key not in st.setdefault("sweep_alerted", {}):
+            st["sweep_alerted"][key] = time.time()
+            send(f"{APP}: scheduled sweep {tag}", why, kind="camera", tag=key)
     # 3b. Reports are answered by tools/report_agent.py within minutes while the owner's computer is
     #     awake. One left unanswered for 6 h means that loop is not running: say so once.
     waiting = []
