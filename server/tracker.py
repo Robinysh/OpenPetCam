@@ -50,6 +50,11 @@ POLICY_BOUNDS = {"LEAD": (0.0, 2.0), "EDGE": (0.10, 0.35), "MOVE_EVERY": (1.0, 5
 
 
 SEARCH_STOPS = []      # a learned search order [(pan, tilt), ...] (sim/train_search.py); empty = the saved views
+ROOM_FOLLOW = None     # roomfollow.RoomFollow (the room model's geometry), or None: Follow works in picture coordinates
+METRIC_FOLLOW = False  # use ROOM_FOLLOW for Follow: predict her in metres, wait at the exit of hidden areas, frame by size
+STREAM_LAG = 0.7       # s between a frame being taken and the detector seeing it (measured, sim/params.json lag_s)
+HIDDEN_WAIT = 60.0     # s to hold at the exit of a hidden area before the usual lost-pet logic resumes
+WALK_SPEED = 0.3       # m/s: above box jitter on a still dog (90th pct 0.09 m/s) and below her measured gait (median 0.52)
 ROOM_MAP = None        # roommap.RoomMap (models/room_map.json from sim/world/find_map.py), or None: search as before
 
 
@@ -230,6 +235,7 @@ class Tracker:
             return None
         if box is not None:
             self.last_verified_t = t
+            self.box_t = box_t if box_t is not None else t
             return self._track(t, box, moving)
         wbox = self._weak_match(t, weak)
         if wbox is not None:
@@ -279,8 +285,11 @@ class Tracker:
         else:
             vx, vy = 0.0, 0.0
         self.last_vel = (vx, vy)
+        metric = self._metric_add(box) if METRIC_FOLLOW and ROOM_FOLLOW is not None else None
         if t - self.last_move < MOVE_EVERY or t - self.last_aim_t < POST_MOVE_IGNORE:
             return None
+        if metric is not None:
+            return self._metric_track(t, moving)
         px, py = cx + vx * LEAD, cy + vy * LEAD
         speed = math.hypot(vx, vy)
         if (moving or speed > 0.05) and (abs(px) > EDGE or abs(py) > EDGE * 1.25):
@@ -301,6 +310,45 @@ class Tracker:
             self.offcentre_since = None
         return None
 
+    # ---- Follow in metres (roomfollow.py) ---------------------------------------------------------
+    def _metric_add(self, box):
+        """Add this box's floor point to her metric track (timed when its frame was taken); None if not placeable."""
+        from roomfollow import MetricTrack
+        if getattr(self, "mtrack", None) is None or self.mtrack.rf is not ROOM_FOLLOW:
+            self.mtrack = MetricTrack(ROOM_FOLLOW)
+        try:
+            pan, tilt = self.cam.position()
+        except Exception:  # noqa: BLE001
+            return None
+        return self.mtrack.add(getattr(self, "box_t", self.clock()) - STREAM_LAG, pan, tilt, box)
+
+    def _metric_track(self, t, moving):
+        """Aim where she will be when the move lands (box age + LEAD), at her body's centre; into a hidden area,
+        aim at the last visible point of her path once and wait there instead."""
+        pan, tilt = self.cam.position()
+        a = self.mtrack.aim(pan, tilt, t + LEAD)
+        if a is None:
+            return None
+        fx, fy, hid, exit_o = a
+        vx, vz = self.mtrack.velocity()
+        speed = math.hypot(vx, vz)
+        if hid and exit_o is not None:
+            if t - getattr(self, "exit_wait_t", -1e9) < HIDDEN_WAIT:
+                return None
+            self.exit_wait_t = t
+            ex, ey = max(-0.6, min(0.6, exit_o[0] * 0.9)), max(-0.6, min(0.6, exit_o[1] * 0.8))
+            if max(abs(ex), abs(ey)) > EDGE * 0.5:
+                self._move(self.cam.aim, ex, ey, shift=(ex, ey))
+                self.last_aim_t = self.clock()
+            return f"track (room): heading into a hidden area, waiting at its exit ({ex:+.2f}, {ey:+.2f})"
+        if speed > WALK_SPEED and (abs(fx) > EDGE or abs(fy) > EDGE * 1.25):
+            fx, fy = max(-0.6, min(0.6, fx * 0.9)), max(-0.6, min(0.6, fy * 0.8))
+            self._move(self.cam.aim, fx, fy, shift=(fx, fy))
+            self.last_aim_t = self.clock()
+            self.offcentre_since = None
+            return f"track (room): aim ({fx:+.2f}, {fy:+.2f}), {speed:.2f} m/s"
+        return None
+
     def _chase(self, fx, fy, why):
         self.chase_dir, self.chase_steps = (fx, fy), self.chase_steps + 1
         self._move(self.cam.aim, fx, fy)
@@ -308,6 +356,8 @@ class Tracker:
 
     def _lost(self, t, sound, motion=None):
         gone = t - self.last_seen_t
+        if METRIC_FOLLOW and ROOM_FOLLOW is not None and t - getattr(self, "exit_wait_t", -1e9) < HIDDEN_WAIT:
+            return None                                   # she went where no pose can see: wait at the exit
         # keep going the way she went: one turn rarely catches up with a trotting dog
         if self.chase_dir and self.chase_steps < 3 and t - self.last_move >= MOVE_EVERY:
             return self._chase(*self.chase_dir, f"still not in view, continuing ({self.chase_steps + 1}/3)")

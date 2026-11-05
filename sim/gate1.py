@@ -106,11 +106,14 @@ def truth(room):
             "moves_per_hour": round(moves / max(room.t / 3600, 1e-9), 2)}
 
 
+ROOM = Room      # the simulator class to run: sim/room.py's schematic Room, or sim/home.py's HomeRoom (home_gate.py)
+
+
 def simulate(hours=6, seeds=4, free=None, overrides=None, params=None, seed0=0):
     T = load_tracker()
     rows = []
     for s in range(seed0, seed0 + seeds):
-        room = Room(seed=s, free=free, params=params)
+        room = ROOM(seed=s, free=free, params=params)
         obs, acts = run_watcher(room, T, hours, overrides)
         rows.append((metrics(obs, acts), truth(room)))
     return rows

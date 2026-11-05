@@ -54,6 +54,10 @@ class _Seen(list):
 
 
 class Room:
+    # Detection of hard poses: False = each frame independently with p_hard (the original model); True = the pose is
+    # either detectable or not for its whole duration (drawn with p_hard), as the real detector behaves on one pose
+    # (2026-11-05: independent per-frame misses produced many short losses re-found within 30 s; real losses are rare)
+    HARD_CORRELATED = False
     def __init__(self, seed=0, params=None, free=None, presets=None):
         self.P = params or load_params()
         self.F = dict(FREE_DEFAULTS, **(free or {}))
@@ -152,6 +156,9 @@ class Room:
                     self.dog_state = "rest"
                     self.state_until = self.t + self._lognorm(self.F["rest_med_s"], self.F["rest_sigma"])
                     self.hard = self.rng.random() < float(self.F.get("q_hard", 0.0))
+                    # correlated misses (HARD_CORRELATED): a hard pose is either seen or not for as long as it lasts
+                    if self.HARD_CORRELATED:   # drawn only in this mode: the original model's random stream is unchanged
+                        self.hard_seen = self.rng.random() < float(self.F.get("p_hard", 0.3))
                     # behind the sofa, under the stools: hidden for this whole rest, sometimes
                     self.hidden = bool(self._inside("occluders", self.px, self.py)) and \
                         self.rng.random() < float(self.F.get("p_hidden", 0.0))
@@ -243,7 +250,7 @@ class Room:
             f, g = self.offset(X, Y, px, py)
             p = self.P["detect_persist"]["moving" if mv else "still"]["p"]
             if not mv and getattr(self, "hard", False):
-                p = float(self.F.get("p_hard", p))
+                p = (p if getattr(self, "hard_seen", True) else 0.0) if self.HARD_CORRELATED else float(self.F.get("p_hard", p))
             box = [0.5 + f - 0.08, 0.5 + g - 0.1, 0.5 + f + 0.08, 0.5 + g + 0.1]
             box = [v + float(self.rng_sense.uniform(-0.012, 0.012)) for v in box]
             if self.rng_sense.random() < p:
