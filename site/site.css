@@ -205,3 +205,21 @@ footer p{margin:6px 0}
 .doc h2{font-family:var(--snout-t)}
 .center{text-align:center}.center img{margin:0 auto}
 .join{background:#355BEB}
+
+/* blog */
+.post .dek{font-size:clamp(20px,2.4vw,24px);line-height:1.45;color:var(--ink-2);margin:-8px 0 32px}
+.post figure{margin:32px 0}
+.post figure img{width:100%;border-radius:14px}
+.post figcaption{font-size:15px;color:var(--ink-2);margin-top:10px;line-height:1.45}
+.post figure.reel{max-width:360px;margin:28px auto 40px}
+.post figure.reel video{width:100%;border-radius:22px;background:#000}
+.post figure.half{max-width:380px;float:right;margin:6px 0 20px 28px}
+.post h2{clear:both}
+@media (max-width:640px){.post figure.half{float:none;margin:24px auto;max-width:100%}}
+.post ul li{margin-bottom:.6em}
+.posts{list-style:none;padding:0}
+.posts li{border-top:2px solid var(--line);padding:22px 0}
+.posts a{font:clamp(26px,3.4vw,34px)/1.15 var(--snout);color:var(--ink);text-decoration:none}
+.posts a:hover{color:var(--blue)}
+.posts time{display:block;font:14px var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-2);margin-bottom:6px}
+.posts p{margin:8px 0 0;color:var(--ink-2)}

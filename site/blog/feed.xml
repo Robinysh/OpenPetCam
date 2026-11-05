@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>OpenPetCam blog</title>
+  <link href="https://crimeacs.github.io/OpenPetCam/blog/"/>
+  <link rel="self" href="https://crimeacs.github.io/OpenPetCam/blog/feed.xml"/>
+  <id>https://crimeacs.github.io/OpenPetCam/blog/</id>
+  <updated>2026-11-05T22:00:00Z</updated>
+  <author><name>OpenPetCam contributors</name></author>
+  <entry>
+    <title>Mapping a room with a $12 camera that can only turn</title>
+    <link href="https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html"/>
+    <id>https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html</id>
+    <updated>2026-11-05T22:00:00Z</updated>
+    <summary>A pan/tilt pet camera has no parallax, so it cannot triangulate anything. It still built a 3D model of its room in metres, from its own echo, Depth Anything 3, its infrared lamp and a day of watching. The numbers, and what failed.</summary>
+  </entry>
+</feed>

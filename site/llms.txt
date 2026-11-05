@@ -23,6 +23,9 @@ Key facts:
 - [Build a pet camera with Thingino firmware](https://crimeacs.github.io/OpenPetCam/guide/thingino-pet-camera.html)
 - [A pet camera without a subscription](https://crimeacs.github.io/OpenPetCam/guide/pet-camera-without-subscription.html)
 
+## Blog
+- [Mapping a room with a $12 camera that can only turn](https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html): echo for scale, Depth Anything 3 for shape, infrared for materials, time as the fourth dimension; numbers and failures
+
 ## Optional
 - [Releases](https://github.com/crimeacs/OpenPetCam/releases)
 - [60-second film](https://crimeacs.github.io/OpenPetCam/media/openpetcam-film-720p.mp4)
