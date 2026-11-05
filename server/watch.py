@@ -37,6 +37,7 @@ import petconf  # noqa: E402
 from detector import Detector  # noqa: E402
 from tracker import Tracker  # noqa: E402
 import tracker as T  # noqa: E402
+from roommap import TILES, RoomMap  # noqa: E402
 
 STATE = petconf.STATE
 DB = f"{STATE}/petcam.db"
@@ -54,6 +55,7 @@ HOUSE_FILE = f"{STATE}/housekeeping_day"            # date of the last nightly h
 MODEL = "/opt/petcam/models/yolox_nano.onnx"
 YAMNET_MODEL = "/opt/petcam/models/yamnet.tflite"
 VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.py
+ROOM_MAP = "/opt/petcam/models/room_map.json"         # from sim/world/find_map.py (this home's room model); optional
 FOLLOW_POLICY = "/opt/petcam/models/follow_policy.json"   # from sim/train_policy.py (learned on this camera's simulator)
 FOLLOW_PPO = "/opt/petcam/models/follow_ppo.onnx"         # a recurrent PPO policy (sim/train_ppo.py), server/ppo_follow.py
 POLICY_BLOCK_S = 7200          # live A/B: the learned constants and today's alternate in 2-hour blocks
@@ -1096,9 +1098,26 @@ class Watch:
             self.frames.wake.wait(max(0.0, (FAST_CYCLE if fast else PERIOD) - (now() - t0)))
             self.frames.wake.clear()
 
+    def load_room_map(self):
+        """The room map for searches (stop order by hour, views without floor, tiles to zoom), reloaded when the
+        file changes. It applies in every policy block: it is where she is likely to be, not a policy under test.
+        Missing or broken: no map, the search runs as before."""
+        try:
+            m = os.path.getmtime(ROOM_MAP)
+        except OSError:
+            if T.ROOM_MAP is not None:
+                log("room map: file gone, searching without it")
+            T.ROOM_MAP, self.room_map_mtime = None, None
+            return
+        if m != getattr(self, "room_map_mtime", None):
+            self.room_map_mtime = m
+            T.ROOM_MAP = RoomMap.load(ROOM_MAP)
+            log("room map:", f"{len(T.ROOM_MAP.grid)} poses, built {T.ROOM_MAP.doc.get('built')}" if T.ROOM_MAP else "unreadable, not used")
+
     def apply_policy(self, t):
         """Live A/B of a learned Follow policy: odd 2-hour blocks run its constants, even blocks today's. Fails closed:
         no file, a bad file or no valid constants -> today's constants, logged as 'base'."""
+        self.load_room_map()
         if not hasattr(self, "policy_base"):
             self.policy_base = {k: getattr(T, k) for k in T.POLICY_BOUNDS}
             self.policy_doc, self.policy_mtime, self.policy_stops = {}, None, []
@@ -1585,9 +1604,37 @@ class Watch:
             judged.append({"box": [round(v, 4) for v in f["box"]], "det": round(f["score"], 3), "p": round(p, 4)})
             if p >= thr and (best is None or p > best[0]):
                 best = (p, f["box"])
+        if best is None and settled and self.tracker.searching and self.verifier:
+            best = self.tiled_box(img, thr, judged)
         if self.tracker.searching:
             self.record_search_frame(img, judged, best[1] if best else None, settled)
         return VerifiedBox(best[1], best[0]) if best else None
+
+    def tiled_box(self, img, thr, judged):
+        """A stopped search frame, judged again in zoomed tiles: the same detector and the same verifier threshold
+        on half-size tiles of the frame (only those showing floor, per the room map). A curled-up dog is too few
+        pixels for the detector in the whole 640 x 360 frame. On 124 hand-labelled frames of her resting spot
+        (2026-11-03..05) whole-frame detection found her in 11 of 21, whole frame or tiles in 17 of 21, and neither
+        accepted anything in the 103 frames without her. Returns (p, box in frame coordinates) or None."""
+        try:
+            x, y = self.tracker.cam.position()
+            tiles = T.ROOM_MAP.tiles(x, y) if T.ROOM_MAP else TILES
+        except Exception:  # noqa: BLE001
+            tiles = TILES
+        w, h = img.size
+        best = None
+        for (tx0, ty0, tx1, ty1) in tiles:
+            crop = img.crop((int(tx0 * w), int(ty0 * h), int(tx1 * w), int(ty1 * h)))
+            cw, ch = tx1 - tx0, ty1 - ty0
+            for f in sorted([f for f in self.det.detect(crop, min_score=0.10) if f["label"] != "person"],
+                            key=lambda f: -f["score"])[:2]:
+                b = f["box"]
+                fb = [tx0 + b[0] * cw, ty0 + b[1] * ch, tx0 + b[2] * cw, ty0 + b[3] * ch]
+                p = self.verifier.prob(img, fb)
+                judged.append({"box": [round(v, 4) for v in fb], "det": round(f["score"], 3), "p": round(p, 4), "tile": True})
+                if p >= thr and (best is None or p > best[0]):
+                    best = (p, fb)
+        return best
 
     # ------------------------------------------------------------ search evidence (step 0: measure Find honestly)
     # (infrared(): a night-vision frame is grayscale, so its colour channels agree)

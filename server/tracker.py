@@ -18,6 +18,7 @@ Pure logic over an injected camera, detector and clock, so it is tested without 
 """
 import collections
 import math
+import time
 
 TRACK_WINDOW = 4.0      # seconds of detections used for the velocity estimate
 LEAD = 1.0              # aim where she will be this many seconds ahead
@@ -49,6 +50,22 @@ POLICY_BOUNDS = {"LEAD": (0.0, 2.0), "EDGE": (0.10, 0.35), "MOVE_EVERY": (1.0, 5
 
 
 SEARCH_STOPS = []      # a learned search order [(pan, tilt), ...] (sim/train_search.py); empty = the saved views
+ROOM_MAP = None        # roommap.RoomMap (models/room_map.json from sim/world/find_map.py), or None: search as before
+
+
+def hour_of(t):
+    return time.localtime(t).tm_hour
+
+
+def merge_stops(first, then, fw, fh):
+    """`first`, then each stop of `then` whose view is not mostly inside one already chosen (half a frame apart).
+    Replayed on 56 recorded searches (sim/world/find_bench.py --replay): room-map stops then the learned ones had her
+    in view at a stop in 48 (the learned order alone: 36), median 16 s to the view that shows her (learned: 20 s)."""
+    out = [tuple(s[:2]) for s in first]
+    for s in then:
+        if all(abs(s[0] - o[0]) > fw / 2 or abs(s[1] - o[1]) > fh / 2 for o in out):
+            out.append(tuple(s[:2]))
+    return out
 
 
 def policy_stops(doc, xm=3700, ym=1000, most=10):
@@ -365,20 +382,67 @@ class Tracker:
     def sweep_plan(self, y0):
         """The pan targets of the zigzag after the saved views. Scan this row toward the side she was last
         heading, then the rest of it, then the next row back the other way: no long blind move before scanning
-        starts. tools/coverage.py draws this plan's coverage, so it lives here and not inside search()."""
+        starts. With a room map each row is trimmed to the pans whose view shows floor, and a row with no floor
+        anywhere is left out (2026-11-05: 24% of recorded search frames showed no floor at all).
+        tools/coverage.py draws this plan's coverage, so it lives here and not inside search()."""
         xm, _ = self.cam.limits()
         heading_right = bool(self.last_seen_c and self.last_seen_c[0] > 0)   # +fx (right) = lower x
-        end_a, end_b = (0, xm) if heading_right else (xm, 0)
-        plan, end = [], end_a                             # zigzag: alternate direction row by row
-        for n, ry in enumerate(self.rows(y0)):
-            if n == 0:
-                plan += [(end_a, ry), (end_b, ry)]
-                end = end_b
-            else:
-                other = end_a if end == end_b else end_b
-                plan += [(end, ry), (other, ry)]
-                end = other
+        plan, flip = [], False
+        for ry in self.rows(y0):
+            span = self.floor_span(ry, xm)
+            if span is None:
+                self.log(f"search: row at tilt {ry} shows no floor in the room model: skipped")
+                continue
+            a, b = (span[0], span[1]) if heading_right else (span[1], span[0])
+            if flip:
+                a, b = b, a
+            if plan and plan[-1][0] != a:                 # continue from the end nearest the previous row
+                if abs(plan[-1][0] - b) < abs(plan[-1][0] - a):
+                    a, b = b, a
+            plan += [(a, ry), (b, ry)]
+            flip = not flip
         return plan
+
+    def floor_span(self, ry, xm):
+        """(lowest, highest) pan of the row whose view shows floor, padded by half a frame; the whole row without
+        a room map; None when no view of the row shows floor."""
+        if ROOM_MAP is None:
+            return (0, xm)
+        fw, _ = self.cam.frame_steps()
+        ok = [x for x in range(0, xm + 1, ROOM_MAP.ps) if ROOM_MAP.has_floor(x, ry)]
+        if not ok:
+            return None
+        return (max(0, int(min(ok) - fw / 2)), min(xm, int(max(ok) + fw / 2)))
+
+    def search_stops(self):
+        """Where to stop and look, best first: the room map's views for this hour (most probable place of her
+        first), then the learned stops or saved views that add a view the map's do not cover; views that show no
+        floor are dropped."""
+        base = [(x, y) for x, y in SEARCH_STOPS] or [(p["x"], p["y"]) for p in self.cam.presets()]
+        if ROOM_MAP is None:
+            return [{"x": x, "y": y} for x, y in base]
+        fw, fh = self.cam.frame_steps()
+        first = ROOM_MAP.stops(hour_of(self.clock()))
+        order = [s for s in merge_stops(first, base, fw, fh) if ROOM_MAP.has_floor(*s)]
+        return [{"x": x, "y": y, "map": any((x, y) == f[:2] for f in first)} for x, y in order]
+
+    def not_found_note(self):
+        """After a failed search: what the room model and her history say instead of a flat 'not found'."""
+        if ROOM_MAP is None:
+            return ""
+        h = hour_of(self.clock())
+        away = self.clock() - self.last_seen_t
+        places = [p for p in ROOM_MAP.places(h) if p.get("p", 0) >= 0.15]
+        bits = []
+        if away >= 600:
+            bits.append(f"probably out of the room (not seen for {away / 60:.0f} min)")
+        if places:
+            p = places[0]
+            where = "on the open floor" if p["place"] == "the open floor" else f"at the {p['place']}"
+            hidden = f", {p['hidden']:.0%} of it out of the camera's sight" if p.get("hidden", 0) >= 0.05 else ""
+            bits.append(f"{'if she is in, ' if bits else ''}at {h:02d}:00 she is most often {where} "
+                        f"({p['p']:.0%}{hidden}), not confirmed")
+        return ("; " + "; ".join(bits)) if bits else ""
 
     def _wait_idle(self, limit=20.0):
         """Wait for the motor, ticking: a slow move can take 15 s, longer than the app tolerates silence."""
@@ -571,7 +635,7 @@ class Tracker:
             res = self._glimpse(t0, "where the camera already was", reason)
             if res:
                 return res
-            stops = [{"x": x, "y": y} for x, y in SEARCH_STOPS] or self.cam.presets()   # learned order, else saved views
+            stops = self.search_stops()          # room map for this hour, then the learned order or the saved views
             for p in stops:
                 halt = self._halt(reason)
                 if halt:
@@ -585,7 +649,8 @@ class Tracker:
                     return halt
                 self.sleep(SETTLE)
                 box = self.look()
-                where = f"at {'the learned stop' if SEARCH_STOPS else 'the saved view'} ({p['x']}, {p['y']})"
+                kind = "the room map's stop" if p.get("map") else ("the learned stop" if SEARCH_STOPS else "the saved view")
+                where = f"at {kind} ({p['x']}, {p['y']})"
                 if box is not None:
                     return self._found(box, t0, where, reason)
                 res = self._glimpse(t0, where, reason)
@@ -612,7 +677,8 @@ class Tracker:
             # sweep every 10 min for 1.5 h with nobody there. Count our own move as lasting until the motor stops.
             self._wait_idle()
             self.own_move_t = self.last_move = self.clock()
-            return f"search ({reason}): not found on {len(self.rows(y0))} rows, back to {label} ({bx}, {by})"
+            return (f"search ({reason}): not found on {len(self.sweep_plan(y0)) // 2} rows, back to {label} ({bx}, {by})"
+                    + self.not_found_note())
         except SearchHalted as h:
             return str(h)
         finally:

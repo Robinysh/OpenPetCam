@@ -4,6 +4,26 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-05
+
+### Find
+- Zoomed look at each stop: when the whole frame shows nothing, the same detector and verifier (same threshold) run
+  on half-size tiles of the stopped frame. A curled-up dog is too few pixels in the whole 640 x 360 frame. On 124
+  hand-labelled frames of her resting spot: found in 11 of 21 before, 17 of 21 now, no false alarms in the 103
+  frames without her. About 25 ms per tile on the server.
+- Optional room map (`models/room_map.json`, built from this home's room model; the builder ships with the room
+  model in 0.3). With it a search visits the views most likely to show her at this hour first, then the learned
+  stops they do not cover, and skips views and sweep-row ends that show no floor (24% of recorded search frames).
+  Replay of 56 recorded searches (map built without the searched day): her position in view at a stop in 48 (was
+  36), median 16 s to that view (was 20 s). Without the file the search runs exactly as before.
+- A failed search says what is likely instead of a flat "not found": "probably out of the room (not seen for N min)"
+  and the place she is most often at this hour, marked "not confirmed". The "probably out" rule was right in 51 of
+  62 recorded failed searches.
+
+### Install
+- `install.sh` installs `roommap.py` and `room_map.json`. A test now fails when a server module imported by another
+  is missing from install.sh's list (it was, for 2 minutes of crash-looping after the first deploy of this change).
+
 ## [0.2.1] - 2026-11-04
 
 ### Find
