@@ -48,8 +48,7 @@ export async function mountRoom(root, pet) {
   const LOOKS = [["photo", "Day", "the camera's daytime sweep"], ["night", "Night", "its infrared night picture"]];
   // every view the room model holds, grouped by what it tells you; one shows at a time (each loads when picked)
   const GROUPS = [
-    [name, [["heat", "Time spent", `where ${name} was up to the time on the strip, brighter for longer`],
-            ["dwell", "Time spent, all days", "every day the model has seen, per patch of floor"]]],
+    [name, [["heat", "Time spent", `where ${name} was, brighter for longer: up to the time on the strip`]]],
     ["Shape", [["uncertainty", "Unsure areas", "where the model knows least (bright = uncertain)"],
                ["class", "Floor, walls, objects", "what each surface was classified as"],
                ["normals", "Surface direction", "which way each surface faces"],
@@ -65,11 +64,12 @@ export async function mountRoom(root, pet) {
       `<button class="room-tile" data-look="${k}" title="${d}"><span style="background-image:url(${tx(k)})"></span>${t}</button>`).join("")}</div>
     ${GROUPS.map(([g, items]) => { const its = items.filter(([k]) => k === "heat" || tx(k)); return its.length ? `<div class="room-sec">${g}</div>` + its.map(([k, t, d]) =>
       `<button class="room-over" data-over="${k}"><span class="room-thumb ${k}"${k !== "heat" ? ` data-bg="${tx(k)}"` : ""}></span>
-       <span><b>${t}</b><small>${d}</small></span><i class="room-check"></i></button>`).join("") : ""; }).join("")}
+       <span><b>${t}</b><small>${d}</small></span><i class="room-check"></i></button>` + (k === "heat" ? `<div class="seg room-span" role="group" aria-label="Period">
+       <button data-span="day">That day</button><button data-span="week">Last 7 days</button></div>` : "")).join("") : ""; }).join("")}
     <p class="room-foot">Built ${info.built}. The model lives on your server only.</p></div>`;
 
   // ---------------------------------------------------------------- state
-  const S = { look: store("room.look") || "photo", over: store("room.over") || "heat", view: store("room.view") || "3d",
+  const S = { span: store("room.span") || "day", week: [], look: store("room.look") || "photo", over: (store("room.over") === "dwell" ? "heat" : store("room.over")) || "heat", view: store("room.view") || "3d",
               day0: startOfDay(Date.now() / 1000), T: null, rows: [], live: true };
   let raf = 0, visible = false;           // render on demand; declared before any texture can finish loading
   // ---------------------------------------------------------------- 3D
@@ -225,11 +225,19 @@ export async function mountRoom(root, pet) {
       } catch { S.lastDay = -1; }
     }
     if (S.live || S.T == null || S.T > until || S.T < S.day0) S.T = until;
+    if (S.span === "week") await loadWeek();
     apply();
+  }
+  async function loadWeek() {                                 // the 6 days before the strip's day, then that day itself
+    const parts = [];
+    for (let a = S.day0 - 6 * DAY; a < S.day0; a += 3 * DAY) {
+      try { parts.push(...((await (await fetch(`/api/room/positions?since=${a}&until=${Math.min(a + 3 * DAY, S.day0)}`, { credentials: "same-origin" })).json()).rows || [])); } catch { /* a gap stays a gap */ }
+    }
+    S.week = parts;
   }
   function buildHeat() {
     const g = new Float32Array(HN * HN);
-    for (const r of S.rows) { if (r[0] > S.T || r[5]) continue; const i = Math.floor((r[1] + HALF) / HC), j = Math.floor((r[2] + HALF) / HC); if (i >= 0 && i < HN && j >= 0 && j < HN) g[j * HN + i] += r[4]; }
+    for (const r of (S.span === "week" ? S.week.concat(S.rows) : S.rows)) { if (r[0] > S.T || r[5]) continue; const i = Math.floor((r[1] + HALF) / HC), j = Math.floor((r[2] + HALF) / HC); if (i >= 0 && i < HN && j >= 0 && j < HN) g[j * HN + i] += r[4]; }
     const k = [0.06, 0.24, 0.4, 0.24, 0.06], t = new Float32Array(HN * HN), b = new Float32Array(HN * HN);
     for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) { let s = 0; for (let d = -2; d <= 2; d++) { const ii = i + d; if (ii >= 0 && ii < HN) s += g[j * HN + ii] * k[d + 2]; } t[j * HN + i] = s; }
     for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) { let s = 0; for (let d = -2; d <= 2; d++) { const jj = j + d; if (jj >= 0 && jj < HN) s += t[jj * HN + i] * k[d + 2]; } b[j * HN + i] = s; }
@@ -269,6 +277,7 @@ export async function mountRoom(root, pet) {
     dock.querySelector('[data-d="1"]').disabled = S.day0 >= startOfDay(Date.now() / 1000);
     sheet.querySelectorAll("[data-look]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.look === S.look));
     sheet.querySelectorAll("[data-over]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.over === S.over));
+    sheet.querySelectorAll("[data-span]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.span === S.span));
     bView.textContent = S.view === "3d" ? "3D" : "Top";
     // nothing to show for this day: say so, and offer the last day she was seen (an empty floor explains nothing)
     const note = dock.querySelector(".room-note"), shown = S.rows.filter((r) => r[0] <= S.T).length;
@@ -312,6 +321,10 @@ export async function mountRoom(root, pet) {
     sheet.classList.remove("hidden");
   };
   sheet.onclick = (e) => { if (e.target === sheet) sheet.classList.add("hidden"); };
+  sheet.querySelectorAll("[data-span]").forEach((b) => b.onclick = async () => {
+    S.span = b.dataset.span; store("room.span", S.span); S.over = "heat"; store("room.over", "heat");
+    if (S.span === "week") await loadWeek(); apply();
+  });
   sheet.querySelectorAll("[data-look]").forEach((b) => b.onclick = () => { S.look = b.dataset.look; store("room.look", S.look); apply(); });
   sheet.querySelectorAll("[data-over]").forEach((b) => b.onclick = () => { S.over = S.over === b.dataset.over ? "none" : b.dataset.over; store("room.over", S.over); apply(); });
   // fit the camera to the floor's extent for this screen's shape (a phone in portrait needs to stand much farther back)
