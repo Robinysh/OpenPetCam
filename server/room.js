@@ -37,6 +37,7 @@ export async function mountRoom(root, pet) {
   const bCentre = el("button", "iconbtn glass", ICON.centre); bCentre.setAttribute("aria-label", `Show ${name}`);
   rail.append(bLayers, bView, bCentre);
   const spot = el("div", "room-card hidden"); root.append(spot);
+  const legend = el("div", "room-legend hidden"); root.append(legend);   // the colour scale of whatever is shown
   const dock = el("div", "room-dock"); root.append(dock);
   dock.innerHTML = `<div class="room-dock-head"><button class="iconbtn" data-d="-1" aria-label="Previous day"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
     <b class="room-day"></b><button class="iconbtn" data-d="1" aria-label="Next day"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
@@ -61,7 +62,7 @@ export async function mountRoom(root, pet) {
     ["Sound", [["echo_support", "Echo support", "where the camera's own sound echoes agree with the shape"],
                ["echo_coverage", "Sound coverage", "how many head directions heard each surface"],
                ["source", "Where each part comes from", "grey: seen by the camera; green: the surface above it, measured by sound; violet: floor under the camera, assumed at the height sound measured"]]],
-    ["Radio", [["radio", "WiFi signal by direction", "how strong the camera's WiFi link is when its head points each way (warm = strong); the line points to the strongest link, probably your router (unconfirmed)"]]]];
+    ["Radio", [["radio", "WiFi signal by direction", "how strong the camera's WiFi link is when its antenna (on the back of the camera) points each way: warm = strong; the dashed line points toward the router"]]]];
   const tx = (k) => info.textures?.[k] ? `/api/room/tex?f=${encodeURIComponent(info.textures[k])}` : null;
   sheet.innerHTML = `<div class="room-panel-in" role="region" aria-label="Views of the room"><div class="room-panel-head"><h3>Views</h3>
     <button class="iconbtn room-close" type="button" aria-label="Hide the views"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
@@ -188,12 +189,13 @@ export async function mountRoom(root, pet) {
     axis.setDirection(new THREE.Vector3(...camRay(pose[1], pose[2], 0.5, 0.5)));
   }
   // the strongest-link bearing of the camera's WiFi (radio_map.py): a dashed horizontal line from the lens
-  const rb = info.radio && info.radio.supported ? info.radio.bearing_deg : null;
+  // the router lies opposite the strongest-link bearing (the antenna is on the back of the pan body: radio_map.py)
+  const rb = info.radio && info.radio.supported ? (info.radio.router_bearing_deg ?? info.radio.bearing_deg) : null;
   const radioRay = new THREE.Line(new THREE.BufferGeometry().setFromPoints(rb == null ? [] : [new THREE.Vector3(0, 0, 0),
     new THREE.Vector3(Math.sin(rb * D2R) * 3, 0, Math.cos(rb * D2R) * 3)]), new THREE.LineDashedMaterial({ color: 0xffb46b, dashSize: 0.12, gapSize: 0.08 }));
   radioRay.computeLineDistances(); radioRay.visible = false; radioRay.renderOrder = 4; world.add(radioRay);
   // time-spent heat on the floor
-  const HC = 0.1, HN = 140, HALF = HN * HC / 2, heatData = new Uint8Array(HN * HN * 4);
+  const HC = 0.1, HN = 140, HALF = HN * HC / 2, heatData = new Uint8Array(HN * HN * 4); let heatMaxLabel = null;
   const heatTex = new THREE.DataTexture(heatData, HN, HN); heatTex.magFilter = THREE.LinearFilter; heatTex.needsUpdate = true;
   const heat = new THREE.Mesh(new THREE.PlaneGeometry(HN * HC, HN * HC), new THREE.MeshBasicMaterial({ map: heatTex, transparent: true, depthWrite: false }));
   heat.rotation.x = -Math.PI / 2; heat.position.y = -H + 0.012; heat.renderOrder = 2; world.add(heat);
@@ -253,6 +255,7 @@ export async function mountRoom(root, pet) {
     for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) { let s = 0; for (let d = -2; d <= 2; d++) { const ii = i + d; if (ii >= 0 && ii < HN) s += g[j * HN + ii] * k[d + 2]; } t[j * HN + i] = s; }
     for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) { let s = 0; for (let d = -2; d <= 2; d++) { const jj = j + d; if (jj >= 0 && jj < HN) s += t[jj * HN + i] * k[d + 2]; } b[j * HN + i] = s; }
     let mx = 0; for (const v of b) mx = Math.max(mx, v);
+    heatMaxLabel = mx > 0 ? `${fmtDur(mx)} at the brightest spot` : null;
     const stops = [[0, [92, 38, 20]], [0.35, [205, 82, 44]], [0.7, [255, 146, 98]], [1, [255, 236, 220]]];
     for (let p = 0; p < HN * HN; p++) {
       const row = p / HN | 0, col = p % HN, o = ((HN - 1 - row) * HN + col) * 4;
@@ -270,6 +273,7 @@ export async function mountRoom(root, pet) {
     for (const m of [solidMat, cutMat]) { m.uniforms.pano.value = U.pano.value; m.uniforms.over.value = U.over.value; m.uniforms.overOn.value = U.overOn.value; m.uniforms.mute.value = S.over === "heat" ? 1 : 0; }
     heat.visible = S.over === "heat"; if (heat.visible) buildHeat();
     radioRay.visible = S.over === "radio" && rb != null;
+    showLegend();
     // where the camera pointed at the playhead
     let pose = null; for (const p of S.poses || []) { if (p[0] <= S.T) pose = p; else break; }
     showCamera(pose);
@@ -301,6 +305,19 @@ export async function mountRoom(root, pet) {
       const b = note.querySelector(".room-link"); if (b) b.onclick = () => { S.day0 = S.lastDay; S.live = false; S.T = null; loadDay(); };
     }
     drawStrip(); draw();
+  }
+  // the colour scale is always on screen with its view (owner, 2026-11-05)
+  function showLegend() {
+    let L = null;
+    if (S.over === "heat") {
+      L = { kind: "gradient", stops: ["#5c2614", "#cd522c", "#ff9262", "#ffecdc"], lo: "less", hi: heatMaxLabel || "more",
+            title: `time spent, ${S.span === "week" ? "last 7 days" : "that day"}` };
+    } else if (S.over && S.over !== "none") L = (info.legends || {})[S.over] || null;
+    legend.classList.toggle("hidden", !L);
+    if (!L) return;
+    legend.innerHTML = `<div class="room-legend-t">${L.title}</div>` + (L.kind === "gradient"
+      ? `<div class="room-legend-bar" style="background:linear-gradient(90deg,${L.stops.join(",")})"></div><div class="room-legend-ends"><span>${L.lo}</span><span>${L.hi}</span></div>`
+      : L.items.map((it) => `<div class="room-legend-sw"><i style="background:${it.color}"></i>${it.label}</div>`).join(""));
   }
   // day strip: minutes she was seen, in 10-minute bars; the playhead is draggable
   const strip = dock.querySelector(".room-strip");

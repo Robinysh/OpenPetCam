@@ -55,3 +55,13 @@ el_top = 90 - (0 + 0.5) / 36 * 180
 assert src[0, 0] == 2 and abs(out[0, 0] - 0.18 / np.sin(np.radians(el_top))) < 1e-5
 assert src[-1, 0] == 3 and abs(out[-1, 0] - 0.8 / np.sin(np.radians(el_top))) < 1e-5
 print("blind fill ok: vision kept, sound plane above, assumed floor below")
+
+# every view the Room tab offers has a colour legend (owner 2026-11-05: always show the colour map)
+import re as _re  # noqa: E402
+_js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "server", "room.js")).read()
+_views = set(_re.findall(r'\["(\w+)", "[^"]+", "[^"]*"\]', _js[_js.index("const GROUPS"):_js.index("const tx =")])) - {"heat"}
+_ab = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sim", "world", "app_bundle.py")).read()
+_leg = set(_re.findall(r'"(\w+)": (?:gradient|swatches)\(', _ab)) | ({"radio"} if 'lg["radio"]' in _ab else set())
+assert _views and _views <= _leg, f"views without a legend: {sorted(_views - _leg)}"
+assert '"heat"' in _js and "showLegend" in _js
+print(f"legends ok: all {len(_views)} views plus Time spent have a colour scale")

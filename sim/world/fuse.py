@@ -134,22 +134,22 @@ def build(ctx, manifest):
     out["dog_free"] = np.where(floor, np.isfinite(dwell).astype(np.float32), np.nan)
     np.savez_compressed(os.path.join(ctx.model, "surfels.npz"), **{k: v for k, v in out.items() if v is not None})
     # viewer textures (equirectangular, black = no data)
+    from .colormaps import classes, div, seq
+    ranges = {}                                          # each texture's value range, for the app's colour legends
+
     def tex(name, val, lo, hi, cmap):
+        ranges[name] = [float(lo), float(hi)]
         v = np.clip((val - lo) / (hi - lo), 0, 1)
         rgb = np.zeros((H, W, 3), np.uint8)
         ok = np.isfinite(val)
         rgb[ok] = (cmap(v[ok]) * 255).astype(np.uint8)
         rgb[ok] = np.maximum(rgb[ok], 2)
         Image.fromarray(rgb).save(os.path.join(ctx.model, f"surfel_{name}.png"))
-    seq = lambda v: np.stack([0.15 + 0.85 * v, 0.1 + 0.6 * v ** 1.5, 0.35 - 0.2 * v], -1)            # one-hue sequential
-    div = lambda v: np.stack([np.where(v > .5, 0.43 + 1.14 * (v - .5), 0.43 - 0.6 * (.5 - v)),
-                              np.where(v > .5, 0.43 - 0.5 * (v - .5), 0.43 + 0.2 * (.5 - v)),
-                              np.where(v > .5, 0.43 + 0.9 * (v - .5), 0.43 + 0.9 * (.5 - v))], -1).clip(0, 1)
     nn = out["normal"]
     rgbn = np.where(np.isfinite(nn), (nn * 0.5 + 0.5) * 255, 0).astype(np.uint8)
     Image.fromarray(rgbn).save(os.path.join(ctx.model, "surfel_normals.png"))
     cls.astype(np.uint8).tofile(os.path.join(ctx.model, "surfel_class.u8"))   # raw class per direction (viewer dollhouse)
-    tex("class", np.where(cls > 0, cls.astype(float), np.nan), 1, 3, lambda v: np.stack([0.3 + 0.6 * v, 0.6 - 0.2 * v, 0.9 - 0.6 * v], -1))
+    tex("class", np.where(cls > 0, cls.astype(float), np.nan), 1, 3, classes)
     if "nir_reflectance" in out:
         tex("nir_reflectance", np.log(np.clip(out["nir_reflectance"], 1e-3, None)), -1.5, 1.5, div)
     if "nir_excess" in out:
@@ -178,6 +178,7 @@ def build(ctx, manifest):
     probe = np.stack([sub(np.asarray(c, np.float32)) for _n, c in chans], -1).astype(np.float32)
     probe.tofile(os.path.join(ctx.model, "surfels_probe.f32"))
     summary = {
+        "texture_ranges": ranges,
         "grid": [W, H], "seen_share": round(float(seen.mean()), 3),
         "class_share": {k: round(float((cls == v).mean()), 3) for k, v in (("floor", 1), ("wall_other", 2), ("object", 3))},
         "floor_residual_cm_median_abs": round(100 * float(np.nanmedian(np.abs(out["floor_residual_m"]))), 1),

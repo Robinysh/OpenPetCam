@@ -367,6 +367,12 @@
   }
   .room-rail .iconbtn[aria-pressed="true"] { box-shadow:inset 0 0 0 2px var(--accent); color:#fff; }
   .room-span[hidden] { display:none; }
+  .room-legend { position:fixed; z-index:5; left:12px; top:calc(env(safe-area-inset-top) + 58px); max-width:240px; padding:8px 10px;
+                 border-radius:12px; background:var(--scrim); color:var(--on-video); font-size:12px; -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); }
+  .room-legend-t { font-weight:700; margin-bottom:5px; }
+  .room-legend-bar { height:10px; width:200px; border-radius:5px; }
+  .room-legend-ends { display:flex; justify-content:space-between; margin-top:3px; opacity:.85; font-variant-numeric:tabular-nums; }
+  .room-legend-sw { display:flex; align-items:center; gap:6px; margin:2px 0; } .room-legend-sw i { width:12px; height:12px; border-radius:3px; flex:none; }
   .room-sec { color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; margin:12px 0 8px; }
   .room-tiles { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .room-tile { border:0; background:none; padding:0; text-align:center; font-weight:650; font-size:14px; cursor:pointer; color:var(--text); }

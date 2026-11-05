@@ -89,9 +89,25 @@ def build(world, rssi_paths=None, seed=0):
            "bearing_95ci_deg": [round(bearing + float(np.percentile(dd, 2.5)), 1), round(bearing + float(np.percentile(dd, 97.5)), 1)],
            "covered_azimuth_deg": [round(float(np.degrees(az.min()))), round(float(np.degrees(az.max())))],
            "covered_elevation_deg": [round(float(np.degrees(el.min()))), round(float(np.degrees(el.max())))],
-           "meaning": "direction of the strongest link from the camera's head antenna; usually toward the access point, "
-                      "unconfirmed (a reflection can produce it)"}
+           "meaning": "bearing_deg: where the lens points when the link is strongest; the antenna is on the back of the pan body, "
+                      "so the router lies near router_bearing_deg (opposite); the texture is painted by where the antenna points"}
     res["supported"] = bool(res["p"] is not None and res["p"] < 0.05 and abs(((halves[0] - halves[1]) + 180) % 360 - 180) < 45)
+    # Where the router is. The link is strongest when the LENS points to the bearing; the elevation term is ~0 (tilting
+    # the head changes nothing), so the antenna is on the pan body, not the head, and on its BACK (like the speaker):
+    # the router then lies opposite, at bearing + 180. An owner's statement of where the router really is (git-ignored
+    # raw/radio/owner_checks.json: {"router_az_deg": [lo, hi], "said": "..."}) is the independent check.
+    wrap = lambda a: (a + 180) % 360 - 180                                         # noqa: E731
+    res["router_bearing_deg"] = round(wrap(bearing + 180), 1)
+    res["router_bearing_95ci_deg"] = [round(wrap(res["bearing_95ci_deg"][0] + 180), 1), round(wrap(res["bearing_95ci_deg"][1] + 180), 1)]
+    res["antenna"] = "on the back of the pan body (link strongest with the lens facing away; no tilt dependence)"
+    chk = os.path.join(world, "raw", "radio", "owner_checks.json")
+    if os.path.exists(chk):
+        oc = json.load(open(chk))
+        lo, hi = oc["router_az_deg"]
+        c_lo, c_hi = res["router_bearing_95ci_deg"]
+        overlap = not (wrap(hi - c_lo) < 0 or wrap(c_hi - lo) < 0)
+        res["owner_check"] = {"router_az_deg": [lo, hi], "agrees": bool(overlap),
+                              "offset_deg": round(abs(wrap(res["router_bearing_deg"] - (lo + hi) / 2)), 1)}
     model = os.path.join(world, "model")
     mp = os.path.join(model, "manifest.json")
     m = json.load(open(mp))
@@ -103,11 +119,14 @@ def build(world, rssi_paths=None, seed=0):
         D = directions(W, H)
         A2, E2 = az_el(D)
         ar, er = np.radians(A2), np.radians(E2)
-        pred = c[0] + c[1] * np.cos(ar) + c[2] * np.sin(ar) + c[3] * np.sin(er)
+        # painted by where the ANTENNA points (the back of the pan body, opposite the lens): direction a gets the link
+        # strength the camera had with its lens at a + 180 deg, so the warm side is the router's side
+        pred = c[0] + c[1] * np.cos(ar + np.pi) + c[2] * np.sin(ar + np.pi) + c[3] * np.sin(er)
         cov = (E2 >= res["covered_elevation_deg"][0] - 5) & (E2 <= res["covered_elevation_deg"][1] + 5)
         lo, hi = float(np.percentile(V, 5)), float(np.percentile(V, 95))
         x = np.clip((pred - lo) / max(hi - lo, 1e-6), 0, 1)
-        rgb = np.stack([0.25 + 0.7 * x, 0.15 + 0.55 * x ** 1.3, 0.55 - 0.35 * x], -1)        # weak = dim violet, strong = warm
+        from .colormaps import radio
+        rgb = radio(x)                                                                          # weak = dim violet, strong = warm
         img = np.where(cov[..., None], (rgb * 255).astype(np.uint8), 0).astype(np.uint8)
         Image.fromarray(img).save(os.path.join(model, "surfel_radio.png"))
         if "fused.surfels" in L:
