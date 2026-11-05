@@ -23,7 +23,7 @@ python3 -m sim.world.app_bundle eval/world                               # 7. th
 ```
 
 Copy `model/room_map.json` to your server's `models/` folder (next to `follow_policy.json`), keep `models/room/`
-there too, and deploy: the search uses the map, and the app gains its **Room** tab (your room as a dollhouse, where
+there too, and deploy: the search uses the map, and the app gains its **Room** tab (your room as measured, every colour view of the model, where the camera points, where
 your pet is, where they spent the day, tap any spot). Both stay on your server and are served to signed-in devices
 only. Without them the app and the search run as before. `python3 tools/room_dev.py eval/world` previews the Room tab
 on this computer from your local data.
@@ -71,8 +71,8 @@ method it was measured by. Sensors with `needs_room = True` run after the room i
 ## The developer viewer (`viewer/`)
 
 The app's Room tab shows what an owner needs. This viewer shows everything the model holds, for building and
-checking it. Dollhouse (default): the room's fitted planes with the walls facing you cut away, furniture boxes, the pet's dwell
-heatmap on the floor. Orbit: the full fused surface. Camera eye and Floor plan. "Colour the room by" shows any surfel
+checking it. Measured (default): the fused surface, cut away where you look at it from behind. Planes: the fitted
+floor, wall planes and furniture boxes (a simplification, for checking the fit). Camera eye and Floor plan. "Colour the room by" shows any surfel
 attribute (uncertainty, class, near-IR, sound support, dwell), and a click lists every modality at that point.
 
 ## Licences of borrowed methods

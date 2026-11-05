@@ -64,6 +64,9 @@ assert abs(x - want[0]) < 2e-3 and abs(z - want[2]) < 2e-3, (x, z, want)
 assert abs(dwell - (28 - 10 + 1.5)) < 1e-6 and cut == 0, rows[0]
 print(f"positions: one detection at ({x:.2f}, {z:.2f}) m, dwell {dwell} s (cached repeats merged); moving and sky boxes dropped")
 
+poses = roomapi.camera_poses(con, t0 + 5, t0 + 100)
+assert poses[0] == [t0 + 5, 1850, 600] and len(poses) == 1 + 10 and all(a[0] < b[0] for a, b in zip(poses, poses[1:])), poses[:3]
+print(f"camera poses: {len(poses)} changes, starting with the pose in force")
 # 3. textures: only names the bundle lists, never a path out of it
 assert roomapi.texture("room_photo.jpg").endswith("room_photo.jpg")
 for bad in ("../secret.txt", "room.json", "/etc/passwd", ""):

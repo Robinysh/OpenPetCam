@@ -1,5 +1,5 @@
-"""Your room model, reduced to what the app's Room tab draws: the calibrated camera, the floor outline, the walls, the
-furniture boxes, the latest mount-drift correction and four textures (day photo, night, where the model is unsure,
+"""Your room model, reduced to what the app's Room tab draws: the calibrated camera, the measured shape (the fused
+surface: one range per direction), the floor outline, the walls and furniture boxes (for naming places), the latest mount-drift correction and four textures (day photo, night, where the model is unsure,
 near-IR materials), resized for a phone.
 
 The bundle is the inside of your home. It goes to YOUR server's models/ folder (deploy.sh copies it, install.sh
@@ -23,16 +23,30 @@ def build(world, out):
     fused = (L.get("fused.surface") or {}).get("data") or {}
     os.makedirs(out, exist_ok=True)
     tex = {}
-    for key, name in (("photo", "pano_visible_sweep.jpg"), ("night", "pano_infrared.jpg"),
-                      ("unsure", "surfel_uncertainty.png"), ("materials", "pano_nir_excess.jpg")):
+    sf = ((L.get("fused.surfels") or {}).get("data") or {}).get("textures") or {}
+    views = [("photo", "pano_visible_sweep.jpg"), ("night", "pano_infrared.jpg")] + sorted(sf.items())
+    for key, name in views:                          # every colour view the room model has, for the app's Room sheet
         src = os.path.join(model, name)
         if not os.path.exists(src):
             continue
-        im = Image.open(src)
-        im = im.convert("RGB").resize((TEX_W, TEX_W // 2), Image.LANCZOS if key != "unsure" else Image.NEAREST)
-        dst = f"room_{key}.png" if key == "unsure" else f"room_{key}.jpg"
-        im.save(os.path.join(out, dst), **({} if dst.endswith(".png") else {"quality": 85}))
+        im = Image.open(src).convert("RGB")
+        photo = key in ("photo", "night")
+        if photo:
+            im = im.resize((TEX_W, TEX_W // 2), Image.LANCZOS)
+        dst = f"room_{key}.jpg" if photo else f"room_{key}.png"
+        im.save(os.path.join(out, dst), **({"quality": 85} if photo else {}))
         tex[key] = dst
+    # the measured shape: one range per direction (the fused surface), millimetres as uint16 (0 = nothing measured)
+    import numpy as np
+    meta = fused
+    if meta.get("file") and os.path.exists(os.path.join(model, meta["file"])):
+        R = np.fromfile(os.path.join(model, meta["file"]), np.float32).reshape(meta["height"], meta["width"])
+        mm = np.where(np.isfinite(R) & (R > 0.05) & (R < 60), np.round(R * 1000), 0).astype("<u2")
+        mm.tofile(os.path.join(out, "room_range.u16"))
+        tex["range"] = "room_range.u16"
+        shape = [int(meta["width"]), int(meta["height"])]
+    else:
+        shape = None
     # the mount's latest drift correction (registration of recent snapshots to the panorama)
     off = (0.0, 0.0, 0.0)
     rp = os.path.join(world, "raw", "registration.json")
@@ -49,7 +63,7 @@ def build(world, out):
            "outline": outline, "walls": [{"a": w["a"], "b": w["b"]} for w in room["walls"]],
            "objects": [{"label": o["label"], "center": o["center"], "size": o["size"], "yaw_deg": o["yaw_deg"],
                         "kind": o.get("kind", "solid")} for o in fused.get("objects", [])],
-           "mount_offset_deg": off, "textures": tex}
+           "mount_offset_deg": off, "textures": tex, "range_shape": shape}
     json.dump(doc, open(os.path.join(out, "room.json"), "w"))
     return doc
 

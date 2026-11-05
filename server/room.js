@@ -1,4 +1,5 @@
-// Room tab: your room as a dollhouse (its fitted floor, walls and furniture, textured from the camera), where the pet
+// Room tab: your room as measured (the fused surface, textured from the camera, opened up where you look at it from
+// behind), where the pet
 // is now, and where she spent the day. Loaded only when the tab opens (index.html imports it), so Live stays light.
 //
 // Designed from what an owner asks of a room, not from the sensors behind it: Where is she? Where does she spend her
@@ -45,21 +46,32 @@ export async function mountRoom(root, pet) {
     <div class="room-strip-axis"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>`;
   const sheet = el("div", "sheet-bg hidden"); document.body.append(sheet);
   const LOOKS = [["photo", "Day", "the camera's daytime sweep"], ["night", "Night", "its infrared night picture"]];
-  const OVERS = [["heat", "Time spent", `where ${name} was, brighter for longer`],
-                 ["unsure", "Unsure areas", "where the model knows least (bright = uncertain)"],
-                 ["materials", "Materials", "near-infrared minus visible: plants, fabrics and fur glow"]];
+  // every view the room model holds, grouped by what it tells you; one shows at a time (each loads when picked)
+  const GROUPS = [
+    [name, [["heat", "Time spent", `where ${name} was up to the time on the strip, brighter for longer`],
+            ["dwell", "Time spent, all days", "every day the model has seen, per patch of floor"]]],
+    ["Shape", [["uncertainty", "Unsure areas", "where the model knows least (bright = uncertain)"],
+               ["class", "Floor, walls, objects", "what each surface was classified as"],
+               ["normals", "Surface direction", "which way each surface faces"],
+               ["floor_residual", "Floor check", "learned depth against the floor set by sound (bright = disagrees)"]]],
+    ["Light", [["nir_excess", "Materials", "near-infrared minus visible: plants, fabrics and fur glow"],
+               ["nir_reflectance", "Infrared reflectance", "the camera's own IR light, corrected for distance"],
+               ["light_range", "Daylight change", "how much each surface's light changes over the day"]]],
+    ["Sound", [["echo_support", "Echo support", "where the camera's own sound echoes agree with the shape"],
+               ["echo_coverage", "Sound coverage", "how many head directions heard each surface"]]]];
   const tx = (k) => info.textures?.[k] ? `/api/room/tex?f=${encodeURIComponent(info.textures[k])}` : null;
   sheet.innerHTML = `<div class="sheet" role="dialog" aria-label="Looks and overlays"><div class="grab"></div><h3>Room</h3>
     <div class="room-sec">Look</div><div class="room-tiles">${LOOKS.filter(([k]) => tx(k)).map(([k, t, d]) =>
       `<button class="room-tile" data-look="${k}" title="${d}"><span style="background-image:url(${tx(k)})"></span>${t}</button>`).join("")}</div>
-    <div class="room-sec">On the floor</div>${OVERS.filter(([k]) => k === "heat" || tx(k)).map(([k, t, d]) =>
-      `<button class="room-over" data-over="${k}"><span class="room-thumb ${k}"${k !== "heat" ? ` style="background-image:url(${tx(k)})"` : ""}></span>
-       <span><b>${t}</b><small>${d}</small></span><i class="room-check"></i></button>`).join("")}
+    ${GROUPS.map(([g, items]) => { const its = items.filter(([k]) => k === "heat" || tx(k)); return its.length ? `<div class="room-sec">${g}</div>` + its.map(([k, t, d]) =>
+      `<button class="room-over" data-over="${k}"><span class="room-thumb ${k}"${k !== "heat" ? ` data-bg="${tx(k)}"` : ""}></span>
+       <span><b>${t}</b><small>${d}</small></span><i class="room-check"></i></button>`).join("") : ""; }).join("")}
     <p class="room-foot">Built ${info.built}. The model lives on your server only.</p></div>`;
 
   // ---------------------------------------------------------------- state
   const S = { look: store("room.look") || "photo", over: store("room.over") || "heat", view: store("room.view") || "3d",
               day0: startOfDay(Date.now() / 1000), T: null, rows: [], live: true };
+  let raf = 0, visible = false;           // render on demand; declared before any texture can finish loading
   // ---------------------------------------------------------------- 3D
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
@@ -71,12 +83,12 @@ export async function mountRoom(root, pet) {
   const cam = new THREE.PerspectiveCamera(50, 1, 0.05, 100);
   const controls = new OrbitControls(cam, renderer.domElement);
   controls.enableDamping = true; controls.maxPolarAngle = Math.PI * 0.49; controls.minDistance = 1.5; controls.maxDistance = 16;
-  const H = info.floor_height_m, CEIL = info.ceiling_m || 2.6, C = info.calib;
+  const H = info.floor_height_m;
   const loader = new THREE.TextureLoader();
   const tex = (k) => { const u = tx(k); if (!u) return null; const t = loader.load(u, () => draw()); t.colorSpace = THREE.SRGBColorSpace; return t; };
-  const T = { photo: tex("photo"), night: tex("night"), unsure: tex("unsure"), materials: tex("materials") };
+  const T = new Proxy({}, { get: (c, k) => (k in c ? c[k] : (c[k] = tex(k))) });   // loaded on first use
   const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); blank.needsUpdate = true;
-  const U = { pano: { value: T.photo || blank }, over: { value: blank }, overOn: { value: 0 }, cut: { value: 0 }, mute: { value: 0 },
+  const U = { pano: { value: blank }, over: { value: blank }, overOn: { value: 0 }, cut: { value: 0 }, mute: { value: 0 },
               clay: { value: new THREE.Color("#c9c6c0") }, light: { value: new THREE.Vector3(0.45, 0.8, 0.35).normalize() } };
   const vert = `varying vec3 wp; void main(){ vec4 w = modelMatrix * vec4(position,1.); wp = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`;
   const frag = `uniform sampler2D pano, over; uniform float overOn, cut, mute; uniform vec3 clay, light; varying vec3 wp;
@@ -96,40 +108,79 @@ export async function mountRoom(root, pet) {
   }`;
   const mat = (cut) => new THREE.ShaderMaterial({ uniforms: { ...U, cut: { value: cut } }, vertexShader: vert, fragmentShader: frag, side: THREE.DoubleSide });
   const solidMat = mat(0), cutMat = mat(1);
-  // floor: a fan from the lens to the outline (gaps up to 25 deg bridged; wider ones are not floor we know)
-  const OL = info.outline.map((o) => ({ az: o[0], r: o[1] }));
-  for (let i = 0; i < OL.length; i++) if (OL[i].r == null) {
-    let a = i, b = i; while (OL[(a - 1 + OL.length) % OL.length].r == null && i - a < 30) a--; while (OL[(b + 1) % OL.length].r == null && b - i < 30) b++;
-    const ra = OL[(a - 1 + OL.length) % OL.length].r, rb = OL[(b + 1) % OL.length].r;
-    OL[i].gap = (b - a + 1) > 25 || ra == null || rb == null; OL[i].rr = OL[i].gap ? null : ra + (rb - ra) * (i - a + 1) / (b - a + 2);
-  } else OL[i].rr = OL[i].r;
-  const fp = []; const pt = (o) => [Math.sin(o.az * Math.PI / 180) * o.rr, -H, Math.cos(o.az * Math.PI / 180) * o.rr];
-  for (let i = 0; i < OL.length; i++) { const j = (i + 1) % OL.length; if (OL[i].gap || OL[j].gap) continue; fp.push(0, -H, 0, ...pt(OL[j]), ...pt(OL[i])); }
-  const fg = new THREE.BufferGeometry(); fg.setAttribute("position", new THREE.Float32BufferAttribute(fp, 3));
-  const floor = new THREE.Mesh(fg, solidMat); floor.userData.floor = true; world.add(floor);
-  const onFloor = (x, z) => { const o = OL[(Math.round(Math.atan2(x, z) * 180 / Math.PI) + 180 + 360) % 360]; return o && !o.gap && Math.hypot(x, z) <= o.rr + 0.05; };
-  // walls (cut away when they face away from you) with light caps, as a dollhouse
-  const COUNTER = H + (info.overhead_m || 0), walls = [];
-  for (const w of info.walls) {
-    const [ax, az] = w.a, [bx, bz] = w.b, len = Math.hypot(bx - ax, bz - az), mid = [(ax + bx) / 2, (az + bz) / 2];
-    const hgt = Math.hypot(...mid) < 0.6 ? COUNTER : CEIL;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(len, hgt, 6, 6), cutMat);
-    m.position.set(mid[0], -H + hgt / 2, mid[1]); m.rotation.y = Math.atan2(-(bz - az), bx - ax); world.add(m);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(len, 0.03, 0.06), new THREE.MeshBasicMaterial({ color: 0xebe8e2 }));
-    cap.position.set(mid[0], -H + hgt, mid[1]); cap.rotation.y = m.rotation.y; world.add(cap);
-    const nx = -(bz - az) / len, nz = (bx - ax) / len, s = -(mid[0] * nx + mid[1] * nz) > 0 ? 1 : -1;
-    walls.push({ mid, n: [nx * s, nz * s], cap });
+  // The measured shape (accuracy first): the fused surface, one range per viewing direction (millimetres), meshed
+  // with tears at depth jumps, cut away where you look at it from behind. No fitted planes are drawn: they are a
+  // simplification of this, and they misplace whatever they leave out. Furniture boxes only name places.
+  const [RW, RH] = info.range_shape || [0, 0];
+  let R = new Float32Array(0);
+  if (RW && tx("range")) {
+    const u = new Uint16Array(await (await fetch(tx("range"), { credentials: "same-origin" })).arrayBuffer());
+    if (u.length === RW * RH) R = Float32Array.from(u, (v) => v / 1000);
   }
-  // furniture boxes
-  const objects = [];
-  for (const o of info.objects) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(...o.size), solidMat);
-    m.position.set(...o.center); m.rotation.y = Math.atan2(Math.sin(o.yaw_deg * Math.PI / 180), Math.cos(o.yaw_deg * Math.PI / 180));
-    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 })));
-    world.add(m); objects.push({ ...o, mesh: m });
+  const pos = new Float32Array(RW * RH * 3);
+  for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) {
+    const az = ((i + 0.5) / RW * 360 - 180) * Math.PI / 180, el = (90 - (j + 0.5) / RH * 180) * Math.PI / 180, r = R[j * RW + i] || 0, k = (j * RW + i) * 3;
+    pos[k] = Math.cos(el) * Math.sin(az) * r; pos[k + 1] = Math.sin(el) * r; pos[k + 2] = Math.cos(el) * Math.cos(az) * r;
   }
+  const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), dd = new THREE.Vector3();
+  const good = (a, b, c) => {
+    const ra = R[a], rb = R[b], rc = R[c]; if (!ra || !rb || !rc) return false;
+    const mx = Math.max(ra, rb, rc), mn = Math.min(ra, rb, rc); if (!(mx / mn < 1.18 || mx - mn < 0.05)) return false;   // a depth jump: tear
+    va.fromArray(pos, a * 3); vb.fromArray(pos, b * 3); vc.fromArray(pos, c * 3);
+    const n = e1.subVectors(vb, va).cross(e2.subVectors(vc, va)), len = n.length(); if (!len) return false;
+    return Math.abs(n.dot(dd.copy(va).add(vb).add(vc).normalize())) / len > 0.12;          // edge-on to the lens: a sliver
+  };
+  const tris = [], use = new Uint8Array(RW * RH), idx = [];
+  for (let j = 0; j < RH - 1; j++) for (let i = 0; i < RW; i++) {
+    const i2 = (i + 1) % RW, a = j * RW + i, b = j * RW + i2, c = (j + 1) * RW + i, d = (j + 1) * RW + i2;
+    if (good(a, c, b)) { tris.push(a, c, b); use[a]++; use[b]++; use[c]++; }
+    if (good(b, c, d)) { tris.push(b, c, d); use[b]++; use[c]++; use[d]++; }
+  }
+  for (let t = 0; t < tris.length; t += 3) if (use[tris[t]] >= 4 && use[tris[t + 1]] >= 4 && use[tris[t + 2]] >= 4) idx.push(tris[t], tris[t + 1], tris[t + 2]);
+  const sg = new THREE.BufferGeometry(); sg.setAttribute("position", new THREE.BufferAttribute(pos, 3)); sg.setIndex(idx);
+  const surface = new THREE.Mesh(sg, cutMat); world.add(surface);
+  // the measured range in a direction; a floor cell counts as floor only where nothing nearer blocks the lens's view
+  const rangeAt = (x, y, z) => {
+    const r = Math.hypot(x, y, z), az = Math.atan2(x, z) * 180 / Math.PI, el = Math.asin(y / r) * 180 / Math.PI;
+    return R[Math.min(RH - 1, Math.floor((90 - el) / 180 * RH)) * RW + (Math.floor((az + 180) / 360 * RW) % RW)] || 0;
+  };
+  const onFloor = (x, z) => { const r = Math.hypot(x, H, z), rr = rangeAt(x, -H, z); return rr > 0 && rr >= r * 0.92 && r < 8; };
+  const objects = info.objects.map((o) => ({ ...o }));        // named places (not drawn: the surface already shows them)
   // the camera (a small dot at the lens)
   const lens = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 12), new THREE.MeshBasicMaterial({ color: css("--accent") || "#7aa7ff" })); world.add(lens);
+  // where the camera points: a view cone from the lens out to the measured surface its frame corners land on
+  // (pose from the watcher's track at the strip's time; the calibrated camera with the mount's drift correction)
+  const C = info.calib, OFF = info.mount_offset_deg || [0, 0, 0], D2R = Math.PI / 180;
+  const mul = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
+  const rx = (a) => [[1, 0, 0], [0, Math.cos(a), -Math.sin(a)], [0, Math.sin(a), Math.cos(a)]];
+  const ry = (a) => [[Math.cos(a), 0, Math.sin(a)], [0, 1, 0], [-Math.sin(a), 0, Math.cos(a)]];
+  const rz = (a) => [[Math.cos(a), -Math.sin(a), 0], [Math.sin(a), Math.cos(a), 0], [0, 0, 1]];
+  function camRay(pan, tilt, u, v) {                       // roomcam.Camera.ray without the lens distortion term
+    const Rm = [ry((1850 - pan) * C.deg_per_step_pan * D2R), rx(-(tilt - C.level_tilt) * C.deg_per_step_tilt * D2R), rz(C.roll_deg * D2R),
+                ry(OFF[1] * D2R), rx(OFF[0] * D2R)].reduce(mul);
+    const c = [(u * 1920 - 960) / C.focal_px, -(v * 1080 - 540) / C.focal_px, 1];
+    const w = [0, 1, 2].map((i) => Rm[i][0] * c[0] + Rm[i][1] * c[1] + Rm[i][2] * c[2]), n = Math.hypot(...w);
+    return w.map((x) => x / n);
+  }
+  const accent = new THREE.Color(css("--accent") || "#7aa7ff");
+  const coneGeo = new THREE.BufferGeometry(), coneLines = new THREE.BufferGeometry();
+  const cone = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
+  const coneEdge = new THREE.LineSegments(coneLines, new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.85 }));
+  cone.renderOrder = coneEdge.renderOrder = 3; world.add(cone, coneEdge);
+  const axis = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), 0.45, accent.getHex(), 0.12, 0.08); world.add(axis);
+  function showCamera(pose) {
+    cone.visible = coneEdge.visible = axis.visible = !!pose;
+    if (!pose) return;
+    const corners = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => {
+      const d = camRay(pose[1], pose[2], u, v), r = Math.min(rangeAt(d[0] * 5, d[1] * 5, d[2] * 5) || 3, 6);
+      return d.map((x) => x * r);
+    });
+    const P = []; for (let k = 0; k < 4; k++) P.push(0, 0, 0, ...corners[k], ...corners[(k + 1) % 4]);
+    coneGeo.setAttribute("position", new THREE.Float32BufferAttribute(P, 3)); coneGeo.computeBoundingSphere();
+    const E = []; for (let k = 0; k < 4; k++) E.push(0, 0, 0, ...corners[k], ...corners[k], ...corners[(k + 1) % 4]);
+    coneLines.setAttribute("position", new THREE.Float32BufferAttribute(E, 3)); coneLines.computeBoundingSphere();
+    axis.setDirection(new THREE.Vector3(...camRay(pose[1], pose[2], 0.5, 0.5)));
+  }
   // time-spent heat on the floor
   const HC = 0.1, HN = 140, HALF = HN * HC / 2, heatData = new Uint8Array(HN * HN * 4);
   const heatTex = new THREE.DataTexture(heatData, HN, HN); heatTex.magFilter = THREE.LinearFilter; heatTex.needsUpdate = true;
@@ -165,7 +216,7 @@ export async function mountRoom(root, pet) {
     const until = Math.min(S.day0 + DAY, Date.now() / 1000);
     try {
       const r = await (await fetch(`/api/room/positions?since=${S.day0}&until=${until}`, { credentials: "same-origin" })).json();
-      S.rows = r.rows || [];
+      S.rows = r.rows || []; S.poses = r.poses || [];
     } catch { S.rows = []; }
     if (!S.rows.length && S.lastDay == null) {                // find the last day she was seen (up to a week back)
       try {
@@ -195,10 +246,13 @@ export async function mountRoom(root, pet) {
   }
   function apply() {
     U.pano.value = T[S.look] || T.photo || blank;
-    const ov = S.over === "unsure" || S.over === "materials" ? T[S.over] : null;
+    const ov = S.over && S.over !== "heat" && S.over !== "none" ? T[S.over] : null;
     U.over.value = ov || blank; U.overOn.value = ov ? 1 : 0;
     for (const m of [solidMat, cutMat]) { m.uniforms.pano.value = U.pano.value; m.uniforms.over.value = U.over.value; m.uniforms.overOn.value = U.overOn.value; m.uniforms.mute.value = S.over === "heat" ? 1 : 0; }
     heat.visible = S.over === "heat"; if (heat.visible) buildHeat();
+    // where the camera pointed at the playhead
+    let pose = null; for (const p of S.poses || []) { if (p[0] <= S.T) pose = p; else break; }
+    showCamera(pose);
     // where she is (or was, at the playhead)
     let last = null; for (const r of S.rows) { if (r[0] <= S.T) last = r; else break; }
     const ago = last ? S.T - last[0] : Infinity;
@@ -253,24 +307,32 @@ export async function mountRoom(root, pet) {
   dock.querySelector(".room-now").onclick = () => { S.day0 = startOfDay(Date.now() / 1000); S.live = true; loadDay(); };
   dock.querySelectorAll("[data-d]").forEach((b) => b.onclick = () => { S.day0 += +b.dataset.d * DAY; S.live = false; S.T = null; loadDay(); });
   // controls
-  bLayers.onclick = () => sheet.classList.remove("hidden");
+  bLayers.onclick = () => {
+    sheet.querySelectorAll("[data-bg]").forEach((e) => { e.style.backgroundImage = `url(${e.dataset.bg})`; e.removeAttribute("data-bg"); });
+    sheet.classList.remove("hidden");
+  };
   sheet.onclick = (e) => { if (e.target === sheet) sheet.classList.add("hidden"); };
   sheet.querySelectorAll("[data-look]").forEach((b) => b.onclick = () => { S.look = b.dataset.look; store("room.look", S.look); apply(); });
   sheet.querySelectorAll("[data-over]").forEach((b) => b.onclick = () => { S.over = S.over === b.dataset.over ? "none" : b.dataset.over; store("room.over", S.over); apply(); });
   // fit the camera to the floor's extent for this screen's shape (a phone in portrait needs to stand much farther back)
   const ext = (() => {
-    const xs = [], zs = [];
-    for (const o of OL) if (!o.gap && o.rr) { xs.push(-Math.sin(o.az * Math.PI / 180) * o.rr); zs.push(Math.cos(o.az * Math.PI / 180) * o.rr); }
+    const xs = [], zs = [];                                       // the measured floor (scene x is the model's -x)
+    const cells = new Set();                                      // unique 25 cm cells: near-lens pixels must not outvote the room
+    for (let k = 0; k < RW * RH; k++) if (R[k] && pos[k * 3 + 1] < -H + 0.12 && R[k] < 8) {
+      const key = `${Math.round(-pos[k * 3] / 0.25)},${Math.round(pos[k * 3 + 2] / 0.25)}`;
+      if (!cells.has(key)) { cells.add(key); xs.push(-pos[k * 3]); zs.push(pos[k * 3 + 2]); }
+    }
+    if (!xs.length) { xs.push(-3, 3); zs.push(-3, 3); }
     const q = (a, f) => a.slice().sort((x, y) => x - y)[Math.floor(f * (a.length - 1))];
     const x0 = q(xs, 0.04), x1 = q(xs, 0.96), z0 = q(zs, 0.04), z1 = q(zs, 0.96);
     return { cx: (x0 + x1) / 2, cz: (z0 + z1) / 2, r: Math.max(x1 - x0, z1 - z0) / 2 + 0.4 };
   })();
   function frame(view) {
     const vfov = cam.fov * Math.PI / 180, hfov = 2 * Math.atan(Math.tan(vfov / 2) * (cam.aspect || 1));
-    const d = ext.r / Math.sin(Math.min(vfov, hfov) / 2);
+    const d = 1.15 * ext.r / Math.sin(Math.min(vfov, hfov) / 2);
     controls.target.set(ext.cx, -H, ext.cz);                    // scene coordinates (the model's x is mirrored)
     if (view === "top") { cam.position.set(ext.cx, -H + d, ext.cz + 0.01); controls.enableRotate = false; }
-    else { const el = 52 * Math.PI / 180, az = -35 * Math.PI / 180;
+    else { const el = 60 * Math.PI / 180, az = -35 * Math.PI / 180;
            cam.position.set(ext.cx + d * Math.cos(el) * Math.sin(az), -H + d * Math.sin(el), ext.cz - d * Math.cos(el) * Math.cos(az)); controls.enableRotate = true; }
     controls.maxDistance = d * 2; controls.update(); draw();
   }
@@ -283,7 +345,7 @@ export async function mountRoom(root, pet) {
     if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
     const b = renderer.domElement.getBoundingClientRect();
     ndc.set(((e.clientX - b.left) / b.width) * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1); ray.setFromCamera(ndc, cam);
-    const hit = ray.intersectObjects([floor, ...objects.map((o) => o.mesh)], false)[0];
+    const hit = ray.intersectObject(surface, false)[0];
     if (!hit) { spot.classList.add("hidden"); return; }
     const p = world.worldToLocal(hit.point.clone());
     const near = S.rows.filter((r) => Math.hypot(r[1] - p.x, r[2] - p.z) < 0.5 && r[0] <= S.T);
@@ -294,13 +356,11 @@ export async function mountRoom(root, pet) {
     spot.classList.remove("hidden");
   });
   // render on demand (battery): while the controls move, when data changes, and the halo's pulse while she is here
-  let raf = 0, visible = false;
   function draw() { if (!raf && visible) raf = requestAnimationFrame(tick); }
   function tick(t) {
     raf = 0;
     const moving = controls.update();
     camLocal.copy(cam.position); world.worldToLocal(camLocal);
-    for (const w of walls) w.cap.visible = (camLocal.x - w.mid[0]) * w.n[0] + (camLocal.z - w.mid[1]) * w.n[1] > 0;
     const pulse = dot.visible && halo.material.opacity === 1;
     if (pulse) { const s = 1 + 0.25 * (0.5 + 0.5 * Math.sin(t / 300)); halo.scale.set(s, s, s); }
     renderer.render(scene, cam);

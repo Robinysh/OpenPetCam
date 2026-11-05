@@ -60,11 +60,13 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, roomapi.info())
         if p == "/api/room/tex":
             f = roomapi.texture(q.get("f", ""))
-            return self.send(200, open(f, "rb").read(), "image/png" if f.endswith(".png") else "image/jpeg") if f else self.send(404, b"no")
+            ct = "image/png" if f and f.endswith(".png") else "application/octet-stream" if f and f.endswith(".u16") else "image/jpeg"
+            return self.send(200, open(f, "rb").read(), ct) if f else self.send(404, b"no")
         if p == "/api/room/positions":
             until = min(float(q.get("until", END)), END)
             since = float(q.get("since", until - 86400))
-            return self.send(200, {"since": since, "until": until, "rows": roomapi.positions(CON, since, until)})
+            return self.send(200, {"since": since, "until": until, "rows": roomapi.positions(CON, since, until),
+                                   "poses": roomapi.camera_poses(CON, since, until)})
         if p.startswith("/api/"):
             return self.send(200, {})
         return self.send(404, b"not found", "text/plain")

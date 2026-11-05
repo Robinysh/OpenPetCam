@@ -54,7 +54,7 @@ canvas.gl { display: block; width: 100%; height: 100%; }
 <body>
 <div id="view"></div>
 <div id="layers" class="panel"><h1>Room world model</h1><div class="sub" id="subtitle">loading…</div><div id="bands"></div></div>
-<div id="modes" class="panel"><button data-m="doll" class="on">Dollhouse</button><button data-m="orbit">Orbit</button><button data-m="eye">Camera eye</button><button data-m="plan">Floor plan</button>
+<div id="modes" class="panel"><button data-m="orbit" class="on">Measured</button><button data-m="doll">Planes</button><button data-m="eye">Camera eye</button><button data-m="plan">Floor plan</button>
   <select id="colourby" title="colour the room by" style="background:#2b3340;color:var(--ink);border:0;border-radius:7px;padding:5px 8px;font:inherit;margin-left:6px"></select></div>
 <div id="info" class="panel"></div>
 <div id="inset" class="panel"><img id="frame" alt="snapshot at the playhead"><div class="cap" id="framecap"></div></div>
@@ -154,7 +154,7 @@ void main(){
   gl_FragColor = vec4(col, 1.);
   #include <colorspace_fragment>
 }`;
-let dollhouse = true;    // the Dollhouse mode (default): clean plane room with cut-away walls, furniture boxes
+let dollhouse = false;   // the Planes mode: the fitted planes and boxes (a simplification); Measured (default) is the fused surface
 const outlineOnly = new THREE.MeshBasicMaterial({ visible: false });   // the countertop in the dollhouse: edges only
 const panoMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: vert, fragmentShader: frag, side: THREE.DoubleSide });
 // the fused surface and the walls open up from outside (cut-away); object boxes and the floor keep every face
@@ -620,7 +620,7 @@ document.getElementById("play").onclick = e => { playing = !playing; e.target.te
 
 
 // ---------- view modes ----------
-let mode = "doll";
+let mode = "orbit";
 document.querySelectorAll("#modes button").forEach(b => b.onclick = () => {
   document.querySelectorAll("#modes button").forEach(x => x.classList.toggle("on", x === b)); mode = b.dataset.m;
   dollhouse = mode === "doll"; heatDirty = true;

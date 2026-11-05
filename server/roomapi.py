@@ -70,6 +70,18 @@ def pose_at(tt, pp, ts):
     return pp[i]
 
 
+def camera_poses(con, since, until):
+    """Where the camera pointed: [t, pan, tilt] at each change (and the pose in force at `since`), oldest first."""
+    out = []
+    first = con.execute("SELECT ts, pan, tilt FROM track WHERE ts < ? ORDER BY ts DESC LIMIT 1", (since,)).fetchone()
+    if first:
+        out.append([round(since, 1), first[1], first[2]])
+    for ts, pan, tilt in con.execute("SELECT ts, pan, tilt FROM track WHERE ts >= ? AND ts <= ? ORDER BY ts", (since, until)):
+        if not out or (out[-1][1], out[-1][2]) != (pan, tilt):
+            out.append([round(ts, 1), pan, tilt])
+    return out
+
+
 def positions(con, since, until):
     """Where she was between since and until: rows [t, x, z, moving, dwell_s, cut_off], oldest first."""
     doc, cam = bundle()

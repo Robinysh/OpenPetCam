@@ -1765,7 +1765,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(404, b"not found")
             with open(f, "rb") as fh:
                 body = fh.read()
-            return self.send(200, body, "image/png" if f.endswith(".png") else "image/jpeg", {"Cache-Control": "private, max-age=3600"})
+            ctype = "image/png" if f.endswith(".png") else "application/octet-stream" if f.endswith(".u16") else "image/jpeg"
+            return self.send(200, body, ctype, {"Cache-Control": "private, max-age=3600"})
         if path == "/api/room/positions":
             now_t = time.time()
             try:
@@ -1775,7 +1776,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(400, {"error": "since/until must be unix times"})
             con = dbc()
             try:
-                return self.send_json(200, {"since": since, "until": until, "rows": roomapi.positions(con, since, until)})
+                return self.send_json(200, {"since": since, "until": until, "rows": roomapi.positions(con, since, until),
+                                            "poses": roomapi.camera_poses(con, since, until)})
             finally:
                 con.close()
         return self.send(404, b"not found")
