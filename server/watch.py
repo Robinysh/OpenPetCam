@@ -35,6 +35,7 @@ sys.path.insert(0, "/opt/petcam")
 import app as camapi  # noqa: E402  - camera session login + motor/status helpers
 import petconf  # noqa: E402
 from detector import Detector  # noqa: E402
+from fasttrack import FastTrack  # noqa: E402
 from tracker import Tracker  # noqa: E402
 import tracker as T  # noqa: E402
 from roommap import TILES, RoomMap  # noqa: E402
@@ -53,6 +54,9 @@ SETTINGS = f"{STATE}/settings.json"  # {"follow": bool, "talk_volume": int} writ
 FLAP_LOCK_FILE = f"{STATE}/daynight_lock_until"   # survives restarts, so a lock always ends
 HOUSE_FILE = f"{STATE}/housekeeping_day"            # date of the last nightly housekeeping run
 MODEL = "/opt/petcam/models/yolox_nano.onnx"
+MODEL_DYN = "/opt/petcam/models/yolox_nano_dyn.onnx"   # the same weights with a free input size (tools/make_dyn_detector.py)
+DETECT_RECT = False   # run the detector at 256x416 (the 16:9 frame without square padding): same answers on 389 recorded
+                      # frames with her and 242 without, 37% less detector time (sim/world/detcost.py). Off until enabled.
 YAMNET_MODEL = "/opt/petcam/models/yamnet.tflite"
 VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.py
 ROOM_MAP = "/opt/petcam/models/room_map.json"         # from sim/world/find_map.py (this home's room model); optional
@@ -236,6 +240,7 @@ class FrameSource:
         self.frame, self.t = None, 0.0
         self.prev_small = None
         self.motion_c = None        # (t, fx, fy): where in the picture the last real motion was (-0.5..0.5)
+        self.motion_track = FastTrack()   # her position between detector runs, from every frame's motion (T.FAST_FOLLOW)
         self.mode, self.lag = "sub", STREAM_LAG["sub"]
         self.jpeg = None
         self.on_frame = None          # callback(arrival_t, motion or None) for every motion-checked frame
@@ -407,6 +412,8 @@ class FrameSource:
                     else:
                         s4 = arr[::4, ::4]                                      # 160x90 gray: integer sum, not float mean
                         small = (s4[..., 0].astype(np.int16) + s4[..., 1] + s4[..., 2]) // 3   # bit-identical, 18x less CPU
+                    if self.prev_small is not None and T.FAST_FOLLOW:
+                        self.motion_track.frame(now(), FastTrack.mask(small, self.prev_small), camera_moving=camera_moved_at_recently())
                     if self.prev_small is not None:
                         d = np.abs(small - self.prev_small)
                         d[:9, :] = 0                                         # the clock overlay
@@ -1008,7 +1015,7 @@ def pet_moving(prev_box, box, diff):
 
 class Watch:
     def __init__(self):
-        self.det = Detector(MODEL)
+        self.det = Detector(MODEL_DYN, shape=(256, 416)) if DETECT_RECT and os.path.exists(MODEL_DYN) else Detector(MODEL)
         try:
             self.verifier = Verifier()
             log(f"verifier: {self.verifier.cfg['mode']} threshold {self.verifier.threshold}")
@@ -1031,6 +1038,7 @@ class Watch:
         self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep,
                                find_now=self.find_pet_now, can_scan=lambda: self.source != "snapshot",   # idle is fine (frames start on demand); a broken stream is blind
                                tick=self.search_tick, cancelled=self.find_cancelled)
+        self.tracker.fast = self.frames.motion_track
         self.last_tick = 0.0
         self.last_motion_t = 0.0
         self.last_find_req = now()          # requests from before this process started are stale
@@ -1239,11 +1247,13 @@ class Watch:
                 log(f"frames: live stream ({mode})")
             self.source, self.frame_mode = "stream", mode
             self.frame_capture_t = arrived - lag
+            self.frame_arrived = arrived               # on the frame reader's clock (FastTrack's masks use it)
         else:                       # idle (decoder off) or stream down: the camera's own snapshot
             jpg = snapshot("ch1")
             img = Image.open(io.BytesIO(jpg))
             img.load()
             self.frame_mode, self.frame_capture_t = "snapshot", now() - STREAM_LAG["snapshot"]
+            self.frame_arrived = None
             if not self.frames.wanted():
                 if self.source != "idle":
                     log("frames: idle, camera snapshots")
@@ -1313,6 +1323,7 @@ class Watch:
             self.last_found = self.det.detect(img, min_score=0.10)
             self.last_detect = t
             self.last_detect_capture = self.frame_capture_t
+            self.last_detect_arrived = getattr(self, "frame_arrived", None)
             if self.verifier:
                 for f in sorted((f for f in self.last_found if f["label"] != "person"), key=lambda f: -f["score"])[:3]:
                     f["verified"] = round(self.verifier.prob(img, f["box"]), 3)
@@ -1329,6 +1340,8 @@ class Watch:
             best = max(animals, key=lambda f: f["score"]) if animals else None
             score = best["score"] if best else 0.0
         person = max((f["score"] for f in found if f["label"] == "person"), default=0.0)
+        if T.FAST_FOLLOW and self.last_detect == t and best and getattr(self, "last_detect_arrived", None):
+            self.frames.motion_track.anchor(self.last_detect_arrived, best["box"])     # catches up on motion since that frame
 
         moving = False
         if best and score >= ABSENT_SCORE:
@@ -1363,6 +1376,7 @@ class Watch:
                     act = self.tracker.step(best["box"] if best and score >= PRESENT_SCORE else None, moving,
                                             sound=self.dog_sound_pending and not self.present,
                                             motion=motion_c, weak=weak,
+                                            fast=self.frames.motion_track.estimate(now()) if T.FAST_FOLLOW and person < 0.5 else None,
                                             # on the substream's clock (the constants were tuned on it): a fresher
                                             # main-stream frame is judged by when it was actually taken
                                             box_t=getattr(self, "last_detect_capture", self.last_detect) + STREAM_LAG["sub"])

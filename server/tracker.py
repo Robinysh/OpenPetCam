@@ -55,6 +55,11 @@ METRIC_FOLLOW = False  # use ROOM_FOLLOW for Follow: predict her in metres, wait
 STREAM_LAG = 0.7       # s between a frame being taken and the detector seeing it (measured, sim/params.json lag_s)
 HIDDEN_WAIT = 60.0     # s to hold at the exit of a hidden area before the usual lost-pet logic resumes
 WALK_SPEED = 0.3       # m/s: above box jitter on a still dog (90th pct 0.09 m/s) and below her measured gait (median 0.52)
+FAST_FOLLOW = False    # follow her between detector runs with the per-frame motion tracker (fasttrack.py, fed by
+                       # the watcher): replay on recorded walks kept her within EDGE 38% of the time vs 17% (held-out
+                       # half, sim/world/fastloop_replay.py). Off until the owner turns it on.
+FAST_MIN_MOVE = 0.05   # the motion estimate replaces the detector's box only once it has moved this far from it
+FAST_LOST_MAX = 8.0    # ...and stands in for a missing box at most this long after the last verified one
 ROOM_MAP = None        # roommap.RoomMap (models/room_map.json from sim/world/find_map.py), or None: search as before
 
 
@@ -169,6 +174,7 @@ class Tracker:
         self.offcentre_since = None
         self.searching = False
         self.was_paused = False
+        self.fast = None              # fasttrack.FastTrack the watcher feeds (or None); told about our own moves
 
     # ---- helpers -------------------------------------------------------------------------
     def _move(self, fn, *a, shift=None):
@@ -181,6 +187,11 @@ class Tracker:
         fn(*a)
         self.n_motor = getattr(self, "n_motor", 0) + 1        # every motor command, for the A/B (a search is many)
         self.own_move_t = self.last_move = self.clock()
+        if self.fast is not None:
+            if shift is None:
+                self.fast.drop()
+            else:
+                self.fast.shift(*shift)
         if shift is None:
             self.hist.clear()                # a long move: positions in the old view no longer apply
         else:
@@ -214,11 +225,12 @@ class Tracker:
         return ((x1 - x0) / dt, (y1 - y0) / dt) if dt >= 0.8 else (0.0, 0.0)
 
     # ---- every cycle ---------------------------------------------------------------------
-    def step(self, box, moving, sound=False, motion=None, weak=None, box_t=None):
+    def step(self, box, moving, sound=False, motion=None, weak=None, box_t=None, fast=None):
         """Call once per watcher cycle with the verified pet box (or None), the latest motion centroid (t, fx, fy)
         from the frame reader, and `weak`: dog-like boxes from this cycle that the verifier scored below its cut-off
         but not near zero. box_t: when the detector produced `box` (the watcher reuses its last answer between
-        detector runs). Returns what it did, or None."""
+        detector runs). fast: FastTrack.estimate() (FAST_FOLLOW): where the motion since the last verified box put
+        her; it stands in for a box that has gone stale while she walks, or for a missed one. Returns what it did, or None."""
         t = self.clock()
         if self.user_paused():
             self.hist.clear()
@@ -233,6 +245,9 @@ class Tracker:
         # and turned the camera off her while she lay still. A box from before our last move says nothing new.
         if box is not None and box_t is not None and box_t < self.last_move + POST_MOVE_IGNORE:
             return None
+        fbox = self._fast_box(t, box, fast)
+        if fbox is not None:
+            return self._track(t, fbox, True, src="fast")
         if box is not None:
             self.last_verified_t = t
             self.box_t = box_t if box_t is not None else t
@@ -241,6 +256,23 @@ class Tracker:
         if wbox is not None:
             return self._track(t, wbox, moving)
         return self._lost(t, sound, motion)
+
+    def _fast_box(self, t, box, fast):
+        """A box at the motion tracker's estimate, when it should replace the detector's: it has followed her since
+        the last verified box, and either that box is still the one shown (stale) while she moved FAST_MIN_MOVE away
+        from it, or there is no box and she was verified less than FAST_LOST_MAX ago."""
+        if not FAST_FOLLOW or fast is None:
+            return None
+        fx, fy, n, age, _, bw, bh = fast
+        if n <= 0:
+            return None
+        if box is not None:
+            cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
+            if math.hypot(fx - cx, fy - cy) < FAST_MIN_MOVE:
+                return None
+        elif t - self.last_verified_t > FAST_LOST_MAX:
+            return None
+        return [fx + 0.5 - bw / 2, fy + 0.5 - bh / 2, fx + 0.5 + bw / 2, fy + 0.5 + bh / 2]
 
     def _weak_match(self, t, weak):
         """The weak box closest to where the track predicts her, if the track is alive and the box is close enough."""
@@ -267,7 +299,7 @@ class Tracker:
         xs, ys = [h[1] for h in self.hist], [h[2] for h in self.hist]
         return max(xs) - min(xs) <= spread and max(ys) - min(ys) <= spread
 
-    def _track(self, t, box, moving):
+    def _track(self, t, box, moving, src=None):
         cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
         self.hist.append((t, cx, cy))
         while self.hist and t - self.hist[0][0] > TRACK_WINDOW:
@@ -297,7 +329,7 @@ class Tracker:
             self._move(self.cam.aim, fx, fy, shift=(fx, fy))
             self.last_aim_t = self.clock()
             self.offcentre_since = None
-            return f"track: aim ({fx:+.2f}, {fy:+.2f}), speed {speed:.2f}/s"
+            return f"track{' (' + src + ')' if src else ''}: aim ({fx:+.2f}, {fy:+.2f}), speed {speed:.2f}/s"
         # Lying down but cut off at the side of the picture: centre her once, but only if she is mostly
         # out of the picture. A motor next to a sleeping dog startles her (owner, 2026-11-02).
         if CENTRE_RESTING_ON and not moving and max(abs(cx), abs(cy)) > CENTRE_RESTING:
