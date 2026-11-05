@@ -4,6 +4,21 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-05
+
+### Room model
+- Radio layer: the camera's WiFi link by head direction (`sim/world/radio_map.py`). The antenna turns with the head,
+  so the link's strength depends on where it points; the map is drawn only where the head pointed and only if it
+  repeats across interleaved halves, and the strongest-link bearing (usually toward the router) is marked
+  unconfirmed. The Room tab gains a Radio view with that bearing as a dashed line.
+- Radio-shadow test (`sim/world/rti.py`): whether the link changes with where the pet stands, within a fixed camera
+  pose (without that control the turning antenna reads as her shadow). With one RSSI link it does not, so no radio
+  image of the room is drawn.
+- The Room tab's `probe()` lets a script check that the drawn marker, heat and view direction equal the data.
+
+### Tests
+- The JavaScript syntax test parses ES modules as modules (a missing bracket in `room.js` passed the old check).
+
 ## [0.3.0] - 2026-11-05
 
 ### Room model (new, optional: `sim/world/`)
