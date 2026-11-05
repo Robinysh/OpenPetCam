@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Room World Model</title>
+<style>
+:root {
+  --bg: #0e1116; --panel: rgba(22,26,33,.92); --line: #2a313c; --ink: #e8ebf0; --muted: #98a2b3; --faint: #5d6675;
+  --accent: #6aa7ff; --visible: #e9c46a; --infrared: #d7d7d7; --acoustic: #5fd3b8; --radio: #c49bff; --dog: #ff8a5b;
+  --pred: #ff5d73;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+#view { position: fixed; inset: 0 0 150px 0; }
+canvas.gl { display: block; width: 100%; height: 100%; }
+.panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); }
+#layers { left: 12px; top: 12px; width: 272px; max-height: calc(100% - 236px); overflow: auto; padding: 10px 0; }
+#layers h1 { font-size: 13px; margin: 0 14px 2px; }
+#layers .sub { color: var(--muted); margin: 0 14px 8px; font-size: 12px; }
+.band { border-top: 1px solid var(--line); padding: 8px 14px; }
+.band h2 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 4px; display: flex; gap: 6px; align-items: center; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; cursor: pointer; }
+.row input { margin: 2px 0 0; accent-color: var(--accent); }
+.row .t { flex: 1; }
+.row .m { color: var(--faint); font-size: 11px; display: none; margin-top: 2px; }
+.row:hover .m, .row.open .m { display: block; }
+#modes { left: 50%; top: 12px; transform: translateX(-50%); display: flex; padding: 3px; gap: 2px; }
+#modes button { background: none; border: 0; color: var(--muted); padding: 6px 12px; border-radius: 7px; font: inherit; cursor: pointer; }
+#modes button.on { background: #2b3340; color: var(--ink); }
+#info { right: 12px; top: 12px; width: 330px; max-height: calc(100% - 380px); overflow: auto; padding: 12px 14px; }
+#info h3 { margin: 0 0 6px; font-size: 13px; }
+#info p { margin: 4px 0 8px; color: var(--muted); font-size: 12px; }
+#info table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#info td, #info th { padding: 3px 4px; border-bottom: 1px solid var(--line); text-align: left; }
+#info th { color: var(--muted); font-weight: 500; }
+#inset { right: 12px; bottom: 162px; width: 260px; padding: 6px; }
+#inset img { width: 100%; display: block; border-radius: 6px; background: #000; aspect-ratio: 16/9; object-fit: cover; }
+#inset .cap { color: var(--muted); font-size: 11px; padding: 4px 2px 0; }
+#timeline { left: 0; right: 0; bottom: 0; height: 150px; border-radius: 0; border-width: 1px 0 0; padding: 6px 12px 8px; display: grid; grid-template-columns: 110px 1fr; grid-template-rows: 26px 1fr; gap: 4px 10px; }
+#tl-head { grid-column: 1 / 3; display: flex; align-items: center; gap: 10px; }
+#tl-head button { background: #2b3340; border: 0; color: var(--ink); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; }
+#tl-head select { background: #2b3340; color: var(--ink); border: 0; border-radius: 6px; padding: 4px; font: inherit; }
+#clock { font-variant-numeric: tabular-nums; font-weight: 600; }
+#tl-labels { color: var(--muted); font-size: 11px; display: grid; grid-auto-rows: 1fr; align-items: center; }
+#tl-wrap { position: relative; min-height: 0; } #tl-canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: ew-resize; }
+.hint { position: fixed; left: 50%; bottom: 162px; transform: translateX(-50%); color: var(--faint); font-size: 11px; pointer-events: none; }
+#tip { position: fixed; pointer-events: none; background: #0b0d11; border: 1px solid var(--line); padding: 4px 8px; border-radius: 6px; font-size: 12px; display: none; }
+@media (max-width: 720px) { #info, #inset { display: none; } #layers { width: calc(100% - 24px); max-height: 40%; } #modes { top: auto; bottom: 162px; } }
+</style>
+<script type="importmap">{"imports": {"three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="view"></div>
+<div id="layers" class="panel"><h1>Room world model</h1><div class="sub" id="subtitle">loading…</div><div id="bands"></div></div>
+<div id="modes" class="panel"><button data-m="doll" class="on">Dollhouse</button><button data-m="orbit">Orbit</button><button data-m="eye">Camera eye</button><button data-m="plan">Floor plan</button>
+  <select id="colourby" title="colour the room by" style="background:#2b3340;color:var(--ink);border:0;border-radius:7px;padding:5px 8px;font:inherit;margin-left:6px"></select></div>
+<div id="info" class="panel"></div>
+<div id="inset" class="panel"><img id="frame" alt="snapshot at the playhead"><div class="cap" id="framecap"></div></div>
+<div class="hint">drag to orbit · scroll to zoom · drag the timeline to move through time</div>
+<div id="timeline" class="panel">
+  <div id="tl-head"><button id="play">Play</button><select id="speed"><option value="600">10 min/s</option><option value="3600" selected>1 h/s</option><option value="21600">6 h/s</option></select><select id="heatwin" title="heatmap window"><option value="0">heat: all time</option><option value="86400">heat: last 24 h</option><option value="21600">heat: last 6 h</option><option value="3600">heat: last hour</option></select><span id="clock"></span><span style="color:var(--muted)" id="tlnote"></span></div>
+  <div id="tl-labels"><div>Pictures</div><div>Dog seen</div><div>Sound level</div><div>WiFi signal</div></div>
+  <div id="tl-wrap"><canvas id="tl-canvas"></canvas></div>
+</div>
+<div id="heatbox" class="panel" style="left:12px;bottom:162px;padding:8px 10px;font-size:11px;color:var(--muted)"><div style="display:flex;align-items:center;gap:6px"><span>less</span><span style="width:120px;height:8px;border-radius:4px;background:linear-gradient(90deg,rgb(74,30,18),rgb(196,72,38),rgb(255,138,91),rgb(255,232,214))"></span><span>more time</span></div><div id="heatleg" style="margin-top:4px"></div></div>
+<div id="tip"></div>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const M = await (await fetch("manifest.json")).json();
+const L = Object.fromEntries(M.layers.map(l => [l.id, l]));
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const H = M.room.floor_height_m, CEIL = M.room.ceiling_m;
+
+// ---------- camera model (same as sim/world/camera.py) ----------
+const C = M.camera;
+function Rm(pan, tilt, offA = 0, offB = 0) {
+  const yaw = (1850 - pan) * C.deg_per_step_pan * Math.PI / 180, pit = -(tilt - C.level_tilt) * C.deg_per_step_tilt * Math.PI / 180, r = C.roll_deg * Math.PI / 180;
+  const ry = new THREE.Matrix3().set(Math.cos(yaw), 0, Math.sin(yaw), 0, 1, 0, -Math.sin(yaw), 0, Math.cos(yaw));
+  const rx = new THREE.Matrix3().set(1, 0, 0, 0, Math.cos(pit), -Math.sin(pit), 0, Math.sin(pit), Math.cos(pit));
+  const rz = new THREE.Matrix3().set(Math.cos(r), -Math.sin(r), 0, Math.sin(r), Math.cos(r), 0, 0, 0, 1);
+  const m = ry.multiply(rx).multiply(rz);
+  if (offA || offB) {                                         // registration: pitch down offA, yaw right offB (camera frame)
+    const a = offA * Math.PI / 180, b = offB * Math.PI / 180;
+    const oy = new THREE.Matrix3().set(Math.cos(b), 0, Math.sin(b), 0, 1, 0, -Math.sin(b), 0, Math.cos(b));
+    const ox = new THREE.Matrix3().set(1, 0, 0, 0, Math.cos(a), -Math.sin(a), 0, Math.sin(a), Math.cos(a));
+    m.multiply(oy).multiply(ox);
+  }
+  return m;
+}
+const headDir = (pan, tilt) => new THREE.Vector3(0, 0, 1).applyMatrix3(Rm(pan, tilt));
+
+// ---------- renderer ----------
+const view = document.getElementById("view");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.domElement.className = "gl";
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(css("--bg"));
+// The model's frame (x right, y up, z forward, as camera.py) is left-handed; three.js is right-handed. Everything in
+// model coordinates goes into this mirrored group, and the shader un-mirrors its lookup direction.
+const world = new THREE.Group(); world.scale.x = -1; scene.add(world);
+const cam3 = new THREE.PerspectiveCamera(60, 1, 0.02, 200);
+cam3.position.set(-5.5, 4.5, -4.5);
+const controls = new OrbitControls(cam3, renderer.domElement);
+controls.target.set(0, -0.4, 1.2);
+controls.enableDamping = true;
+
+// ---------- projective panorama material: every surface shows what the lens saw in its direction ----------
+const loader = new THREE.TextureLoader();
+const tex = src => { const t = loader.load(src); t.colorSpace = THREE.SRGBColorSpace; return t; };
+const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); blank.needsUpdate = true;
+const U = {
+  pano: { value: blank }, panoOn: { value: 1 }, over: { value: blank }, overOn: { value: 0 }, frame: { value: blank }, frameOn: { value: 0 },
+  frameRt: { value: new THREE.Matrix3() }, f: { value: C.focal_px }, k1: { value: C.k1 }, k2: { value: C.k2 },
+  base: { value: new THREE.Color("#3a414d") }, frameGain: { value: 1.0 },
+  clay: { value: new THREE.Color("#c8c6c1") }, cut: { value: 0 }, lightDir: { value: new THREE.Vector3(0.45, 0.8, 0.35).normalize() }
+};
+const vert = `varying vec3 wp; void main(){ vec4 w = modelMatrix * vec4(position,1.); wp = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`;
+const frag = `
+uniform sampler2D pano, frame, over; uniform float panoOn, overOn, frameOn, f, k1, k2, frameGain, cut; uniform mat3 frameRt; uniform vec3 base, clay, lightDir;
+varying vec3 wp;
+void main(){
+  vec3 d = normalize(vec3(-wp.x, wp.y, wp.z));
+  vec2 uv = vec2(atan(d.x, d.z) / 6.2831853 + 0.5, 0.5 + asin(clamp(d.y,-1.,1.)) / 3.1415927);
+  vec3 p = texture2D(pano, uv).rgb;
+  float seen = step(0.02, p.r + p.g + p.b) * panoOn;
+  vec3 fn = normalize(cross(dFdx(wp), dFdy(wp)));
+  float lensSide = dot(fn, normalize(-wp));
+  // dollhouse cut-away (as Matterport's): a surface the viewer sees from its BACK (the lens saw the other side) is
+  // left out, so the walls and the counter underside between the viewer and the room open up instead of hiding it
+  if (cut > 0.5 && lensSide < -0.02) discard;
+  // soft light so the shape reads: half-Lambert from one direction over a high ambient
+  float sh = 0.62 + 0.38 * (0.5 + 0.5 * dot(fn, normalize(vec3(-lightDir.x, lightDir.y, lightDir.z))));
+  // never photographed, or seen only edge-on: light neutral clay (honestly untextured), not a dark slab
+  vec3 col = mix(clay * sh, p * mix(1.0, sh, 0.35), seen);
+  if (lensSide < 0.12) col = clay * sh * 0.92;
+  if (overOn > 0.5) { vec3 o = texture2D(over, uv).rgb; float so = step(0.02, o.r + o.g + o.b); col = mix(col, o, so * 0.85); }
+  if (frameOn > 0.5) {
+    vec3 c = frameRt * d;
+    if (c.z > 0.15) {
+      float x = c.x / c.z, y = c.y / c.z, r2 = x*x + y*y, k = 1. + k1*r2 + k2*r2*r2;
+      vec2 q = vec2((x*k*f + 960.) / 1920., 1. - (540. - y*k*f) / 1080.);
+      if (q.x > 0. && q.x < 1. && q.y > 0. && q.y < 1. && r2 < 0.45) {
+        col = texture2D(frame, q).rgb * frameGain;
+        col = mix(col, vec3(1.), 0.04);
+      }
+    }
+  }
+  gl_FragColor = vec4(col, 1.);
+  #include <colorspace_fragment>
+}`;
+let dollhouse = true;    // the Dollhouse mode (default): clean plane room with cut-away walls, furniture boxes
+const outlineOnly = new THREE.MeshBasicMaterial({ visible: false });   // the countertop in the dollhouse: edges only
+const panoMat = new THREE.ShaderMaterial({ uniforms: U, vertexShader: vert, fragmentShader: frag, side: THREE.DoubleSide });
+// the fused surface and the walls open up from outside (cut-away); object boxes and the floor keep every face
+const fusedMat = new THREE.ShaderMaterial({ uniforms: { ...U, cut: { value: 1 } }, vertexShader: vert, fragmentShader: frag, side: THREE.DoubleSide });
+const wallMat = new THREE.ShaderMaterial({ uniforms: { ...U, cut: { value: 1 } }, vertexShader: vert, fragmentShader: frag, side: THREE.DoubleSide });
+
+// ---------- the room ----------
+const room = new THREE.Group(); world.add(room);
+// floor: a fan from the lens out to the nearest wall at each azimuth; gaps up to 25 deg are bridged, wider ones
+// (no wall modelled) end at 1.2 m and are drawn plain, so nothing reads as measured that was not
+const OL = M.room.outline;
+const rad = OL.map(o => o[1]);
+for (let i = 0; i < rad.length; i++) if (rad[i] == null) {
+  let a = i, b = i; while (rad[(a - 1 + rad.length) % rad.length] == null && i - a < 30) a--; while (rad[(b + 1) % rad.length] == null && b - i < 30) b++;
+  const ra = rad[(a - 1 + rad.length) % rad.length], rb = rad[(b + 1) % rad.length];
+  OL[i].gap = (b - a + 1) > 25 || ra == null || rb == null;
+  OL[i].r = OL[i].gap ? 1.2 : ra + (rb - ra) * (i - a + 1) / (b - a + 2);
+} else OL[i].r = rad[i];
+function fan(sel) {
+  const pos = [];
+  for (let i = 0; i < OL.length; i++) {
+    const j = (i + 1) % OL.length; if (!sel(OL[i]) || !sel(OL[j])) continue;
+    const p = o => [Math.sin(o[0] * Math.PI / 180) * o.r, -H, Math.cos(o[0] * Math.PI / 180) * o.r];
+    pos.push(0, -H, 0, ...p(OL[j]), ...p(OL[i]));
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals(); return g;
+}
+const floor = new THREE.Mesh(fan(o => !o.gap), panoMat); floor.userData = { label: "floor" }; room.add(floor);
+const floorGap = new THREE.Mesh(fan(o => o.gap), new THREE.MeshBasicMaterial({ color: 0x232932, side: THREE.DoubleSide }));
+floorGap.userData = { label: "floor, no wall modelled in this direction" }; room.add(floorGap);
+const outlinePts = OL.filter(o => !o.gap).map(o => new THREE.Vector3(Math.sin(o[0] * Math.PI / 180) * o.r, -H + 0.004, Math.cos(o[0] * Math.PI / 180) * o.r));
+room.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(outlinePts), new THREE.LineBasicMaterial({ color: 0x8a96a8 })));
+const wallMeshes = [];
+const COUNTER = H + (M.room.overhead_m || 0);       // floor to the countertop the camera hangs under
+for (const w of M.room.walls) {
+  const [ax, az] = w.a, [bx, bz] = w.b, len = Math.hypot(bx - ax, bz - az);
+  // a face within 0.6 m of the lens is a cabinet under the counter, so only counter-high; others reach the ceiling
+  const mid = [(ax + bx) / 2, (az + bz) / 2], hgt = Math.hypot(...mid) < 0.6 ? COUNTER : CEIL;
+  const g = new THREE.PlaneGeometry(len, hgt, 8, 8);
+  const m = new THREE.Mesh(g, wallMat);
+  m.position.set(mid[0], -H + hgt / 2, mid[1]);
+  m.rotation.y = Math.atan2(-(bz - az), bx - ax);
+  m.userData = w; room.add(m); wallMeshes.push(m);
+  const edge = new THREE.LineSegments(new THREE.EdgesGeometry(g), new THREE.LineBasicMaterial({ color: 0x8a96a8, transparent: true, opacity: .35 }));
+  edge.position.copy(m.position); edge.rotation.copy(m.rotation); room.add(edge);
+  // wall-top cap (as a dollhouse shows the cut walls): a thin light slab along the top edge, shown only while its
+  // wall faces the viewer (a cut-away wall leaves no floating cap)
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(len, 0.03, 0.07), new THREE.MeshBasicMaterial({ color: 0xe9e7e2 }));
+  cap.position.set(mid[0], -H + hgt, mid[1]); cap.rotation.y = m.rotation.y; room.add(cap);
+  const nx = -(bz - az) / len, nz = (bx - ax) / len, toLens = -(mid[0] * nx + mid[1] * nz) > 0 ? 1 : -1;
+  m.userData.side = { mid, n: [nx * toLens, nz * toLens], cap, edge };
+}
+const camLocal = new THREE.Vector3();
+function updateCaps() {
+  // which side of each wall the viewer is on (model coordinates): the lens side keeps wall, cap and edge
+  camLocal.copy(cam3.position); world.worldToLocal(camLocal);
+  for (const m of wallMeshes) {
+    const { mid, n, cap, edge } = m.userData.side;
+    const front = (camLocal.x - mid[0]) * n[0] + (camLocal.z - mid[1]) * n[1] > 0;
+    cap.visible = front; edge.visible = front || !dollhouse;
+  }
+}
+let overhang = null;
+if (M.room.overhead_m) {
+  const o = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.0), panoMat);
+  o.rotation.x = Math.PI / 2; o.position.set(0, M.room.overhead_m, 0); o.userData = { label: "countertop overhang (from the sound echo)" };
+  room.add(o); overhang = o;
+  const oe = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry), new THREE.LineBasicMaterial({ color: 0xe9e7e2, transparent: true, opacity: .5 }));
+  o.add(oe);
+}
+const sky = new THREE.Mesh(new THREE.SphereGeometry(14, 64, 32), panoMat); world.add(sky); sky.visible = false;
+// the camera itself
+const camMark = new THREE.Group(); world.add(camMark);
+camMark.add(new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), new THREE.MeshBasicMaterial({ color: css("--accent") })));
+const coneGeo = new THREE.ConeGeometry(0.16, 0.42, 4, 1, true); coneGeo.rotateX(-Math.PI / 2); coneGeo.translate(0, 0, 0.21);
+const cone = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({ color: css("--accent"), wireframe: true }));
+camMark.add(cone);
+const grid = new THREE.PolarGridHelper(7, 12, 7, 64, 0x2a313c, 0x2a313c); grid.position.y = -H + 0.002; world.add(grid);
+
+// ---------- sound: range shells within each recording's head beam, and predicted surfaces ----------
+const sound = new THREE.Group(); world.add(sound);
+const ac = css("--acoustic"), pc = css("--pred");
+for (const it of (L["acoustic.echoes"]?.data.items || [])) {
+  const g = new THREE.Group(); g.userData = it;
+  const d = headDir(it.pan, it.tilt);
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d);
+  for (const [r, s] of it.echoes) {
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(r, 32, 8, 0, Math.PI * 2, 0, 0.55),
+      new THREE.MeshBasicMaterial({ color: ac, transparent: true, opacity: 0.12 + 0.6 * s, side: THREE.DoubleSide, depthWrite: false }));
+    cap.quaternion.copy(q); g.add(cap);
+  }
+  const beam = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), d.clone().multiplyScalar(2)]),
+    new THREE.LineDashedMaterial({ color: ac, dashSize: .05, gapSize: .05 }));
+  beam.computeLineDistances(); g.add(beam);
+  sound.add(g);
+}
+sound.visible = false;
+
+// ---------- dog on the floor ----------
+const dogRows = L["presence.dog"]?.data.rows || [];
+const dogGeo = new THREE.BufferGeometry();
+dogGeo.setAttribute("position", new THREE.Float32BufferAttribute(dogRows.flatMap(r => [r[1], -H + 0.01, r[2]]), 3));
+const dogCol = new Float32Array(dogRows.length * 3); dogGeo.setAttribute("color", new THREE.BufferAttribute(dogCol, 3));
+const dogPts = new THREE.Points(dogGeo, new THREE.PointsMaterial({ size: 0.06, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false }));
+world.add(dogPts);
+
+// ---------- fused surface: one range per direction, meshed, torn at depth jumps, textured from the lens ----------
+const fusedMeta = L["fused.surface"]?.data;
+const fused = new THREE.Mesh(new THREE.BufferGeometry(), fusedMat); world.add(fused); fused.visible = false;
+const furniture = new THREE.Mesh(new THREE.BufferGeometry(), fusedMat); world.add(furniture); furniture.visible = false;
+furniture.userData = { label: "furniture (fused surface, object class)" };
+if (fusedMeta) {
+  const buf = await (await fetch(fusedMeta.file)).arrayBuffer();
+  const R = new Float32Array(buf), FW = fusedMeta.width, FH = fusedMeta.height;
+  const pos = new Float32Array(FW * FH * 3);
+  for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) {
+    const az = ((i + 0.5) / FW * 360 - 180) * Math.PI / 180, el = (90 - (j + 0.5) / FH * 180) * Math.PI / 180, r = R[j * FW + i], k = (j * FW + i) * 3;
+    pos[k] = Math.cos(el) * Math.sin(az) * r; pos[k + 1] = Math.sin(el) * r; pos[k + 2] = Math.cos(el) * Math.cos(az) * r;
+  }
+  const idx = [];
+  const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+  const ok = (a, b, c) => {
+    const ra = R[a], rb = R[b], rc = R[c]; if (!ra || !rb || !rc) return false;
+    const mx = Math.max(ra, rb, rc), mn = Math.min(ra, rb, rc); if (!(mx / mn < 1.18 || mx - mn < 0.05)) return false;
+    va.fromArray(pos, a * 3); vb.fromArray(pos, b * 3); vc.fromArray(pos, c * 3);
+    const n = e1.subVectors(vb, va).cross(e2.subVectors(vc, va)); const len = n.length(); if (!len) return false;
+    const d = va.clone().add(vb).add(vc).normalize();
+    return Math.abs(n.dot(d)) / len > 0.12;                 // facing the lens by more than ~7 deg: not a sliver
+  };
+  // two passes: keep the triangles that pass, then trim the ragged rim (a triangle survives only if each of its
+  // vertices is used by at least 4 good triangles), which removes the one-pixel spikes and fringes at torn edges
+  const tris = [], use = new Uint8Array(FW * FH);
+  for (let j = 0; j < FH - 1; j++) for (let i = 0; i < FW; i++) {
+    const i2 = (i + 1) % FW, a = j * FW + i, b = j * FW + i2, c = (j + 1) * FW + i, d = (j + 1) * FW + i2;
+    if (ok(a, c, b)) { tris.push(a, c, b); use[a]++; use[b]++; use[c]++; }
+    if (ok(b, c, d)) { tris.push(b, c, d); use[b]++; use[c]++; use[d]++; }
+  }
+  for (let t = 0; t < tris.length; t += 3) if (use[tris[t]] >= 4 && use[tris[t + 1]] >= 4 && use[tris[t + 2]] >= 4) idx.push(tris[t], tris[t + 1], tris[t + 2]);
+  fused.geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3)); fused.geometry.setIndex(idx);
+  fused.userData = { label: "fused surface" };
+  // dollhouse: the same mesh, furniture only (surfel class 3 = object), standing in the clean plane room
+  const cf = L["fused.surfels"]?.data?.class_file || "surfel_class.u8";
+  try {
+    const cls = new Uint8Array(await (await fetch(cf)).arrayBuffer());
+    if (cls.length === FW * FH) {
+      // furniture = anything not floor, at least 20 cm in front of every fitted wall, below the countertop the
+      // camera hangs from, and within 4.5 m (farther, the learned depth is too loose to draw as an object)
+      const segs = M.room.walls.map(w => [w.a[0], w.a[1], w.b[0], w.b[1]]);
+      const wallDist = (x, z) => Math.min(...segs.map(([ax, az, bx, bz]) => {
+        const dx = bx - ax, dz = bz - az, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+        return Math.hypot(x - ax - t * dx, z - az - t * dz);
+      }));
+      const kept = new Int8Array(FW * FH).fill(-1);
+      const keep = v => {
+        if (kept[v] >= 0) return kept[v] === 1;
+        const x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2];
+        const k = cls[v] >= 2 && R[v] < 4.5 && y < -0.05 && y > -H + 0.03 && wallDist(x, z) > 0.2;
+        kept[v] = k ? 1 : 0; return k;
+      };
+      const oi = [];
+      for (let t = 0; t < idx.length; t += 3) {
+        const a = idx[t], b = idx[t + 1], c = idx[t + 2];
+        if (keep(a) && keep(b) && keep(c)) oi.push(a, b, c);
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute("position", fused.geometry.attributes.position); g.setIndex(oi);
+      furniture.geometry = g;
+    }
+  } catch (e) { console.warn("no surface class file: dollhouse shows planes only", e); }
+}
+// objects: boxes facing the lens, sized from the learned depth inside a window read from the panorama
+const objGroup = new THREE.Group(); world.add(objGroup); const objMeshes = [];
+for (const o of fusedMeta?.objects || []) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(...o.size), panoMat);
+  m.position.set(...o.center); m.rotation.y = -(o.yaw_deg * Math.PI / 180) + 0; m.userData = { label: `${o.label} (${o.size.map(v => v.toFixed(2)).join(" × ")} m, front ${o.front_m} m)` };
+  // BoxGeometry's depth runs along local z; turn it to face the lens along the window's azimuth
+  m.rotation.y = Math.atan2(Math.sin(o.yaw_deg * Math.PI / 180), Math.cos(o.yaw_deg * Math.PI / 180)) ;
+  const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: .25 }));
+  m.add(e); objGroup.add(m); objMeshes.push(m);
+}
+
+// ---------- learned depth (DA3) point cloud ----------
+const da3 = L["visible.da3"]?.data.rows || [];
+const da3Geo = new THREE.BufferGeometry();
+da3Geo.setAttribute("position", new THREE.Float32BufferAttribute(da3.flatMap(r => [r[0], r[1], r[2]]), 3));
+da3Geo.setAttribute("color", new THREE.Float32BufferAttribute(da3.flatMap(r => [r[3] / 255, r[4] / 255, r[5] / 255]), 3));
+const da3Pts = new THREE.Points(da3Geo, new THREE.PointsMaterial({ size: 0.035, vertexColors: true }));
+da3Pts.material.color.convertSRGBToLinear?.(); world.add(da3Pts); da3Pts.visible = false;
+// last observed: where the dog was actually seen most recently before the playhead (never an estimate)
+const lastSeen = new THREE.Mesh(new THREE.RingGeometry(0.14, 0.2, 40), new THREE.MeshBasicMaterial({ color: css("--dog"), side: THREE.DoubleSide, transparent: true }));
+lastSeen.rotation.x = -Math.PI / 2; world.add(lastSeen);
+
+// ---------- where the dog spends her time: dwell heatmap on the floor ----------
+const HC = 0.1, HN = 140, HALF = HN * HC / 2;                // 10 cm cells, 14 x 14 m centred on the lens
+const heatData = new Uint8Array(HN * HN * 4);
+const heatTex = new THREE.DataTexture(heatData, HN, HN); heatTex.magFilter = THREE.LinearFilter; heatTex.minFilter = THREE.LinearFilter;
+const heat = new THREE.Mesh(new THREE.PlaneGeometry(HN * HC, HN * HC), new THREE.MeshBasicMaterial({ map: heatTex, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+heat.rotation.x = -Math.PI / 2; heat.position.y = -H + 0.02; heat.renderOrder = 2; world.add(heat);
+let heatWindow = 0, heatMaxMin = 0;                           // 0 = all history up to the playhead, else seconds
+// inside the floor outline (the other views keep every cell: a detection beyond a wall is evidence too)
+function onFloor(x, z) {
+  const o = OL[(Math.round(Math.atan2(x, z) * 180 / Math.PI) + 180 + 360) % 360];
+  return o && !o.gap && Math.hypot(x, z) <= o.r + 0.05;
+}
+function buildHeat() {
+  const g = new Float32Array(HN * HN);
+  for (const r of dogRows) {
+    if (r[0] > T || (heatWindow && r[0] < T - heatWindow) || r[3]) continue;      // cut-off boxes sit too far: skip
+    const i = Math.floor((r[1] + HALF) / HC), j = Math.floor((r[2] + HALF) / HC);
+    if (i >= 0 && i < HN && j >= 0 && j < HN) g[j * HN + i] += r[5] / 60;        // minutes
+  }
+  // 15 cm gaussian blur (separable): a detection's floor point is good to roughly a cell or two
+  const k = [0.06, 0.24, 0.4, 0.24, 0.06], tmp = new Float32Array(HN * HN), b = new Float32Array(HN * HN);
+  for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) { let s = 0; for (let d = -2; d <= 2; d++) { const ii = i + d; if (ii >= 0 && ii < HN) s += g[j * HN + ii] * k[d + 2]; } tmp[j * HN + i] = s; }
+  for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) { let s = 0; for (let d = -2; d <= 2; d++) { const jj = j + d; if (jj >= 0 && jj < HN) s += tmp[jj * HN + i] * k[d + 2]; } b[j * HN + i] = s; }
+  let mx = 0; for (const v of b) mx = Math.max(mx, v); heatMaxMin = mx;
+  // sequential ramp, one hue: dark warm -> bright orange -> near-white; transparent where she never was
+  const stops = [[0, [74, 30, 18]], [0.35, [196, 72, 38]], [0.7, [255, 138, 91]], [1, [255, 232, 214]]];
+  for (let p = 0; p < HN * HN; p++) {
+    const v = mx ? Math.sqrt(b[p] / mx) : 0;                  // sqrt: long naps should not hide the paths
+    let c = stops[0][1]; for (let s = 1; s < stops.length; s++) if (v <= stops[s][0]) { const a = stops[s - 1], z = stops[s], f = (v - a[0]) / (z[0] - a[0]); c = a[1].map((x, q) => x + (z[1][q] - x) * f); break; }
+    const row = p / HN | 0, col = p % HN, o = ((HN - 1 - row) * HN + col) * 4;   // texture rows run bottom-up
+    heatData[o] = c[0]; heatData[o + 1] = c[1]; heatData[o + 2] = c[2]; heatData[o + 3] = v < 0.02 ? 0 : Math.min(235, 60 + 200 * v);
+    if (dollhouse && !onFloor(col * HC - HALF + HC / 2, row * HC - HALF + HC / 2)) heatData[o + 3] = 0;   // the dollhouse floor only
+  }
+  heatTex.needsUpdate = true;
+  document.getElementById("heatleg").textContent = `${heatWindow ? (heatWindow / 3600) + " h" : "all time"} to the playhead · brightest cell ${heatMaxMin.toFixed(heatMaxMin < 10 ? 1 : 0)} min`;
+}
+let heatDirty = true;
+
+// ---------- radio: a ring at the camera whose size follows the link's recent variability ----------
+const ring = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.012, 8, 64), new THREE.MeshBasicMaterial({ color: css("--radio"), transparent: true, opacity: .8 }));
+ring.rotation.x = Math.PI / 2; world.add(ring); ring.visible = false;
+
+// ---------- layer state and panel ----------
+const S = { "visible.sweep": true, "visible.hourly": false, "infrared.night": false, frames: true, "acoustic.echoes": false,
+            "presence.dog": false, "presence.heat": true, "radio.rssi": false, sky: false, "visible.da3": false, "fused.surface": true, planes: false };
+const BANDS = [
+  ["visible", "Visible light", "--visible", [["visible.sweep", "Calibrated sweep panorama"], ["visible.hourly", "That hour's snapshots over the sweep (follows the playhead)"], ["frames", "Snapshot at the playhead, projected", "visible.frames"], ["visible.da3", "Learned depth point cloud (Depth Anything 3)"]]],
+  ["infrared", "Near-infrared", "--infrared", [["infrared.night", "Night composite"], ["infrared.nir_excess", "Near-IR minus visible: materials (overlay)"], ["infrared.led", "The camera's own IR light (overlay)"]]],
+  ["acoustic", "Sound", "--acoustic", [["acoustic.echoes", "Echo range shells by head direction"], ["acoustic.coda", "Room fingerprint", null, true], ["acoustic.noise", "Sound level over time", null, true], ["acoustic.spectrum", "Raw microphone spectrum", null, true], ["acoustic.passive_test", "Passive echo test", null, true]]],
+  ["radio", "Radio (WiFi)", "--radio", [["radio.rssi", "Camera link signal ring"], ["radio.scan", "Networks in range", null, true]]],
+  ["derived", "Fused and derived", "--dog", [["fused.surface", "Fused surface: learned shape, sound scale, photo"], ["planes", "Plane model (walls read from the panorama)"], ["presence.heat", "Where the dog spends her time (heatmap)", "presence.dog"], ["presence.dog", "Individual detections", "presence.dog"], ["room", "Room geometry and provenance", null, true], ["sky", "Backdrop sphere (unmodelled directions)"]]],
+];
+const bandsEl = document.getElementById("bands");
+for (const [k, name, color, rows] of BANDS) {
+  const b = document.createElement("div"); b.className = "band";
+  b.innerHTML = `<h2><span class="dot" style="background:var(${color})"></span>${name}</h2>`;
+  for (const [id, title, lid, infoOnly] of rows) {
+    const lay = L[lid || id];
+    if (!lay && !["sky", "room", "frames", "planes"].includes(id)) continue;
+    const r = document.createElement("div"); r.className = "row";
+    r.innerHTML = (infoOnly ? `<span style="width:13px">›</span>` : `<input type="checkbox" ${S[id] ? "checked" : ""}>`) +
+      `<div class="t">${title}<div class="m">${lay ? lay.method : (id === "room" ? "Floor from the sound floor echo, walls read from the panorama, ceiling assumed." : "")}</div></div>`;
+    r.onclick = e => {
+      if (!infoOnly && e.target.tagName !== "INPUT") r.querySelector("input").click();
+      if (!infoOnly && e.target.tagName === "INPUT") { S[id] = e.target.checked; apply(); }
+      showInfo(id); bandsEl.querySelectorAll(".row").forEach(x => x.classList.remove("open")); r.classList.add("open");
+    };
+    b.appendChild(r);
+  }
+  bandsEl.appendChild(b);
+}
+document.getElementById("subtitle").textContent = `${M.bands.length} bands · ${M.layers.length} layers · camera calibrated to ${C.median_px.toFixed(1)} px`;
+
+// ---------- time ----------
+// frame rows: [t, pan, tilt, path, pitchCorr, yawCorr]; kind appended at index 6
+const frames = [...(L["visible.frames"]?.data.frames || []).map(f => [...f, "visible"]), ...(L["infrared.frames"]?.data.frames || []).map(f => [...f, "infrared"])].sort((a, b) => a[0] - b[0]);
+const noise = L["acoustic.noise"]?.data, rssi = L["radio.rssi"]?.data;
+const tMin = Math.min(...[frames[0]?.[0], dogRows[0]?.[0], noise?.t[0]].filter(Boolean));
+const tMax = Math.max(...[frames.at(-1)?.[0], dogRows.at(-1)?.[0], noise?.t.at(-1), rssi?.t.at(-1)].filter(Boolean));
+let T = frames.at(-1)?.[0] || tMax;
+const hourly = L["visible.hourly"]?.data.hours || {};
+const texCache = {}; const getTex = src => texCache[src] || (texCache[src] = tex(src));
+const near = (arr, t, key = x => x[0]) => { let lo = 0, hi = arr.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; key(arr[m]) < t ? lo = m : hi = m; } return Math.abs(key(arr[lo]) - t) < Math.abs(key(arr[hi]) - t) ? arr[lo] : arr[hi]; };
+const fmt = t => new Date(t * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+
+function apply() {
+  // panorama source
+  // base: the sharp sweep (or the night composite); overlay: that hour's average, only where it has frames
+  let src = colourBy !== "photo" && SF?.textures?.[colourBy] ? SF.textures[colourBy]
+          : S["infrared.night"] ? L["infrared.night"].data.image : (S["visible.sweep"] || S["visible.hourly"]) ? L["visible.sweep"].data.image : null;
+  U.pano.value = src ? getTex(src) : blank; U.panoOn.value = src ? 1 : 0;
+  const hsrc = S["infrared.nir_excess"] ? L["infrared.nir_excess"]?.data.image : S["infrared.led"] ? L["infrared.led"]?.data.image
+             : S["visible.hourly"] ? hourly[new Date(T * 1000).getHours()]?.image : null;
+  U.over.value = hsrc ? getTex(hsrc) : blank; U.overOn.value = hsrc ? 1 : 0;
+  sky.visible = S.sky; da3Pts.visible = S["visible.da3"]; fused.visible = S["fused.surface"]; objGroup.visible = S["fused.surface"]; room.visible = S.planes || dollhouse || (!S["fused.surface"] && !S["visible.da3"]);
+  if (dollhouse) { fused.visible = false; furniture.visible = false; objGroup.visible = true; sky.visible = false; grid.position.y = -H - 0.02; if (overhang) overhang.material = outlineOnly; } else { if (overhang) overhang.material = panoMat; furniture.visible = false; grid.position.y = -H + 0.002; } sound.visible = S["acoustic.echoes"]; dogPts.visible = S["presence.dog"]; heat.visible = S["presence.heat"];
+  if (S["presence.heat"] && (heatDirty || playing || dragging)) { buildHeat(); heatDirty = false; } ring.visible = S["radio.rssi"];
+  // frame at the playhead
+  const f = frames.length ? near(frames, T) : null;
+  if (f && S.frames && Math.abs(f[0] - T) < 1800) {
+    U.frame.value = getTex(f[3]); U.frameOn.value = 1;
+    U.frameRt.value = Rm(f[1], f[2], f[4] || 0, f[5] || 0).clone().transpose();
+    document.getElementById("frame").src = f[3];
+    document.getElementById("framecap").textContent = `${f[6] === "infrared" ? "Near-infrared" : "Visible"} · ${fmt(f[0])} · pan ${f[1]} tilt ${f[2]}${f[4] || f[5] ? ` · pose corrected ${f[5] > 0 ? "+" : ""}${f[5]}° az, ${-f[4] > 0 ? "+" : ""}${-f[4]}° el` : ""}`;
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), headDir(f[1], f[2]));
+  } else { U.frameOn.value = 0; document.getElementById("framecap").textContent = "no snapshot within 30 min"; }
+  // dog: recent points bright, older dim
+  const dc = new THREE.Color(css("--dog")), dim = new THREE.Color("#4a3a33");
+  for (let i = 0; i < dogRows.length; i++) {
+    const age = T - dogRows[i][0];
+    const c = age < 0 ? dim : (age < 1800 ? dc : dim.clone().lerp(dc, Math.max(0, 1 - age / 86400) * 0.5));
+    dogCol.set([c.r, c.g, c.b], i * 3);
+  }
+  dogGeo.attributes.color.needsUpdate = true;
+  let li = -1; { let lo = 0, hi = dogRows.length - 1; while (lo <= hi) { const m = (lo + hi) >> 1; dogRows[m][0] <= T ? (li = m, lo = m + 1) : hi = m - 1; } }
+  if (li >= 0 && (S["presence.dog"] || S["presence.heat"])) {
+    const r = dogRows[li], age = T - r[0];
+    lastSeen.visible = true; lastSeen.position.set(r[1], -H + 0.015, r[2]); lastSeen.material.opacity = age < 600 ? 1 : 0.35;
+    document.getElementById("tlnote").textContent = `dog last seen ${age < 90 ? Math.round(age) + " s" : age < 5400 ? Math.round(age / 60) + " min" : (age / 3600).toFixed(1) + " h"} before the playhead, ${Math.hypot(r[1], r[2]).toFixed(1)} m from the camera${r[3] ? " (box cut off: farther than true)" : ""}`;
+  } else { lastSeen.visible = false; document.getElementById("tlnote").textContent = ""; }
+  // radio ring: spread of the link over the last minute
+  if (rssi && rssi.t.length) {
+    let vs = []; for (let i = 0; i < rssi.t.length; i++) if (rssi.t[i] <= T && rssi.t[i] > T - 60) vs.push(rssi.v[i]);
+    const sd = vs.length > 3 ? Math.sqrt(vs.reduce((a, v) => a + (v - vs.reduce((x, y) => x + y) / vs.length) ** 2, 0) / vs.length) : 0;
+    ring.scale.setScalar(0.6 + sd * 1.2); ring.material.opacity = vs.length ? 0.85 : 0.15;
+  }
+  document.getElementById("clock").textContent = fmt(T);
+  drawTimeline();
+}
+
+// ---------- colour the room by any fused attribute; click a surface to see everything known about it ----------
+const SF = L["fused.surfels"]?.data;
+const COLOURS = [["photo", "Photo (visible light)"], ["uncertainty", "Uncertainty: where the model is weakest"], ["class", "Class: floor / wall / object"], ["normals", "Surface direction (normals)"],
+  ["nir_excess", "Near-IR material"], ["nir_reflectance", "Near-IR reflectance (active minus passive)"], ["echo_support", "Sound: echo support"],
+  ["echo_coverage", "Sound: directions covering it"], ["dwell", "Dog: time spent"], ["floor_residual", "Check: floor vs sound-set plane"],
+  ["light_range", "Daylight change over the day"]];
+const cb = document.getElementById("colourby");
+for (const [k, t] of COLOURS) if (k === "photo" || SF?.textures?.[k]) { const o = document.createElement("option"); o.value = k; o.textContent = t; cb.appendChild(o); }
+let colourBy = "photo";
+cb.onchange = () => { colourBy = cb.value; apply(); showColourInfo(); };
+function showColourInfo() {
+  if (colourBy === "photo") return;
+  const t = COLOURS.find(c => c[0] === colourBy)[1];
+  const legend = { class: "blue floor · green wall/other · amber object", normals: "red-green-blue = x-y-z of the surface's facing",
+    nir_excess: "magenta reflects more near-IR than visible · teal less", nir_reflectance: "magenta brighter in near-IR than the median surface · teal darker (one dawn experiment: few directions)",
+    echo_support: "bright = the echo at this surface's distance stands out in the directions that cover it", echo_coverage: "bright = more sound directions point here",
+    dwell: "bright = more minutes spent (log scale)", floor_residual: "grey = learned depth agrees with the sound-set floor · magenta below it · teal above",
+    light_range: "bright = the light on this patch changes most through the day",
+    uncertainty: "bright = less certain (relative range error, log scale: dark 1%, bright 100%). Built from the depth frames' disagreement, edge-on viewing, depth edges, the floor check and dog sightline conflicts. Click a surface to see which one drives it." }[colourBy];
+  info.innerHTML = `<h3>${t}</h3><p>${legend}</p><p>${SF.textures ? L["fused.surfels"].method : ""}</p><p style="color:var(--faint)">Click any surface for every modality at that point.</p>`;
+}
+let probe = null;
+if (SF?.probe) fetch(SF.probe.file).then(r => r.arrayBuffer()).then(b => probe = new Float32Array(b));
+renderer.domElement.addEventListener("click", e => {
+  if (!probe) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), cam3);
+  const hit = ray.intersectObjects([fused, ...objMeshes, ...wallMeshes, floor], false)[0];
+  if (!hit) return;
+  const p = world.worldToLocal(hit.point.clone());                  // back into the model's (left-handed) frame
+  const az = Math.atan2(p.x, p.z) * 180 / Math.PI, el = Math.asin(p.y / p.length()) * 180 / Math.PI;
+  const PW = SF.probe.width, PH = SF.probe.height, ch = SF.probe.channels, nC = ch.length;
+  const i = Math.floor((az + 180) / 360 * PW) % PW, j = Math.min(PH - 1, Math.floor((90 - el) / 180 * PH));
+  const rec = probe.subarray((j * PW + i) * nC, (j * PW + i + 1) * nC); const v = k => rec[ch.indexOf(k)];
+  const f = (x, d = 2, u = "") => Number.isFinite(x) ? x.toFixed(d) + u : "–";
+  const cls = ["", "floor", "wall / other", "object"][v("class")] || "unseen";
+  const obj = Number.isFinite(v("object_id")) ? (fusedMeta.objects[v("object_id")]?.label || "") : "";
+  const light = ch.filter(c => c.startsWith("light_")).map(c => v(c));
+  info.innerHTML = `<h3>${obj || cls} · az ${az.toFixed(0)}°, el ${el.toFixed(0)}°</h3><table>
+    <tr><th>shape</th><td>${f(v("range_m"), 2, " m")} from the lens · facing (${f(v("nx"), 1)}, ${f(v("ny"), 1)}, ${f(v("nz"), 1)})</td></tr>
+    <tr><th>floor check</th><td>${Number.isFinite(v("floor_residual_m")) ? f(100 * v("floor_residual_m"), 1, " cm") + " vs the sound-set floor (before snapping)" : "–"}</td></tr>
+    <tr><th>near-IR</th><td>material ${f(v("nir_excess"))} · reflectance ${f(v("nir_reflectance"))}</td></tr>
+    <tr><th>sound</th><td>${f(v("echo_coverage"), 0)} directions · support ${f(v("echo_support"))}</td></tr>
+    <tr><th>dog</th><td>${Number.isFinite(v("dwell_min")) ? f(v("dwell_min"), 1, " min spent here") : "never seen standing here"}</td></tr>
+    <tr><th>uncertainty</th><td>${Number.isFinite(v("uncertainty")) ? f(100 * v("uncertainty"), 0, "% of range") + " · driven by " + (SF.uncertainty_terms?.[v("uncertainty_driver")] || "–") : "unseen"}</td></tr></table>
+    <p>Light through the day (hourly composites, where the camera looked)</p><canvas id="lc" width="600" height="160" style="width:100%"></canvas>`;
+  const c = document.getElementById("lc"), g = c.getContext("2d"); g.fillStyle = css("--muted"); g.font = "18px sans-serif";
+  const ok = light.map((x, k) => [k, x]).filter(([, x]) => Number.isFinite(x));
+  g.strokeStyle = css("--visible"); g.lineWidth = 3; g.beginPath();
+  ok.forEach(([k, x], n) => { const X = 20 + k / 23 * 560, Y = 140 - x / 255 * 120; n ? g.lineTo(X, Y) : g.moveTo(X, Y); g.fillRect(X - 3, Y - 3, 6, 6); }); g.stroke();
+  for (const hh of [0, 6, 12, 18, 23]) g.fillText(hh + "h", 20 + hh / 23 * 560 - 8, 158);
+});
+
+// ---------- info panel ----------
+const info = document.getElementById("info");
+function showInfo(id) {
+  const l = L[id];
+  if (id === "acoustic.echoes" || id === "acoustic.coda") return soundInfo(id);
+  if (id === "radio.scan") {
+    const n = l.data.networks;
+    info.innerHTML = `<h3>${l.title}</h3><p>${l.method}</p><table><tr><th>band</th><th>channel</th><th>signal</th><th></th></tr>` +
+      n.map(x => `<tr><td>${x.band}</td><td>${x.channel.split(" ")[0]}</td><td>${x.signal_dbm ?? "–"} dBm</td><td>${x.home ? "this network" : ""}</td></tr>`).join("") + "</table>";
+    return;
+  }
+  if (id === "visible.da3") {
+    const e = l.data.eval;
+    info.innerHTML = `<h3>${l.title}</h3><p>${l.method}</p><p>Floor flat to ${(e.floor_flatness_m * 100).toFixed(0)} cm (median). Model units × ${e.scale_to_metres.toFixed(2)} = metres, from the sound floor echo.</p><table><tr><th>surface</th><th>placed by eye</th><th>DA3</th></tr>` +
+      e.wall_checks.map(c => `<tr><td>${c.label}</td><td>${c.picked_m.toFixed(2)} m</td><td>${c.da3_m.toFixed(2)} m</td></tr>`).join("") + "</table>";
+    return;
+  }
+  if (id === "acoustic.spectrum") { info.innerHTML = `<h3>${l.title}</h3><p>${l.method}</p><canvas id="spec" width="600" height="300" style="width:100%"></canvas>`; return lineChart("spec", l.data.f.map(x => x / 1000), l.data.db, "kHz", "dB", css("--acoustic")); }
+  if (id === "room") {
+    const r = M.room;
+    info.innerHTML = `<h3>Room geometry</h3><p>Floor ${r.floor_height_m} m below the lens (${r.provenance.floor_height}). Countertop overhang ${r.overhead_m} m above (${r.provenance.overhead}). Ceiling ${r.ceiling_m} m: ${r.provenance.ceiling}.</p><p>${r.provenance.walls}</p><table><tr><th>surface</th><th>distance</th><th>fit</th></tr>` +
+      r.walls.map(w => `<tr><td>${w.label}</td><td>${w.distance_m.toFixed(2)} m</td><td>±${w.fit_rms_m.toFixed(2)}</td></tr>`).join("") + "</table>";
+    return;
+  }
+  if (!l) { info.innerHTML = `<h3>Backdrop sphere</h3><p>Directions no surface is modelled for, painted at 14 m so nothing the camera saw is hidden.</p>`; return; }
+  info.innerHTML = `<h3>${l.title}</h3><p>${l.method}</p><p style="color:var(--faint)">Band: ${l.band.kind}, ${fmtWl(l.band.lo_m)}–${fmtWl(l.band.hi_m)}. ${l.band.note}</p>` +
+    (l.type === "note" ? `<table>${Object.entries(l.data.z).map(([k, v]) => `<tr><td>${k}</td><td>z = ${v}</td></tr>`).join("")}</table>` : "");
+}
+const fmtWl = m => m < 1e-6 ? `${Math.round(m * 1e9)} nm` : m < 1 ? `${(m * 100).toFixed(1)} cm` : `${m.toFixed(1)} m`;
+let soundSel = 0;
+function soundInfo(id) {
+  const items = L["acoustic.echoes"].data.items;
+  if (id === "acoustic.coda") {
+    const d = L["acoustic.coda"].data;
+    info.innerHTML = `<h3>${L["acoustic.coda"].title}</h3><p>${L["acoustic.coda"].method}</p><table><tr><th></th>${d.names.map(n => `<th>${n.replace(".wav", "")}</th>`).join("")}</tr>` +
+      d.corr.map((r, i) => `<tr><th>${d.names[i].replace(".wav", "")}</th>${r.map(v => `<td style="background:rgba(95,211,184,${v * 0.6})">${v.toFixed(2)}</td>`).join("")}</tr>`).join("") + "</table><p>ctl_0 and ctl_1 are the same pose a few seconds apart.</p>";
+    return;
+  }
+  const it = items[soundSel];
+  info.innerHTML = `<h3>Sound: echo profile</h3><p>${L["acoustic.echoes"].method}</p>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">${items.map((x, i) => `<button data-i="${i}" style="background:${i === soundSel ? "#2b3340" : "none"};color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:2px 6px;cursor:pointer">${x.file.replace(".wav", "")} · az ${x.az}°</button>`).join("")}</div>
+    <canvas id="echo" width="600" height="320" style="width:100%"></canvas>
+    <p><span style="color:var(--acoustic)">━</span> measured (${it.sweeps} sweeps) &nbsp; <span style="color:var(--pred)">┃</span> room model, first-order specular</p>
+    <table><tr><th>model surface</th><th>range</th><th>off head axis</th></tr>${it.predicted.map(p => `<tr><td>${p.label}</td><td>${p.range_m.toFixed(2)} m</td><td>${p.off_axis_deg}°</td></tr>`).join("")}</table>`;
+  info.querySelectorAll("button[data-i]").forEach(b => b.onclick = () => { soundSel = +b.dataset.i; soundInfo("acoustic.echoes"); });
+  lineChart("echo", it.range_m, it.envelope, "one-way range (m)", "echo strength", css("--acoustic"), it.predicted.filter(p => p.range_m < 3).map(p => p.range_m));
+}
+function lineChart(id, xs, ys, xl, yl, color, marks = []) {
+  const c = document.getElementById(id), g = c.getContext("2d"), W = c.width, Hh = c.height, p = 36;
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const X = x => p + (x - x0) / (x1 - x0) * (W - p - 10), Y = y => Hh - p + -(y - y0) / (y1 - y0 || 1) * (Hh - p - 10);
+  g.clearRect(0, 0, W, Hh); g.strokeStyle = css("--line"); g.lineWidth = 1; g.fillStyle = css("--muted"); g.font = "20px sans-serif";
+  for (let i = 0; i <= 4; i++) { const x = x0 + (x1 - x0) * i / 4; g.beginPath(); g.moveTo(X(x), 10); g.lineTo(X(x), Hh - p); g.stroke(); g.fillText(x.toFixed(x1 - x0 > 10 ? 0 : 1), X(x) - 10, Hh - 12); }
+  g.fillText(xl, W / 2 - 60, Hh - 0.5 + 0);
+  g.strokeStyle = pc; g.lineWidth = 2; for (const m of marks) { g.beginPath(); g.moveTo(X(m), 10); g.lineTo(X(m), Hh - p); g.stroke(); }
+  g.strokeStyle = color; g.lineWidth = 2; g.beginPath(); xs.forEach((x, i) => i ? g.lineTo(X(x), Y(ys[i])) : g.moveTo(X(x), Y(ys[i]))); g.stroke();
+}
+
+// ---------- timeline ----------
+const tl = document.getElementById("tl-canvas");
+function drawTimeline() {
+  const r = tl.getBoundingClientRect(), dpr = devicePixelRatio; tl.width = r.width * dpr; tl.height = r.height * dpr;
+  const g = tl.getContext("2d"); g.scale(dpr, dpr); const W = r.width, Hh = r.height, row = Hh / 4;
+  const X = t => (t - tMin) / (tMax - tMin) * W;
+  g.clearRect(0, 0, W, Hh);
+  // day bands
+  const d0 = new Date(tMin * 1000); d0.setHours(0, 0, 0, 0);
+  for (let t = d0.getTime() / 1000; t < tMax; t += 86400) {
+    g.fillStyle = "rgba(255,255,255,0.025)"; g.fillRect(X(t + 6 * 3600), 0, X(t + 20 * 3600) - X(t + 6 * 3600), Hh);
+    g.fillStyle = css("--faint"); g.font = "10px sans-serif"; g.fillText(new Date(t * 1000).toLocaleDateString([], { weekday: "short", day: "numeric" }), X(t) + 3, Hh - 3);
+  }
+  for (const f of frames) { g.fillStyle = f[6] === "infrared" ? css("--infrared") : css("--visible"); g.globalAlpha = .5; g.fillRect(X(f[0]), 4, 1, row - 8); }
+  g.globalAlpha = .35; g.fillStyle = css("--dog"); for (let i = 0; i < dogRows.length; i += 3) g.fillRect(X(dogRows[i][0]), row + 4, 1, row - 8);
+  g.globalAlpha = 1;
+  const spark = (d, k, color) => { if (!d || !d.t.length) return; const lo = Math.min(...d.v), hi = Math.max(...d.v); g.strokeStyle = color; g.lineWidth = 1; g.beginPath();
+    d.t.forEach((t, i) => { const y = k * row + row - 4 - (d.v[i] - lo) / (hi - lo || 1) * (row - 8); i ? g.lineTo(X(t), y) : g.moveTo(X(t), y); }); g.stroke(); };
+  spark(noise, 2, css("--acoustic")); spark(rssi, 3, css("--radio"));
+  if (rssi && rssi.t.length && X(rssi.t.at(-1)) - X(rssi.t[0]) < 6) { g.fillStyle = css("--radio"); g.fillText("recording now (last " + Math.round((rssi.t.at(-1) - rssi.t[0]) / 60) + " min)", Math.max(0, X(rssi.t[0]) - 150), 3 * row + row / 2 + 3); }
+  g.strokeStyle = css("--accent"); g.lineWidth = 2; g.beginPath(); g.moveTo(X(T), 0); g.lineTo(X(T), Hh); g.stroke();
+}
+let dragging = false;
+const seek = e => { const r = tl.getBoundingClientRect(); T = tMin + Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * (tMax - tMin); apply(); };
+tl.addEventListener("pointerdown", e => { dragging = true; tl.setPointerCapture(e.pointerId); seek(e); });
+tl.addEventListener("pointermove", e => dragging && seek(e));
+tl.addEventListener("pointerup", () => dragging = false);
+let playing = false, last = 0;
+document.getElementById("heatwin").onchange = e => { heatWindow = +e.target.value; heatDirty = true; apply(); };
+document.getElementById("play").onclick = e => { playing = !playing; e.target.textContent = playing ? "Pause" : "Play"; if (T >= tMax) T = tMin; };
+
+
+// ---------- view modes ----------
+let mode = "doll";
+document.querySelectorAll("#modes button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#modes button").forEach(x => x.classList.toggle("on", x === b)); mode = b.dataset.m;
+  dollhouse = mode === "doll"; heatDirty = true;
+  if (mode === "orbit" || mode === "doll") { cam3.position.set(-5.5, 4.5, -4.5); controls.target.set(0, -0.4, 1.2); controls.enableRotate = true; }
+  if (mode === "plan") { cam3.position.set(0.01, 11, 1.2); controls.target.set(0, -H, 1.2); controls.enableRotate = false; }
+  if (mode === "eye") { const f = near(frames, T); const d = f ? headDir(f[1], f[2]) : new THREE.Vector3(0, 0, 1); d.x = -d.x; cam3.position.set(0, 0, 0).addScaledVector(d, -0.001); controls.target.copy(d.clone().multiplyScalar(0.01)); controls.enableRotate = true; }
+  apply();
+});
+
+// hover: name the surface under the pointer
+const ray = new THREE.Raycaster(), tip = document.getElementById("tip");
+renderer.domElement.addEventListener("pointermove", e => {
+  const r = renderer.domElement.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), cam3);
+  const hit = ray.intersectObjects(fused.visible ? [fused, ...objMeshes] : [...wallMeshes, floor, floorGap], false)[0];
+  if (!hit) return tip.style.display = "none";
+  const p = hit.point, d = Math.hypot(p.x, p.y, p.z);
+  tip.style.display = "block"; tip.style.left = e.clientX + 12 + "px"; tip.style.top = e.clientY + 12 + "px";
+  tip.textContent = `${hit.object.userData.label || "surface"} · ${d.toFixed(2)} m from the lens${hit.object.userData.source ? " · " + hit.object.userData.source : ""}`;
+});
+
+function resize() { const w = view.clientWidth, h = view.clientHeight; renderer.setSize(w, h, false); cam3.aspect = w / h; cam3.updateProjectionMatrix(); drawTimeline(); }
+addEventListener("resize", resize); resize();
+showInfo("acoustic.echoes"); apply();
+renderer.setAnimationLoop(now => {
+  if (playing) { T += (now - last) / 1000 * +document.getElementById("speed").value; if (T > tMax) { T = tMax; playing = false; document.getElementById("play").textContent = "Play"; } apply(); }
+  last = now; controls.update(); updateCaps(); renderer.render(scene, cam3);
+});
+window.__ready = true;
+window.__view = { cam3, controls, THREE, setLayer: (k, v) => { S[k] = v; apply(); } };   // for scripted checks
+</script>
+</body>
+</html>

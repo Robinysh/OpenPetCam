@@ -3,7 +3,7 @@
 pixel twin (docs/follow-learning.md). A fixed-mount camera only rotates, so every view it can produce is a crop of
 this panorama (to first order; the lens sits a little off the pan axis, see sim/params.json geometry).
 
-    python3 sim/sweep.py [--tag day|night] [--owner-present]   ->  eval/twin/<tag>/NN_PAN_TILT.jpg, poses.json, panorama.jpg
+    python3 sim/sweep.py [--tag day|night] [--owner-present] [--pan-step 360] [--tilt-step 212]   ->  eval/twin/<tag>/NN_PAN_TILT.jpg, poses.json, panorama.jpg
 
 Frames: 1080p main stream (prudynt snapshot channel 0), ~50% overlap, every column approached from the same pan
 direction so the gear play is the same for all of them. Pictures stay in eval/ (git-ignored): they show the home.
@@ -41,6 +41,8 @@ def sweep(tag, pan_step=360, tilt_step=212):
     os.makedirs(out, exist_ok=True)
     pans = list(range(0, g["pan_max"] + 1, pan_step))
     tilts = list(range(60, g["tilt_max"] - 39, tilt_step))   # app.goto keeps 40 steps off the tilt ends
+    if tilts[-1] < g["tilt_max"] - 40:
+        tilts.append(g["tilt_max"] - 40)                    # always reach the top: the ceiling junction
     poses, n = [], 0
     for y in tilts:
         S.hold_follow()
@@ -95,7 +97,9 @@ if __name__ == "__main__":
     S.hold_follow()
     start = json.loads(S.camera("motors -j"))
     try:
-        out = sweep(tag)
+        ps = int(a[a.index("--pan-step") + 1]) if "--pan-step" in a else 360
+        ts = int(a[a.index("--tilt-step") + 1]) if "--tilt-step" in a else 212
+        out = sweep(tag, ps, ts)
         print("panorama:", mosaic(out))
     finally:
         goto(int(float(start["xpos"])), int(float(start["ypos"])))

@@ -8,7 +8,7 @@ tall frame from the measured 723.6 x 431.1 steps per frame; a 16:9 lens at 69.4 
 
     python3 sim/scene3d.py [eval/twin/day]   ->  eval/twin/<tag>/scene3d/{points.ply, floor.png, floor.json}
 
-STATUS (2026-11-04): not usable as a floor map yet. One depth scale per frame, solved from the ~50% overlaps (339
+SUPERSEDED by sim/world/ (2026-11-04): its rot() assumed 0.096 deg/step, level at tilt 500 and an inverted tilt sign, all wrong per sim/world/camera.py. STATUS: not usable as a floor map. One depth scale per frame, solved from the ~50% overlaps (339
 pairs), cuts the disagreement between overlapping frames from 38.5% to 18.2%, but the scales span 0.33-2.06: the
 model errs within frames too, and 18% at 2 m is ~35 cm of height noise, so most real floor reads as an obstacle.
 Next approach: segment floor pixels in each frame and place them where their viewing ray meets the floor plane (the
