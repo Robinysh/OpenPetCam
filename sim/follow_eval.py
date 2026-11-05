@@ -69,3 +69,45 @@ if __name__ == "__main__":
     run(a[0] if a else os.path.join(ROOT, "eval", "world"), a[1] if len(a) > 1 else os.path.join(ROOT, "eval", "rl", "rl_export.json"),
         float(a[2]) if len(a) > 2 else 4.0, int(a[3]) if len(a) > 3 else 12, a[4] if len(a) > 4 else None,
         os.path.join(ROOT, "eval", "rl", "walks.json"))
+
+
+def prediction_test(world, export, walks=None, hours=6, seed0=2000):
+    """Where will she be LEAD s later? Pixel predictor (today's tracker), metric predictor (roomfollow), and no
+    prediction (her last box), scored against where the simulator knows her body centre really is then."""
+    import math
+    from zoneinfo import ZoneInfo
+    import roomfollow
+    P = load_params(); free = P.get("free") or {}
+    Room.HARD_CORRELATED = True
+    data = HomeData.from_world(world, export, tz=ZoneInfo("America/New_York"), walks=walks)
+    doc = json.load(open(os.path.join(ROOT, "models", "room", "room.json")))
+    rf = roomfollow.RoomFollow.load(doc, os.path.join(ROOT, "models", "room", doc["textures"]["range"]))
+    T = gate1.load_tracker(); LEAD = T.LEAD
+    rows = []
+    for k in range(hours):
+        room = HomeRoom(seed=seed0 + k, params=P, free=free, home=data, start_hour=data.stays[(k * 31) % len(data.stays)]["hour"])
+        mt = roomfollow.MetricTrack(rf); hist = []
+        end = room.t + 3600
+        while room.t < end:
+            box, mv, _ = room.frame()
+            if box is not None and room.dog_state == "move":
+                pan, tilt = room.position()
+                cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
+                t_cap = room.t - room.F["lag_s"]
+                hist.append((t_cap, cx, cy)); hist = [h for h in hist if t_cap - h[0] <= 4]
+                mt.add(t_cap, pan, tilt, box)
+                fut = (room.px + room.vx * LEAD, room.py + room.vy * LEAD)
+                o_true = rf.offset(pan, tilt, rf.body_centre(*fut))
+                if o_true and len(hist) >= 3 and len(mt.pts) >= 3:
+                    (t0, x0, y0), (t1, x1, y1) = hist[0], hist[-1]; dt = t1 - t0
+                    vxp, vyp = ((x1 - x0) / dt, (y1 - y0) / dt) if dt >= 0.8 else (0, 0)
+                    lead = LEAD + (room.t - t_cap)
+                    pix = (hist[-1][1] + vxp * lead, hist[-1][2] + vyp * lead)
+                    a = mt.aim(pan, tilt, room.t + LEAD)
+                    if a:
+                        rows.append({"pixel": math.hypot(pix[0] - o_true[0], pix[1] - o_true[1]),
+                                     "metric": math.hypot(a[0] - o_true[0], a[1] - o_true[1]),
+                                     "none": math.hypot(cx - o_true[0], cy - o_true[1])})
+            room.advance(1.0)
+    json.dump({"lead_s": LEAD, "rows": rows}, open(os.path.join(ROOT, "eval", "rl", "prediction_test.json"), "w"))
+    return rows

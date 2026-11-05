@@ -52,6 +52,7 @@ class HomeData:
         self.rows = sorted(rows)
         self.gait = list(gait or [])                    # walking speeds (m/s) measured from continuous video (walks.py)
         self._segment()
+        self._floor_grid()
 
     @classmethod
     def from_world(cls, world, export, train_days=None, tz=None, walks=None):
@@ -150,6 +151,82 @@ class HomeData:
                 if 0.05 <= sp <= 3.0:
                     self.walks.append(sp)
 
+    # ---- where she can walk: a floor grid from the measured room (her walks follow it, not straight lines) ----
+    CELL = 0.1
+
+    def _floor_grid(self):
+        """Blocked: cells under a measured surface 5 cm to 1.2 m above the floor (furniture, walls). Open: floor the
+        camera saw (a surface at floor height) or where she has been detected, each grown by one cell."""
+        from scipy import ndimage
+        H, W = self.R.shape
+        j, i = np.mgrid[0:H, 0:W]
+        az = np.radians((i + 0.5) / W * 360 - 180); el = np.radians(90 - (j + 0.5) / H * 180)
+        ok = np.isfinite(self.R) & (self.R > 0) & (self.R < 9)
+        x = (np.cos(el) * np.sin(az) * self.R)[ok]; y = (np.sin(el) * self.R)[ok]; z = (np.cos(el) * np.cos(az) * self.R)[ok]
+        self.g0 = (-6.0, -6.0); n = int(12 / self.CELL)
+        def cells(xx, zz):
+            a = ((np.asarray(xx) - self.g0[0]) / self.CELL).astype(int); b = ((np.asarray(zz) - self.g0[1]) / self.CELL).astype(int)
+            m = (a >= 0) & (a < n) & (b >= 0) & (b < n)
+            return a[m], b[m]
+        blocked = np.zeros((n, n), bool); open_ = np.zeros((n, n), bool)
+        hgt = y + self.floor_h
+        a, b = cells(x[(hgt > 0.05) & (hgt < 1.2)], z[(hgt > 0.05) & (hgt < 1.2)]); blocked[b, a] = True
+        a, b = cells(x[hgt <= 0.05], z[hgt <= 0.05]); open_[b, a] = True
+        if self.rows:
+            r = np.array(self.rows); a, b = cells(r[:, 1], r[:, 2]); open_[b, a] = True
+        open_ = ndimage.binary_dilation(open_, iterations=1)
+        self.walkable = open_ & ~blocked
+        self.walkable |= ndimage.binary_dilation(self._visited_mask(n), iterations=1) if self.rows else False
+        self._path_cache = {}
+
+    def _visited_mask(self, n):
+        m = np.zeros((n, n), bool)
+        r = np.array(self.rows)
+        a = ((r[:, 1] - self.g0[0]) / self.CELL).astype(int); b = ((r[:, 2] - self.g0[1]) / self.CELL).astype(int)
+        ok = (a >= 0) & (a < n) & (b >= 0) & (b < n)
+        m[b[ok], a[ok]] = True
+        return m
+
+    def path(self, p, q):
+        """Waypoints from p to q over walkable floor (A*, 8-connected); a straight line when no path exists."""
+        import heapq
+        n = self.walkable.shape[0]
+        to = lambda x, z: (min(n - 1, max(0, int((z - self.g0[1]) / self.CELL))), min(n - 1, max(0, int((x - self.g0[0]) / self.CELL))))  # noqa: E731
+        s, g = to(*p), to(*q)
+        key = (s, g)
+        if key in self._path_cache:
+            return self._path_cache[key]
+        W_ = self.walkable.copy(); W_[s] = W_[g] = True
+        openq, came, cost = [(0.0, s)], {s: None}, {s: 0.0}
+        found = False
+        while openq and len(came) < 60000:
+            _, c = heapq.heappop(openq)
+            if c == g:
+                found = True
+                break
+            for dj in (-1, 0, 1):
+                for di in (-1, 0, 1):
+                    if not (dj or di):
+                        continue
+                    nb = (c[0] + dj, c[1] + di)
+                    if not (0 <= nb[0] < n and 0 <= nb[1] < n) or not W_[nb]:
+                        continue
+                    nc = cost[c] + (1.414 if dj and di else 1.0)
+                    if nc < cost.get(nb, 1e18):
+                        cost[nb] = nc; came[nb] = c
+                        heapq.heappush(openq, (nc + math.hypot(nb[0] - g[0], nb[1] - g[1]), nb))
+        if not found:
+            res = [q]
+        else:
+            cells, c = [], g
+            while c is not None:
+                cells.append(c); c = came[c]
+            cells = cells[::-1][::3] + [g]                  # every third cell is plenty for a walk
+            res = [(self.g0[0] + (i + 0.5) * self.CELL, self.g0[1] + (j + 0.5) * self.CELL) for j, i in cells[1:-1]] + [q]
+        if len(self._path_cache) < 5000:
+            self._path_cache[key] = res
+        return res
+
     def hour(self, ts):
         return datetime.fromtimestamp(ts, self.tz).hour
 
@@ -246,6 +323,14 @@ class HomeRoom(Room):
         # without video her walking speed is not observable (moving detections are mostly shifting in place)
         return max(0.1, float(self.F.get("walk_speed_ms", 0.8)) * math.exp(self.rng_dog.normal(0, float(self.F.get("walk_speed_sigma", 0.5)))))
 
+    def _next_leg(self):
+        w = self.waypoints.pop(0)
+        d = max(0.05, math.hypot(w[0] - self.px, w[1] - self.py))
+        sp = self.walk_speed
+        self.vx, self.vy = sp * (w[0] - self.px) / d, sp * (w[1] - self.py) / d
+        self.heading = math.atan2(self.vx, self.vy)
+        self.state_until = self.t + d / sp
+
     FIDGET_S = 2.0                                       # length of one small move (assumed; its rate is measured)
 
     def _dog_step(self, dt):
@@ -280,11 +365,12 @@ class HomeRoom(Room):
                     goal = (s["x"] + float(self.rng_dog.normal(0, 0.15)), s["z"] + float(self.rng_dog.normal(0, 0.15)))
                 # her walking speed is NOT observable (a walk leaves the frame within a cycle; moving detections are
                 # mostly shifting in place, median 0.15 m/s): calibrated, as in Room, here in metres per second
-                sp = self._speed()
-                d = max(0.05, math.hypot(goal[0] - self.px, goal[1] - self.py))
-                self.vx, self.vy = sp * (goal[0] - self.px) / d, sp * (goal[1] - self.py) / d
-                self.heading = math.atan2(self.vx, self.vy)
-                self._state, self.state_until = "move", self.t + d / sp
+                self.walk_speed = self._speed()
+                self.waypoints = list(self.home.path((self.px, self.py), goal))
+                self._next_leg()
+                self._state = "move"
+            elif self._state == "move" and getattr(self, "waypoints", None):
+                self._next_leg()                                # the next leg of her path around the furniture
             elif self._state == "move":
                 self.vx = self.vy = 0.0
                 if getattr(self, "away", None):
