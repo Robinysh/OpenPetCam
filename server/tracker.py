@@ -55,9 +55,9 @@ METRIC_FOLLOW = False  # use ROOM_FOLLOW for Follow: predict her in metres, wait
 STREAM_LAG = 0.7       # s between a frame being taken and the detector seeing it (measured, sim/params.json lag_s)
 HIDDEN_WAIT = 60.0     # s to hold at the exit of a hidden area before the usual lost-pet logic resumes
 WALK_SPEED = 0.3       # m/s: above box jitter on a still dog (90th pct 0.09 m/s) and below her measured gait (median 0.52)
-FAST_FOLLOW = False    # follow her between detector runs with the per-frame motion tracker (fasttrack.py, fed by
+FAST_FOLLOW = True     # follow her between detector runs with the per-frame motion tracker (fasttrack.py, fed by
                        # the watcher): replay on recorded walks kept her within EDGE 38% of the time vs 17% (held-out
-                       # half, sim/world/fastloop_replay.py). Off until the owner turns it on.
+                       # half, sim/world/fastloop_replay.py). On since v0.3.2.
 FAST_MIN_MOVE = 0.05   # the motion estimate replaces the detector's box only once it has moved this far from it
 FAST_LOST_MAX = 8.0    # ...and stands in for a missing box at most this long after the last verified one
 ROOM_MAP = None        # roommap.RoomMap (models/room_map.json from sim/world/find_map.py), or None: search as before

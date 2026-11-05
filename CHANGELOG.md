@@ -4,6 +4,26 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-05
+
+### Follow
+- Follows her between detector runs (`server/fasttrack.py`, `tracker.FAST_FOLLOW`, on). The detector runs only every
+  few seconds on a small server, and its box is about a second old when it arrives; the watcher already computes a
+  motion image on every frame, and Follow now tracks her through it from the last verified box (frames since that
+  box's picture are replayed when it arrives), standing in for a box that has gone stale while she walks or was
+  missed. Replay on recorded walks with live detection timing (`sim/world/fastloop_replay.py`): she stayed within
+  the re-aim edge 38% of the time while walking, against 17% before, with a small cost while she is still.
+- The detector runs on the 16:9 frame without square padding (`watch.DETECT_RECT`): the same answers on recorded
+  frames, 37% less detector time (`sim/world/detcost.py`). Needs `models/yolox_nano_dyn.onnx`, which
+  `tools/fetch_models.sh` builds when the `onnx` package is installed (`tools/make_dyn_detector.py`); without it the
+  square model runs as before.
+
+### Room model and simulator
+- Simulator in the measured room (`sim/home.py`), a leave-one-day-out gate (`sim/home_gate.py`), walks from video
+  (`sim/world/walks.py`), synthetic camera views, and a local-only report (`sim/world/report.py`).
+- Room tab: a colour legend on every view; the Radio view is painted by where the antenna points, with a line toward
+  the router.
+
 ## [0.3.1] - 2026-11-05
 
 ### Room model

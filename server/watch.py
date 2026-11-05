@@ -55,8 +55,9 @@ FLAP_LOCK_FILE = f"{STATE}/daynight_lock_until"   # survives restarts, so a lock
 HOUSE_FILE = f"{STATE}/housekeeping_day"            # date of the last nightly housekeeping run
 MODEL = "/opt/petcam/models/yolox_nano.onnx"
 MODEL_DYN = "/opt/petcam/models/yolox_nano_dyn.onnx"   # the same weights with a free input size (tools/make_dyn_detector.py)
-DETECT_RECT = False   # run the detector at 256x416 (the 16:9 frame without square padding): same answers on 389 recorded
-                      # frames with her and 242 without, 37% less detector time (sim/world/detcost.py). Off until enabled.
+DETECT_RECT = True    # run the detector at 256x416 (the 16:9 frame without square padding): same answers on 389 recorded
+                      # frames with her and 242 without, 37% less detector time (sim/world/detcost.py).
+                      # Without that model file (a GitHub release ships no models) the square input runs, as before.
 YAMNET_MODEL = "/opt/petcam/models/yamnet.tflite"
 VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.py
 ROOM_MAP = "/opt/petcam/models/room_map.json"         # from sim/world/find_map.py (this home's room model); optional
