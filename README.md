@@ -70,6 +70,9 @@ Prefer to do each step yourself? [Install by hand](docs/install.md).
 - **Live**: tap the picture to aim the camera, drag the joystick to look around, hold to talk to them. **Find**
   searches the room now; **Follow** keeps them in view on its own; **Pause** turns off the picture *and* the microphone.
 - **Today**: the moments they were in view, naps and activity, every bark, and the clips.
+- **Room** (optional, once you build your room model): your room in 3D as the camera measured it, where your pet is
+  and where they spent the day (scrub the day strip), where the camera is pointing, and every view of the model
+  (night picture, materials, surface direction, what sound measured). It stays on your server.
 - **Something wrong?** Tap it and say what happened (for example "she's in view but it says she isn't"). It saves
   the picture and the video around it, so the problem can be found and fixed.
 
@@ -91,6 +94,13 @@ Prefer to do each step yourself? [Install by hand](docs/install.md).
 Detection is two steps: a small general detector (YOLOX-nano) proposes "an animal is here", and a verifier
 trained on your own camera's pictures decides whether it is *your* pet (so a plush toy is not). Search turns the
 camera through the places your pet is usually found first, then sweeps the room.
+The **room model** (`sim/world/`, optional) turns the camera's own sweep, its infrared light, its speaker and
+microphone, its WiFi link and where your pet walks into a measured 3D model of your room: rotation-only
+self-calibration, learned depth fused into one range per direction and scaled by the floor echo, blind spots above
+and below the camera filled by sound where it is shown to hold, and an uncertainty map that says where to look
+next. Find uses it to search the likeliest views first; the app shows it in the Room tab. Every claim it makes has
+a check against a different sensor and a null (`sim/world/AUDIT.md`); your model and its results stay in your own
+`eval/` folder and on your server. See [sim/world/README.md](sim/world/README.md).
 More: [architecture](docs/architecture.md) · [camera notes](docs/camera-thingino.md) · [performance](docs/performance.md).
 
 ## It gets better on its own (optional)
@@ -150,3 +160,6 @@ OpenPetCam is Apache-2.0 (see `LICENSE`). It builds on
 [MobileNetV2 from the ONNX model zoo](https://github.com/onnx/models) (Apache-2.0),
 [YAMNet](https://github.com/tensorflow/models/tree/master/research/audioset/yamnet) (Apache-2.0) and
 [pywebpush](https://github.com/web-push-libs/pywebpush). The models are downloaded at deploy time, not stored here.
+The room model and Room tab use [three.js](https://threejs.org) (MIT, vendored in `server/vendor/`),
+[Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3) (BASE, Apache-2.0) and
+[ALIKED](https://github.com/Shiaoming/ALIKED) + [LightGlue](https://github.com/cvg/LightGlue) (BSD/Apache-2.0).

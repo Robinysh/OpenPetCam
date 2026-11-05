@@ -4,6 +4,39 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-05
+
+### Room model (new, optional: `sim/world/`)
+- A measured 3D model of your room from every sensor the camera has: rotation-only pan/tilt self-calibration from
+  its own sweep (ALIKED + LightGlue matches), drift of the logged pose corrected by registering later snapshots to
+  the panorama, Depth Anything 3 depth of every frame fused in the gradient domain into one range per direction,
+  scaled to metres by the camera's own floor echo, furniture placed by floor contact and carved by your pet's
+  sightlines, near-infrared material and reflectance (active minus passive), sound coverage, WiFi motion, and a
+  per-direction uncertainty with next-best-view planning to improve the weakest parts.
+- Sound fills the camera's blind spots where it is shown to hold: the surface above the camera (the nearest echo
+  agrees with vision) and the floor under it (marked assumed). Echo ranges elsewhere do not beat a direction-shuffle
+  null, so they are not used; a verified 3D wave solver (FDTD) and near-field model are included with that result.
+- `AUDIT.md`: the checking procedure for every claim (independent sensor, null, held-out split). Your results go in
+  your own git-ignored `eval/<world>/`.
+- Developer viewer (`sim/world/viewer/`): every layer in 3D over time, colour by any attribute, click any surface.
+
+### App: Room tab
+- Your room as measured, cut away where you look at it from behind; where your pet is or was at the time on the
+  day strip; Time spent (that day or the last 7 days); where the camera points; every view of the model in a panel
+  beside the room. Built from your room model by `python3 -m sim.world.app_bundle eval/world` into `models/room/`
+  (installed on your server only, served to signed-in devices only). Without it the tab says how to build one.
+- Server: `roomapi.py` computes your pet's floor positions from the watcher's own records with the room model's
+  rule (`roomcam.py`, pinned to the model's camera by a test). three.js is vendored so the tab loads nothing from a
+  third party, and it loads only when the tab opens. `tools/room_dev.py` previews the tab from your local data.
+
+### Find
+- `sim/world/find_map.py` builds `models/room_map.json` (likeliest views per hour, floor share per view, tiles worth
+  zooming) that v0.2.2's search reads; `find_bench.py` measures Find and replays recorded searches offline.
+
+### Privacy
+- `tools/check_public.sh` also refuses `eval/`, room-model data or media under `sim/world/`, and any phrase in your
+  git-ignored `config/private_terms.txt`.
+
 ## [0.2.3] - 2026-11-05
 
 ### Follow
