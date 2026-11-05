@@ -44,7 +44,9 @@ export async function mountRoom(root, pet) {
     <div class="room-note hidden"></div>
     <canvas class="room-strip" aria-label="The day: drag to see where ${name} was"></canvas>
     <div class="room-strip-axis"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>`;
-  const sheet = el("div", "sheet-bg hidden"); document.body.append(sheet);
+  // the views panel sits BESIDE the room (wide screens: a column; phones: a half-height drawer), never over it, so
+  // every pick shows at once; the layers button opens and closes it
+  const sheet = el("div", "room-panel hidden"); root.append(sheet);
   const LOOKS = [["photo", "Day", "the camera's daytime sweep"], ["night", "Night", "its infrared night picture"]];
   // every view the room model holds, grouped by what it tells you; one shows at a time (each loads when picked)
   const GROUPS = [
@@ -59,7 +61,8 @@ export async function mountRoom(root, pet) {
     ["Sound", [["echo_support", "Echo support", "where the camera's own sound echoes agree with the shape"],
                ["echo_coverage", "Sound coverage", "how many head directions heard each surface"]]]];
   const tx = (k) => info.textures?.[k] ? `/api/room/tex?f=${encodeURIComponent(info.textures[k])}` : null;
-  sheet.innerHTML = `<div class="sheet" role="dialog" aria-label="Looks and overlays"><div class="grab"></div><h3>Room</h3>
+  sheet.innerHTML = `<div class="room-panel-in" role="region" aria-label="Views of the room"><div class="room-panel-head"><h3>Views</h3>
+    <button class="iconbtn room-close" type="button" aria-label="Hide the views"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
     <div class="room-sec">Look</div><div class="room-tiles">${LOOKS.filter(([k]) => tx(k)).map(([k, t, d]) =>
       `<button class="room-tile" data-look="${k}" title="${d}"><span style="background-image:url(${tx(k)})"></span>${t}</button>`).join("")}</div>
     ${GROUPS.map(([g, items]) => { const its = items.filter(([k]) => k === "heat" || tx(k)); return its.length ? `<div class="room-sec">${g}</div>` + its.map(([k, t, d]) =>
@@ -278,6 +281,7 @@ export async function mountRoom(root, pet) {
     sheet.querySelectorAll("[data-look]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.look === S.look));
     sheet.querySelectorAll("[data-over]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.over === S.over));
     sheet.querySelectorAll("[data-span]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.span === S.span));
+    const span = sheet.querySelector(".room-span"); if (span) span.hidden = S.over !== "heat";
     bView.textContent = S.view === "3d" ? "3D" : "Top";
     // nothing to show for this day: say so, and offer the last day she was seen (an empty floor explains nothing)
     const note = dock.querySelector(".room-note"), shown = S.rows.filter((r) => r[0] <= S.T).length;
@@ -316,11 +320,14 @@ export async function mountRoom(root, pet) {
   dock.querySelector(".room-now").onclick = () => { S.day0 = startOfDay(Date.now() / 1000); S.live = true; loadDay(); };
   dock.querySelectorAll("[data-d]").forEach((b) => b.onclick = () => { S.day0 += +b.dataset.d * DAY; S.live = false; S.T = null; loadDay(); });
   // controls
-  bLayers.onclick = () => {
-    sheet.querySelectorAll("[data-bg]").forEach((e) => { e.style.backgroundImage = `url(${e.dataset.bg})`; e.removeAttribute("data-bg"); });
-    sheet.classList.remove("hidden");
-  };
-  sheet.onclick = (e) => { if (e.target === sheet) sheet.classList.add("hidden"); };
+  function panel(open) {
+    if (open) sheet.querySelectorAll("[data-bg]").forEach((e) => { e.style.backgroundImage = `url(${e.dataset.bg})`; e.removeAttribute("data-bg"); });
+    sheet.classList.toggle("hidden", !open); root.classList.toggle("panel-open", open);
+    bLayers.setAttribute("aria-pressed", String(open)); store("room.panel", open ? "1" : "0");
+    requestAnimationFrame(resize);
+  }
+  bLayers.onclick = () => panel(sheet.classList.contains("hidden"));
+  sheet.querySelector(".room-close").onclick = () => panel(false);
   sheet.querySelectorAll("[data-span]").forEach((b) => b.onclick = async () => {
     S.span = b.dataset.span; store("room.span", S.span); S.over = "heat"; store("room.over", "heat");
     if (S.span === "week") await loadWeek(); apply();
@@ -389,10 +396,12 @@ export async function mountRoom(root, pet) {
   new ResizeObserver(resize).observe(stage);
   matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { bg(); drawStrip(); draw(); });
   frame(S.view);
+  const wide = matchMedia("(min-width: 900px)").matches;
+  panel(store("room.panel") ? store("room.panel") === "1" : wide);     // open by default where there is room beside it
   let poll = 0;
   return {
     show() { visible = true; bg(); resize(); loadDay(); clearInterval(poll); poll = setInterval(() => { if (S.live) loadDay(); }, 30000); },
-    hide() { visible = false; clearInterval(poll); sheet.classList.add("hidden"); },
+    hide() { visible = false; clearInterval(poll); },
     state: S, // for scripted checks
   };
 }
