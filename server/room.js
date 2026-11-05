@@ -40,6 +40,7 @@ export async function mountRoom(root, pet) {
   dock.innerHTML = `<div class="room-dock-head"><button class="iconbtn" data-d="-1" aria-label="Previous day"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
     <b class="room-day"></b><button class="iconbtn" data-d="1" aria-label="Next day"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
     <span class="room-time"></span><button class="chip room-now" type="button">Now</button></div>
+    <div class="room-note hidden"></div>
     <canvas class="room-strip" aria-label="The day: drag to see where ${name} was"></canvas>
     <div class="room-strip-axis"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>`;
   const sheet = el("div", "sheet-bg hidden"); document.body.append(sheet);
@@ -75,10 +76,10 @@ export async function mountRoom(root, pet) {
   const tex = (k) => { const u = tx(k); if (!u) return null; const t = loader.load(u, () => draw()); t.colorSpace = THREE.SRGBColorSpace; return t; };
   const T = { photo: tex("photo"), night: tex("night"), unsure: tex("unsure"), materials: tex("materials") };
   const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); blank.needsUpdate = true;
-  const U = { pano: { value: T.photo || blank }, over: { value: blank }, overOn: { value: 0 }, cut: { value: 0 },
+  const U = { pano: { value: T.photo || blank }, over: { value: blank }, overOn: { value: 0 }, cut: { value: 0 }, mute: { value: 0 },
               clay: { value: new THREE.Color("#c9c6c0") }, light: { value: new THREE.Vector3(0.45, 0.8, 0.35).normalize() } };
   const vert = `varying vec3 wp; void main(){ vec4 w = modelMatrix * vec4(position,1.); wp = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`;
-  const frag = `uniform sampler2D pano, over; uniform float overOn, cut; uniform vec3 clay, light; varying vec3 wp;
+  const frag = `uniform sampler2D pano, over; uniform float overOn, cut, mute; uniform vec3 clay, light; varying vec3 wp;
   void main(){
     vec3 d = normalize(vec3(-wp.x, wp.y, wp.z));
     vec2 uv = vec2(atan(d.x, d.z) / 6.2831853 + 0.5, 0.5 + asin(clamp(d.y,-1.,1.)) / 3.1415927);
@@ -88,6 +89,7 @@ export async function mountRoom(root, pet) {
     float sh = 0.64 + 0.36 * (0.5 + 0.5 * dot(fn, normalize(vec3(-light.x, light.y, light.z))));
     vec3 col = mix(clay * sh, p * mix(1.0, sh, 0.3), seen);
     if (lens < 0.12) col = clay * sh * 0.93;                       // the lens only grazed it: untextured, honestly
+    if (mute > 0.5) col = mix(vec3(dot(col, vec3(0.3, 0.59, 0.11))), col, 0.35) * 0.62;   // a quiet base under the heat
     if (overOn > 0.5) { vec3 o = texture2D(over, uv).rgb; float so = step(0.03, o.r + o.g + o.b); col = mix(col * 0.55, o, so * 0.85); }
     gl_FragColor = vec4(col, 1.);
     #include <colorspace_fragment>
@@ -165,6 +167,12 @@ export async function mountRoom(root, pet) {
       const r = await (await fetch(`/api/room/positions?since=${S.day0}&until=${until}`, { credentials: "same-origin" })).json();
       S.rows = r.rows || [];
     } catch { S.rows = []; }
+    if (!S.rows.length && S.lastDay == null) {                // find the last day she was seen (up to a week back)
+      try {
+        const r = await (await fetch(`/api/room/positions?since=${S.day0 - 3 * DAY}&until=${S.day0}`, { credentials: "same-origin" })).json();
+        const last = (r.rows || []).at(-1); S.lastDay = last ? startOfDay(last[0]) : -1;
+      } catch { S.lastDay = -1; }
+    }
     if (S.live || S.T == null || S.T > until || S.T < S.day0) S.T = until;
     apply();
   }
@@ -181,7 +189,7 @@ export async function mountRoom(root, pet) {
       const v = mx ? Math.sqrt(b[p] / mx) : 0;
       let c = stops[0][1]; for (let s = 1; s < stops.length; s++) if (v <= stops[s][0]) { const a = stops[s - 1], z = stops[s], f = (v - a[0]) / (z[0] - a[0]); c = a[1].map((x, q) => x + (z[1][q] - x) * f); break; }
       heatData[o] = c[0]; heatData[o + 1] = c[1]; heatData[o + 2] = c[2];
-      heatData[o + 3] = v < 0.03 || !onFloor(col * HC - HALF + HC / 2, row * HC - HALF + HC / 2) ? 0 : Math.min(230, 70 + 190 * v);
+      heatData[o + 3] = v < 0.03 || !onFloor(col * HC - HALF + HC / 2, row * HC - HALF + HC / 2) ? 0 : Math.min(245, 110 + 160 * v);
     }
     heatTex.needsUpdate = true;
   }
@@ -189,7 +197,7 @@ export async function mountRoom(root, pet) {
     U.pano.value = T[S.look] || T.photo || blank;
     const ov = S.over === "unsure" || S.over === "materials" ? T[S.over] : null;
     U.over.value = ov || blank; U.overOn.value = ov ? 1 : 0;
-    for (const m of [solidMat, cutMat]) { m.uniforms.pano.value = U.pano.value; m.uniforms.over.value = U.over.value; m.uniforms.overOn.value = U.overOn.value; }
+    for (const m of [solidMat, cutMat]) { m.uniforms.pano.value = U.pano.value; m.uniforms.over.value = U.over.value; m.uniforms.overOn.value = U.overOn.value; m.uniforms.mute.value = S.over === "heat" ? 1 : 0; }
     heat.visible = S.over === "heat"; if (heat.visible) buildHeat();
     // where she is (or was, at the playhead)
     let last = null; for (const r of S.rows) { if (r[0] <= S.T) last = r; else break; }
@@ -208,6 +216,14 @@ export async function mountRoom(root, pet) {
     sheet.querySelectorAll("[data-look]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.look === S.look));
     sheet.querySelectorAll("[data-over]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.over === S.over));
     bView.textContent = S.view === "3d" ? "3D" : "Top";
+    // nothing to show for this day: say so, and offer the last day she was seen (an empty floor explains nothing)
+    const note = dock.querySelector(".room-note"), shown = S.rows.filter((r) => r[0] <= S.T).length;
+    note.classList.toggle("hidden", shown > 0);
+    if (!shown) {
+      const today = S.day0 === startOfDay(Date.now() / 1000);
+      note.innerHTML = `${today ? `${name} has not been seen in the room yet today` : `${name} was not seen in the room that day`}${S.lastDay != null && S.lastDay !== S.day0 ? ` · <button class="room-link" type="button">Show ${dayLabel(S.lastDay).toLowerCase()}</button>` : ""}`;
+      const b = note.querySelector(".room-link"); if (b) b.onclick = () => { S.day0 = S.lastDay; S.live = false; S.T = null; loadDay(); };
+    }
     drawStrip(); draw();
   }
   // day strip: minutes she was seen, in 10-minute bars; the playhead is draggable

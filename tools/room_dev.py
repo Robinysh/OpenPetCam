@@ -3,7 +3,7 @@
 from config/site.env), room.js and the vendored three.js, and answers /api/room* from your local room bundle
 (models/room, from sim/world/app_bundle.py) and the watcher records the room model pulled (eval/<world>/obs.json,
 track.json). Other /api calls get an empty answer. Listens on 127.0.0.1 only; nothing leaves the machine.
-    python3 tools/room_dev.py eval/world [8790]    -> http://127.0.0.1:8790/#room"""
+    python3 tools/room_dev.py eval/world [8790] [--no-shift]    -> http://127.0.0.1:8790/"""
 import json
 import os
 import sqlite3
@@ -20,14 +20,14 @@ import petconf  # noqa: E402
 import roomapi  # noqa: E402
 
 
-def load_db(world):
+def load_db(world, shift=0.0):
     con = sqlite3.connect(":memory:", check_same_thread=False)
     con.executescript("""CREATE TABLE obs(ts REAL, score REAL, person REAL, box TEXT, motion REAL, present INT, moving INT);
                          CREATE TABLE track(ts REAL, pan INT, tilt INT, act TEXT, weak INT);""")
     for o in json.load(open(os.path.join(world, "obs.json"))):
-        con.execute("INSERT INTO obs VALUES(?,?,?,?,?,?,?)", (o["ts"], o.get("score"), 0, o["box"], 0, o["present"], o.get("moving")))
+        con.execute("INSERT INTO obs VALUES(?,?,?,?,?,?,?)", (o["ts"] + shift, o.get("score"), 0, o["box"], 0, o["present"], o.get("moving")))
     for t in json.load(open(os.path.join(world, "track.json"))):
-        con.execute("INSERT INTO track VALUES(?,?,?,?,?)", (t["ts"], t["pan"], t["tilt"], "", 0))
+        con.execute("INSERT INTO track VALUES(?,?,?,?,?)", (t["ts"] + shift, t["pan"], t["tilt"], "", 0))
     return con
 
 
@@ -62,7 +62,6 @@ class H(BaseHTTPRequestHandler):
             f = roomapi.texture(q.get("f", ""))
             return self.send(200, open(f, "rb").read(), "image/png" if f.endswith(".png") else "image/jpeg") if f else self.send(404, b"no")
         if p == "/api/room/positions":
-            # the preview's "now" is the end of the recorded data, so today shows the last recorded day
             until = min(float(q.get("until", END)), END)
             since = float(q.get("since", until - 86400))
             return self.send(200, {"since": since, "until": until, "rows": roomapi.positions(CON, since, until)})
@@ -73,8 +72,13 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     a = sys.argv[1:]
-    CON = load_db(a[0])
+    # Recorded times are shifted so the latest record is now: Today in the preview looks as it does on the server.
+    # (Pass --no-shift to see the real dates.)
+    import time
+    last = max(o["ts"] for o in json.load(open(os.path.join(a[0], "obs.json"))))
+    CON = load_db(a[0], 0.0 if "--no-shift" in a else time.time() - last - 60)
     END = CON.execute("SELECT max(ts) FROM obs").fetchone()[0]
+    a = [x for x in a if x != "--no-shift"]
     port = int(a[1]) if len(a) > 1 else 8790
     print(f"Room preview on http://127.0.0.1:{port}/ (records up to {END:.0f})")
     ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
