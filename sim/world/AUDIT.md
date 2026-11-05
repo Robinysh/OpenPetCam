@@ -30,6 +30,7 @@ Rules:
 | ACO-2 | Sound refines the geometry | forward model vs recordings, scored leave-one-out, against a direction-shuffle null (stricter than a turned room) | `acoustic_model.py`, `nearfield.py` |
 | ACO-3 | Passive echoes from room noise | correlation of ambient noise vs a control segment | `sensors/acoustic.py` |
 | ACO-4 | Head directivity | floor echo over direct path vs head pitch across tilt rows | `acoustic_model.py` |
+| ACO-7 | Sound fills the camera's blind spots where it holds (`blindfill.py`) | above the lens: the nearest echo's spread over head directions (a flat surface returns one delay), and vision's height of the surface it sees near the top of its sweep, against that echo; elsewhere: the strongest and first echo beyond 0.3 m against vision's range on the head axis, with a direction-shuffle null; the near cabinet echo's strength against facing it, with a shuffle null. Only what passes is filled; the floor under the camera is marked assumed | `python3 -m sim.world.blindfill eval/<world>` |
 | SIM-1 | The FDTD solver is correct | closed forms: 1/r spreading, second-order convergence, rigid-wall image source | `python3 -m sim.world.fdtd verify` |
 | RF-1 | The camera's WiFi signal tracks motion | per-minute RSSI spread vs picture motion; block bootstrap and circular-shift null | `sensors/wifi.py` |
 | NIR-1 | Active minus passive near-IR is the camera's own light | LED light x r^2 roughly constant over range | `sensors/nir_active.py`, `ir_exp.py` |

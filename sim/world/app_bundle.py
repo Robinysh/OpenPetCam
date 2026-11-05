@@ -39,8 +39,9 @@ def build(world, out):
     # the measured shape: one range per direction (the fused surface), millimetres as uint16 (0 = nothing measured)
     import numpy as np
     meta = fused
-    if meta.get("file") and os.path.exists(os.path.join(model, meta["file"])):
-        R = np.fromfile(os.path.join(model, meta["file"]), np.float32).reshape(meta["height"], meta["width"])
+    rf = meta.get("filled_file") or meta.get("file")         # blind spots filled by sound where it holds (blindfill.py)
+    if rf and os.path.exists(os.path.join(model, rf)):
+        R = np.fromfile(os.path.join(model, rf), np.float32).reshape(meta["height"], meta["width"])
         mm = np.where(np.isfinite(R) & (R > 0.05) & (R < 60), np.round(R * 1000), 0).astype("<u2")
         mm.tofile(os.path.join(out, "room_range.u16"))
         tex["range"] = "room_range.u16"
@@ -63,7 +64,7 @@ def build(world, out):
            "outline": outline, "walls": [{"a": w["a"], "b": w["b"]} for w in room["walls"]],
            "objects": [{"label": o["label"], "center": o["center"], "size": o["size"], "yaw_deg": o["yaw_deg"],
                         "kind": o.get("kind", "solid")} for o in fused.get("objects", [])],
-           "mount_offset_deg": off, "textures": tex, "range_shape": shape}
+           "mount_offset_deg": off, "textures": tex, "range_shape": shape, "blind_fill": meta.get("blind_fill")}
     json.dump(doc, open(os.path.join(out, "room.json"), "w"))
     return doc
 

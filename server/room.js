@@ -59,7 +59,8 @@ export async function mountRoom(root, pet) {
                ["nir_reflectance", "Infrared reflectance", "the camera's own IR light, corrected for distance"],
                ["light_range", "Daylight change", "how much each surface's light changes over the day"]]],
     ["Sound", [["echo_support", "Echo support", "where the camera's own sound echoes agree with the shape"],
-               ["echo_coverage", "Sound coverage", "how many head directions heard each surface"]]]];
+               ["echo_coverage", "Sound coverage", "how many head directions heard each surface"],
+               ["source", "Where each part comes from", "grey: seen by the camera; green: the surface above it, measured by sound; violet: floor under the camera, assumed at the height sound measured"]]]];
   const tx = (k) => info.textures?.[k] ? `/api/room/tex?f=${encodeURIComponent(info.textures[k])}` : null;
   sheet.innerHTML = `<div class="room-panel-in" role="region" aria-label="Views of the room"><div class="room-panel-head"><h3>Views</h3>
     <button class="iconbtn room-close" type="button" aria-label="Hide the views"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
@@ -402,6 +403,6 @@ export async function mountRoom(root, pet) {
   return {
     show() { visible = true; bg(); resize(); loadDay(); clearInterval(poll); poll = setInterval(() => { if (S.live) loadDay(); }, 30000); },
     hide() { visible = false; clearInterval(poll); },
-    state: S, // for scripted checks
+    state: S, cam, controls, redraw: draw, // for scripted checks
   };
 }

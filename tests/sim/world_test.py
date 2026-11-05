@@ -45,3 +45,13 @@ assert ol[0] is not None and abs(ol[0] - w["distance_m"]) < 0.02 and ol[90] is N
 pred = {e["label"]: e["range_m"] for e in room.predict_echoes(np.array([0, 0, 1.0]))}
 assert abs(pred["floor"] - 0.8) < 1e-6 and abs(pred["countertop overhang"] - 0.2) < 1e-6 and "wall" in pred, pred
 print("world model ok: rays/project invert, frame conventions, floor hit, room walls/outline/echo prediction")
+
+# blind-spot fill: never overwrites what vision measured; fills above with the echo plane and below with the floor
+from sim.world.blindfill import fill  # noqa: E402
+Rt = np.full((36, 72), np.nan, np.float32); Rt[12:26, :] = 2.0                 # vision sees only a band around level
+out, src = fill(Rt, 0.18, 0.8)
+assert np.array_equal(out[12:26], Rt[12:26]) and (src[12:26] == 1).all()
+el_top = 90 - (0 + 0.5) / 36 * 180
+assert src[0, 0] == 2 and abs(out[0, 0] - 0.18 / np.sin(np.radians(el_top))) < 1e-5
+assert src[-1, 0] == 3 and abs(out[-1, 0] - 0.8 / np.sin(np.radians(el_top))) < 1e-5
+print("blind fill ok: vision kept, sound plane above, assumed floor below")

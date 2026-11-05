@@ -267,7 +267,7 @@ const fused = new THREE.Mesh(new THREE.BufferGeometry(), fusedMat); world.add(fu
 const furniture = new THREE.Mesh(new THREE.BufferGeometry(), fusedMat); world.add(furniture); furniture.visible = false;
 furniture.userData = { label: "furniture (fused surface, object class)" };
 if (fusedMeta) {
-  const buf = await (await fetch(fusedMeta.file)).arrayBuffer();
+  const buf = await (await fetch(fusedMeta.filled_file || fusedMeta.file)).arrayBuffer();   // blind spots filled by sound (blindfill.py)
   const R = new Float32Array(buf), FW = fusedMeta.width, FH = fusedMeta.height;
   const pos = new Float32Array(FW * FH * 3);
   for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) {
@@ -481,7 +481,7 @@ const SF = L["fused.surfels"]?.data;
 const COLOURS = [["photo", "Photo (visible light)"], ["uncertainty", "Uncertainty: where the model is weakest"], ["class", "Class: floor / wall / object"], ["normals", "Surface direction (normals)"],
   ["nir_excess", "Near-IR material"], ["nir_reflectance", "Near-IR reflectance (active minus passive)"], ["echo_support", "Sound: echo support"],
   ["echo_coverage", "Sound: directions covering it"], ["dwell", "Dog: time spent"], ["floor_residual", "Check: floor vs sound-set plane"],
-  ["light_range", "Daylight change over the day"]];
+  ["light_range", "Daylight change over the day"], ["source", "Source: vision / sound (above) / assumed floor (below)"]];
 const cb = document.getElementById("colourby");
 for (const [k, t] of COLOURS) if (k === "photo" || SF?.textures?.[k]) { const o = document.createElement("option"); o.value = k; o.textContent = t; cb.appendChild(o); }
 let colourBy = "photo";
