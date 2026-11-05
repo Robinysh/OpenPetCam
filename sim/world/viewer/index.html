@@ -481,7 +481,7 @@ const SF = L["fused.surfels"]?.data;
 const COLOURS = [["photo", "Photo (visible light)"], ["uncertainty", "Uncertainty: where the model is weakest"], ["class", "Class: floor / wall / object"], ["normals", "Surface direction (normals)"],
   ["nir_excess", "Near-IR material"], ["nir_reflectance", "Near-IR reflectance (active minus passive)"], ["echo_support", "Sound: echo support"],
   ["echo_coverage", "Sound: directions covering it"], ["dwell", "Dog: time spent"], ["floor_residual", "Check: floor vs sound-set plane"],
-  ["light_range", "Daylight change over the day"], ["source", "Source: vision / sound (above) / assumed floor (below)"]];
+  ["light_range", "Daylight change over the day"], ["source", "Source: vision / sound (above) / assumed floor (below)"], ["radio", "Radio: WiFi signal by head direction (2.4 GHz RSSI)"]];
 const cb = document.getElementById("colourby");
 for (const [k, t] of COLOURS) if (k === "photo" || SF?.textures?.[k]) { const o = document.createElement("option"); o.value = k; o.textContent = t; cb.appendChild(o); }
 let colourBy = "photo";

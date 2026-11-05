@@ -60,7 +60,8 @@ export async function mountRoom(root, pet) {
                ["light_range", "Daylight change", "how much each surface's light changes over the day"]]],
     ["Sound", [["echo_support", "Echo support", "where the camera's own sound echoes agree with the shape"],
                ["echo_coverage", "Sound coverage", "how many head directions heard each surface"],
-               ["source", "Where each part comes from", "grey: seen by the camera; green: the surface above it, measured by sound; violet: floor under the camera, assumed at the height sound measured"]]]];
+               ["source", "Where each part comes from", "grey: seen by the camera; green: the surface above it, measured by sound; violet: floor under the camera, assumed at the height sound measured"]]],
+    ["Radio", [["radio", "WiFi signal by direction", "how strong the camera's WiFi link is when its head points each way (warm = strong); the line points to the strongest link, probably your router (unconfirmed)"]]]];
   const tx = (k) => info.textures?.[k] ? `/api/room/tex?f=${encodeURIComponent(info.textures[k])}` : null;
   sheet.innerHTML = `<div class="room-panel-in" role="region" aria-label="Views of the room"><div class="room-panel-head"><h3>Views</h3>
     <button class="iconbtn room-close" type="button" aria-label="Hide the views"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
@@ -186,6 +187,11 @@ export async function mountRoom(root, pet) {
     coneLines.setAttribute("position", new THREE.Float32BufferAttribute(E, 3)); coneLines.computeBoundingSphere();
     axis.setDirection(new THREE.Vector3(...camRay(pose[1], pose[2], 0.5, 0.5)));
   }
+  // the strongest-link bearing of the camera's WiFi (radio_map.py): a dashed horizontal line from the lens
+  const rb = info.radio && info.radio.supported ? info.radio.bearing_deg : null;
+  const radioRay = new THREE.Line(new THREE.BufferGeometry().setFromPoints(rb == null ? [] : [new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(Math.sin(rb * D2R) * 3, 0, Math.cos(rb * D2R) * 3)]), new THREE.LineDashedMaterial({ color: 0xffb46b, dashSize: 0.12, gapSize: 0.08 }));
+  radioRay.computeLineDistances(); radioRay.visible = false; radioRay.renderOrder = 4; world.add(radioRay);
   // time-spent heat on the floor
   const HC = 0.1, HN = 140, HALF = HN * HC / 2, heatData = new Uint8Array(HN * HN * 4);
   const heatTex = new THREE.DataTexture(heatData, HN, HN); heatTex.magFilter = THREE.LinearFilter; heatTex.needsUpdate = true;
@@ -263,6 +269,7 @@ export async function mountRoom(root, pet) {
     U.over.value = ov || blank; U.overOn.value = ov ? 1 : 0;
     for (const m of [solidMat, cutMat]) { m.uniforms.pano.value = U.pano.value; m.uniforms.over.value = U.over.value; m.uniforms.overOn.value = U.overOn.value; m.uniforms.mute.value = S.over === "heat" ? 1 : 0; }
     heat.visible = S.over === "heat"; if (heat.visible) buildHeat();
+    radioRay.visible = S.over === "radio" && rb != null;
     // where the camera pointed at the playhead
     let pose = null; for (const p of S.poses || []) { if (p[0] <= S.T) pose = p; else break; }
     showCamera(pose);

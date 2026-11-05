@@ -36,6 +36,9 @@ for f in sorted(glob.glob(os.path.join(ROOT, "server", "*.html"))):
             continue
         check(m.group(2), f"{os.path.basename(f)} script {i}", 'type="module"' in m.group(1))
 for f in sorted(glob.glob(os.path.join(ROOT, "server", "*.js"))):
-    check(open(f).read(), os.path.basename(f))
+    src = open(f).read()
+    # an ES module (import/export at the top level) must be parsed AS a module: `node --check file.js` did not report a
+    # missing bracket in room.js (2026-11-05), and the browser then refused the whole Room tab
+    check(src, os.path.basename(f), module=bool(re.search(r"^\s*(import|export)\s", src, re.M)))
 assert not bad, bad
 print("js syntax ok")

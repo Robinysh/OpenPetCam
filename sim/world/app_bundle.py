@@ -64,7 +64,8 @@ def build(world, out):
            "outline": outline, "walls": [{"a": w["a"], "b": w["b"]} for w in room["walls"]],
            "objects": [{"label": o["label"], "center": o["center"], "size": o["size"], "yaw_deg": o["yaw_deg"],
                         "kind": o.get("kind", "solid")} for o in fused.get("objects", [])],
-           "mount_offset_deg": off, "textures": tex, "range_shape": shape, "blind_fill": meta.get("blind_fill")}
+           "mount_offset_deg": off, "textures": tex, "range_shape": shape, "blind_fill": meta.get("blind_fill"),
+           "radio": ((L.get("radio.rssi") or {}).get("data") or {}).get("by_direction")}
     json.dump(doc, open(os.path.join(out, "room.json"), "w"))
     return doc
 
