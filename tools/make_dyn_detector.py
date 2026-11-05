@@ -18,6 +18,7 @@ for o in m.graph.output:
     if len(od) >= 2:
         od[1].Clear()
         od[1].dim_param = "anchors"
+del m.graph.value_info[:]          # inner shapes recorded for 416x416; onnxruntime warns on every run if kept
 onnx.checker.check_model(m)
 onnx.save(m, dst)
 print("wrote", dst)

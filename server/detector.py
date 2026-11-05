@@ -20,6 +20,7 @@ class Detector:
         opts.intra_op_num_threads = 1
         opts.inter_op_num_threads = 1
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        opts.log_severity_level = 3       # errors only: a per-run warning would fill the journal
         self.sess = ort.InferenceSession(model_path, opts, providers=["CPUExecutionProvider"])
         self.input = self.sess.get_inputs()[0].name
         self.size = size

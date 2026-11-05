@@ -4,6 +4,13 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-05
+
+### Fixed
+- The size-free detector no longer makes onnxruntime log a shape warning on every run (`tools/make_dyn_detector.py`
+  drops the inner shapes recorded for 416x416; rebuild with `rm models/yolox_nano_dyn.onnx; tools/fetch_models.sh`),
+  and the detector logs onnxruntime errors only.
+
 ## [0.3.2] - 2026-11-05
 
 ### Follow
