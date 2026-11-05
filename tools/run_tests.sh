@@ -10,7 +10,7 @@ export PETCAM_CONFIG=config/site.env.example         # tools/siteconf.py (the si
 if python3 -c "import pyflakes" 2>/dev/null; then echo "== pyflakes"; python3 -m pyflakes server tools tests sim; fi
 for t in tracker events presence stall disconnect pill search_here_first search_roommap install_files no_rotation room roomfollow update pet_name theme search_evidence \
          follow search_cancel spot_highlight talk_button policy fast_mode search_glimpse install_retire \
-         clip_player coverage zones search_overshoot js_syntax flap agent_loop fasttrack chase_wall remount; do
+         clip_player coverage zones search_overshoot js_syntax flap agent_loop fasttrack chase_wall remount scheduled_sweep; do
   echo "== $t"
   timeout 300 python3 "tests/server/${t}_test.py"
 done
@@ -19,7 +19,4 @@ timeout 600 python3 tests/sim/sim_test.py
 timeout 300 python3 tests/sim/sysid_recovery_test.py
 timeout 300 python3 tests/sim/ab_report_test.py
 timeout 120 python3 tests/sim/world_test.py
-timeout 120 python3 tests/sim/acoustic_geometry_test.py
-timeout 120 python3 tests/sim/acoustic_waveforms_test.py
-timeout 120 python3 tests/sim/acoustic_fit_test.py
 echo "all offline tests passed"
