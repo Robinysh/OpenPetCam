@@ -56,14 +56,17 @@ def spill(d, keep=("payload",)):
 def cmd_add_trigger(c, a):
     """Fast path dedupe: the same dedupe key is stored once. Returns the trigger id (new or existing)."""
     now = time.time()
+    status = a.get('status', 'new')
+    if status not in ('new', 'review'):
+        raise ValueError('new triggers must be new or review')
     try:
-        cur = c.execute("INSERT INTO triggers(ts,source,thread,kind,summary,payload,dedupe) VALUES(?,?,?,?,?,?,?)",
+        cur = c.execute("INSERT INTO triggers(ts,source,thread,kind,summary,payload,dedupe,status) VALUES(?,?,?,?,?,?,?,?)",
                         (a.get("ts", now), a["source"], a.get("thread"), a.get("kind", ""), a.get("summary", "")[:2000],
-                         json.dumps(a.get("payload"))[:20000], a.get("dedupe")))
+                         json.dumps(a.get("payload"))[:20000], a.get("dedupe"), status))
         tid, new = cur.lastrowid, True
     except sqlite3.IntegrityError:
         tid, new = c.execute("SELECT id FROM triggers WHERE dedupe=?", (a.get("dedupe"),)).fetchone()[0], False
-    if a.get("thread"):
+    if a.get("thread") and new:
         c.execute("INSERT INTO threads(id,title,kind,created,updated) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
                   "updated=excluded.updated, status=CASE WHEN threads.status='closed' THEN 'open' ELSE threads.status END",
                   (a["thread"], a.get("title", a.get("summary", "")[:80]), a.get("kind", ""), now, now))
@@ -81,6 +84,24 @@ def cmd_mark(c, a):
                   [(a["status"], a.get("routed_to"), time.time(), i) for i in a["ids"]])
     c.commit()
     return {"ok": True}
+
+
+def cmd_resolve_reviews(c, a):
+    """Retire historical review entries only after component evidence is complete."""
+    threads = list(dict.fromkeys(a.get('threads', [])))
+    if any(not isinstance(thread, str) or not thread.startswith('report:') for thread in threads):
+        raise ValueError('review resolution accepts report threads only')
+    resolved = 0
+    for thread in threads:
+        cur = c.execute("UPDATE triggers SET status='handled', handled_ts=? "
+                        "WHERE thread=? AND kind='report_review' AND status='review'", (time.time(), thread))
+        resolved += cur.rowcount
+        # Do not interfere with a live worker or newly filed follow-up work.
+        c.execute("UPDATE threads SET status='closed', updated=? WHERE id=? AND status!='closed' AND COALESCE(worker,'')='' "
+                  "AND NOT EXISTS (SELECT 1 FROM triggers WHERE thread=? AND status='new')",
+                  (time.time(), thread, thread))
+    c.commit()
+    return {'resolved': resolved}
 
 
 def cmd_thread(c, a):
@@ -161,6 +182,7 @@ def cmd_dashboard(c, a):
             "log": rows(c.execute("SELECT ts,actor,thread,kind,text FROM log ORDER BY ts DESC LIMIT 60")),
             "beats": rows(c.execute("SELECT name,ts,detail FROM beats")),
             "queue": c.execute("SELECT COUNT(*) FROM triggers WHERE status='new'").fetchone()[0],
+            "review_queue": c.execute("SELECT COUNT(*) FROM triggers WHERE status='review'").fetchone()[0],
             "triggers_24h": rows(c.execute("SELECT kind, status, COUNT(*) n FROM triggers WHERE ts > ? GROUP BY kind, status", (time.time() - 86400,)))}
 
 

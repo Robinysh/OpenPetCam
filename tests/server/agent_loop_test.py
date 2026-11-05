@@ -38,7 +38,7 @@ sa.replay_compare = lambda wt: {"ok": True}
 sa.ra.git = lambda *a, **k: ""
 sa.ra.load_state = lambda: {"deploys": {}}
 sa.ra.save_state = lambda st: None
-sa.ra.ship = lambda thread, wt, branch, st: ("queued", "the fix no longer applies to the latest code; it will be redone")
+sa.ra.prepare_candidate = lambda wt, branch: ("queued", "the fix no longer applies to the latest code; it will be redone", None)
 sa.ra.write_reply = lambda rid, status, text="", fix=None: replies.append((rid, status, text))
 sa.subprocess.run = lambda *a, **k: subprocess.CompletedProcess(a, 0, "", "")
 wt = tempfile.mkdtemp()

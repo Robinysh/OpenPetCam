@@ -103,10 +103,15 @@ def read(path, limit=6000):
 def collect():
     """Environment events -> triggers. Deterministic and cheap; dedupe keys make it idempotent."""
     n = 0
-    for rid in ra.unanswered():                       # reports with no reply yet
+    reports = ra.report_inventory(heartbeat=True)
+    for row in ra.report_backlog(reports):
+        if row['state'] != 'new':
+            continue
+        rid = row['id']
         r = adb("add_trigger", {"source": "report", "kind": "report", "thread": f"report:{rid}", "dedupe": f"report:{rid}",
                                 "summary": f"owner report {rid}", "payload": {"rid": rid}, "title": f"Report {rid}"})
         n += r["new"]
+    n += reconcile_reports(reports)['new']
     day = time.strftime("%Y-%m-%d")
     wk = time.strftime("%G-W%V")
     r = adb("add_trigger", {"source": "schedule", "kind": "meta_review", "thread": "meta:prompts", "dedupe": f"meta:{wk}",
@@ -121,6 +126,42 @@ def collect():
                                 "payload": {"goal": g["goal"], "value": g["value"], "target": g["target"], "detail": g["detail"]}})
         n += r["new"]
     return n
+
+
+def reconcile_reports(records=None):
+    """Recover acknowledged-but-unfinished history into a human-review queue.
+
+    This adds durable review records only. Review triggers cannot dispatch a worker,
+    rewrite a reply, notify an owner, or silently retry a rejected fix.
+    """
+    rows = ra.report_backlog(ra.report_inventory() if records is None else records)
+    resolved = [f"report:{row['id']}" for row in rows if row['state'] == 'resolved']
+    if resolved:
+        adb('resolve_reviews', {'threads': resolved})
+    added, ids = 0, []
+    for row in rows:
+        if row['state'] in ('new', 'working', 'reported_live', 'resolved'):
+            continue
+        if row['state'] == 'queued':
+            path = os.path.join(RUN, f"queued_report_{row['id']}.json")
+            try:
+                with open(path) as f:
+                    q = json.load(f)
+                if q.get('wt') and os.path.isdir(q['wt']):
+                    continue
+            except (OSError, ValueError, TypeError):
+                pass
+        rid = row['id']
+        result = adb('add_trigger', {'source': 'report_recovery', 'kind': 'report_review', 'status': 'review',
+                    'thread': f'report:{rid}', 'dedupe': f"report-review:{rid}:{row['revision']}",
+                    'title': f'Review report {rid}',
+                    'summary': f"Unfinished report: {row['state']} ({row['fix_status']}); review evidence before retrying",
+                    'payload': {'rid': rid, 'state': row['state'], 'fix_status': row['fix_status'],
+                                'commit': row['commit'], 'revision': row['revision']}})
+        added += bool(result['new'])
+        ids.append(result['id'])
+    return {'reports': len(rows), 'unresolved': sum(row['unresolved'] for row in rows),
+            'new': added, 'review_trigger_ids': ids}
 
 
 # ------------------------------------------------------------------ route
@@ -271,24 +312,54 @@ def offer_upstream(thread, commit, res):
     return f"{st} {det[:150]}"
 
 
+def save_queue(path, value):
+    """A queue item remains readable across interruption, including its final verdict."""
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(value, f)
+    os.replace(tmp, path)
+
+
 def retry_queued():
     """Fixes that waited because the code moved on: rebase, replay against held-out data, ship (one per tick)."""
     if ra.git("status", "--porcelain") or running_workers():
         return
-    for f in sorted(x for x in os.listdir(RUN) if x.startswith("queued_")):
-        q = json.load(open(os.path.join(RUN, f)))
+    for f in sorted(x for x in os.listdir(RUN) if x.startswith("queued_") and x.endswith('.json')):
+        with open(os.path.join(RUN, f)) as queue_file:
+            q = json.load(queue_file)
         if time.time() < q.get("not_before", 0):       # waiting for tomorrow's deploy budget: don't re-run the replay
             continue
-        os.remove(os.path.join(RUN, f))
-        if not os.path.exists(q["wt"]):
+        recorded = q.get('result')
+        if not recorded and not os.path.exists(q["wt"]):
+            # Keep the queue evidence until a person has reconciled the missing draft.
+            adb('add_trigger', {'source': 'harness', 'kind': 'report_review' if q.get('report') else 'review',
+                 'status': 'review', 'thread': q['thread'], 'dedupe': f"missing-queue:{q['thread']}:{q.get('commit')}",
+                 'summary': 'Queued draft worktree is missing; inspect the saved branch and outcome',
+                 'payload': {'rid': q.get('report'), 'commit': q.get('commit'), 'branch': q.get('branch')}})
             continue
-        rep = replay_compare(q["wt"])
-        if not rep.get("ok"):
-            status, detail = "replay_worse", "; ".join(rep.get("worse", []))[:300] or rep.get("error", "")
+        if recorded:
+            status, detail, rep = recorded['status'], recorded['detail'], recorded['replay']
         else:
-            st = ra.load_state()
-            status, detail = ra.ship(q["thread"], q["wt"], q["branch"], st)
-            ra.save_state(st)
+            status, detail, binding = ra.prepare_candidate(q['wt'], q['branch'])
+            rep = {'ok': False, 'error': 'candidate preparation did not complete'}
+            if status == 'ready':
+                q['commit'] = binding['candidate']
+                save_queue(os.path.join(RUN, f), q)
+                rep = replay_compare(q["wt"])
+                rep['validated_heads'] = binding
+            if status == 'ready' and not rep.get("ok"):
+                status, detail = "replay_worse", "; ".join(rep.get("worse", []))[:300] or rep.get("error", "")
+            elif status == 'ready':
+                if q.get('requires_shadow'):
+                    start_shadow(q['thread'], q['wt'], q['branch'], binding, rep)
+                    status, detail = 'shadow', 'replay passed; a fresh shadow window is required before shipping'
+                else:
+                    st = ra.load_state()
+                    status, detail = ra.ship(q["thread"], q["wt"], q["branch"], st, expected=binding)
+                    ra.save_state(st)
+            if status != 'queued':
+                q['result'] = {'status': status, 'detail': detail, 'replay': rep, 'ts': time.time()}
+                save_queue(os.path.join(RUN, f), q)
         if status == "live" and q.get("commit"):
             detail += " | upstream: " + offer_upstream(q["thread"], q["commit"], q.get("res") or {})
         note("harness", f"retried a queued fix ({q.get('commit')}): {status} {detail[:300]}", q["thread"], "result")
@@ -304,8 +375,6 @@ def retry_queued():
                                {"status": status, "commit": q.get("commit"), "detail": detail[:300]})
             except Exception as e:      # noqa: BLE001  the fix stands either way; the reply is best effort
                 log("report follow-up failed:", e)
-        if status != "queued":
-            subprocess.run(["git", "worktree", "remove", "--force", q["wt"]], cwd=ROOT, capture_output=True)
         with open(ARCHIVE, "a") as fa:
             fa.write(json.dumps({"ts": time.time(), "thread": q["thread"], "kind": "retry", "commit": q.get("commit"),
                                  "verdict": status, "detail": detail[:300], "replay": rep}) + "\n")
@@ -313,11 +382,9 @@ def retry_queued():
             # A fix that cannot be replayed on the latest code is never "redone" by waiting: retrying the same rebase
             # every tick changed nothing (2026-11-03/04). Drop it and file a fresh trigger, so a worker writes it again
             # on today's code; for a report, the owner was told "goes live shortly", so say what happens instead.
-            subprocess.run(["git", "worktree", "remove", "--force", q["wt"]], cwd=ROOT, capture_output=True)
-            subprocess.run(["git", "branch", "-D", q["branch"]], cwd=ROOT, capture_output=True)
             rid = q.get("report")
             adb("add_trigger", {"source": "harness", "kind": "report" if rid else "goal", "thread": q["thread"],
-                                "dedupe": f"redo:{q['thread']}:{int(time.time())}",
+                                "dedupe": f"redo:{q['thread']}:{q.get('commit')}",
                                 "summary": f"redo a fix that no longer applies ({q.get('commit')})",
                                 "payload": {"rid": rid} if rid else {"redo": q.get("commit")}, "title": f"Redo {q['thread']}"})
             if rid:
@@ -326,16 +393,21 @@ def retry_queued():
                                    "written again on the current version.", {"status": "redo", "commit": q.get("commit")})
                 except Exception as e:  # noqa: BLE001
                     log("report follow-up failed:", e)
+            subprocess.run(["git", "worktree", "remove", "--force", q["wt"]], cwd=ROOT, capture_output=True)
+            subprocess.run(["git", "branch", "-D", q["branch"]], cwd=ROOT, capture_output=True)
+            os.remove(os.path.join(RUN, f))
             note("harness", f"dropped a queued fix that no longer applies ({q.get('commit')}); filed a redo", q["thread"], "result")
             return
         if status == "queued":
             if "tomorrow" in detail:                   # the daily deploy cap: try again after midnight, not every tick
                 t = time.localtime(); q["not_before"] = time.mktime((t.tm_year, t.tm_mon, t.tm_mday + 1, 0, 5, 0, 0, 0, -1))
-            json.dump(q, open(os.path.join(RUN, f), "w"))
+            save_queue(os.path.join(RUN, f), q)
         else:
-            subprocess.run(["git", "worktree", "remove", "--force", q["wt"]], cwd=ROOT, capture_output=True)
-            if status != "live":
-                subprocess.run(["git", "branch", "-D", q["branch"]], cwd=ROOT, capture_output=True)
+            if status != 'shadow':
+                subprocess.run(["git", "worktree", "remove", "--force", q["wt"]], cwd=ROOT, capture_output=True)
+            # Failed drafts remain named branches for review; archive a verdict before
+            # removing its queue entry. Exceptions above leave the queue recoverable.
+            os.remove(os.path.join(RUN, f))
         return
 
 
@@ -423,11 +495,16 @@ Write {out}, exactly:
 def work(thread):
     safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", thread)
     try:
-        b = json.load(open(os.path.join(RUN, f"brief_{safe}.json")))
+        with open(os.path.join(RUN, f"brief_{safe}.json")) as f:
+            b = json.load(f)
         beat(f"worker:{thread}", {"started": time.time()})
         if b["kind"] == "report":                         # the specialised report worker (labels, reply in the app)
             st = ra.load_state()
-            ra.handle(thread.split(":", 1)[1], st)
+            try:
+                outcome = ra.handle(thread.split(":", 1)[1], st)
+            finally:
+                # A reply or notification failure must not lose an already queued draft.
+                ra.save_state(st)
             # A fix that had to wait (the code was being edited, or today's deploys were used up) joins the retry
             # queue; before 2026-11-03 it sat in report state and nothing ever shipped it.
             for rid, branch in list(st.get("pending", {}).items()):
@@ -437,13 +514,18 @@ def work(thread):
                         res = json.load(open(os.path.join(ROOT, "eval", "reports", rid, "agent_result.json")))
                     except (OSError, ValueError):
                         res = {}
-                    json.dump({"thread": f"report:{rid}", "wt": wt, "branch": branch, "report": rid, "queued_at": time.time(),
+                    save_queue(os.path.join(RUN, f"queued_report_{rid}.json"),
+                              {"thread": f"report:{rid}", "wt": wt, "branch": branch, "report": rid, "queued_at": time.time(),
                                "commit": ra.git("rev-parse", "--short", "HEAD", cwd=wt),
-                               "res": {k: res.get(k) for k in ("fix_summary", "public_summary", "tests_run")}},
-                              open(os.path.join(RUN, f"queued_report_{rid}.json"), "w"))
-                st["pending"].pop(rid)
+                               "res": {k: res.get(k) for k in ("fix_summary", "public_summary", "tests_run")}})
+                    st["pending"].pop(rid)
             ra.save_state(st)
-            adb("thread", {"id": thread, "worker": "", "status": "closed", "summary": "answered"})
+            with open(ARCHIVE, 'a') as f:
+                f.write(json.dumps({'ts': time.time(), 'thread': thread, 'kind': 'report',
+                                   'verdict': outcome['status'], 'commit': outcome.get('commit'),
+                                   'detail': outcome.get('detail'), 'fix_summary': outcome.get('summary')}) + '\n')
+            adb("thread", {"id": thread, "worker": "", "status": "closed" if outcome['status'] == 'live' else 'open',
+                           "summary": f"{outcome['status']}: {outcome.get('summary') or outcome.get('detail') or 'review needed'}"[:600]})
             return
         wt = os.path.join(ROOT, "eval", "agent-worktrees", safe)
         branch = f"agent/{safe}"
@@ -485,21 +567,7 @@ def work(thread):
                 ra.git("commit", "-q", "-m", f"Agent {thread}: {res.get('fix_summary') or 'improvement'}\n\n{res.get('summary', '')[:1500]}\n"
                        f"Baseline: {res.get('baseline', '')[:300]}\nExpected: {res.get('expected_after', '')[:300]}\n\n"
                        "Made by the super-agent (tools/superagent.py).\n\nCo-Authored-By: Claude <noreply@anthropic.com>", cwd=wt)
-                commit = ra.git("rev-parse", "--short", "HEAD", cwd=wt)
-                rep = replay_compare(wt)                 # held-out replay: no worse than the current code on any metric
-                res["replay"] = rep
-                if not rep.get("ok"):
-                    status, detail = "replay_worse", "; ".join(rep.get("worse", []))[:300] or rep.get("error", "replay failed")
-                elif touches_detection(wt):
-                    status, detail = "shadow", f"replay ok ({'; '.join(rep.get('better', [])) or 'no change'}); shadow run on live frames for {SHADOW_HOURS} h"
-                    json.dump({"thread": thread, "wt": wt, "branch": branch, "commit": commit, "started": time.time(),
-                               "since": time.time(), "frames": 0, "disagree": []}, open(os.path.join(RUN, f"shadow_{safe}.json"), "w"))
-                else:
-                    st = ra.load_state()
-                    status, detail = ra.ship(thread, wt, branch, st)
-                    ra.save_state(st)
-                    if status == "live":
-                        detail += " | upstream: " + offer_upstream(thread, commit, res)
+                status, detail, commit = judge_improvement(thread, wt, branch, res)
             elif not ok:
                 status, detail = "failed_checks", why
             else:
@@ -511,6 +579,7 @@ def work(thread):
                                 "fix_summary": res.get("fix_summary", "")[:300], "replay": res.get("replay")}) + "\n")
         if status == "queued":
             json.dump({"thread": thread, "wt": wt, "branch": branch, "commit": commit, "queued_at": time.time(),
+                       "requires_shadow": res.get('requires_shadow', False),
                        "res": {k: res.get(k) for k in ("fix_summary", "public_summary", "tests_run")}},
                       open(os.path.join(RUN, f"queued_{safe}.json"), "w"))
         if status == "live" and thread.startswith("goal:"):
@@ -532,7 +601,15 @@ def work(thread):
     except Exception as e:  # noqa: BLE001
         log("worker", thread, "failed:", type(e).__name__, str(e)[:300])
         note("worker", f"failed: {type(e).__name__}: {str(e)[:300]}", thread, "error")
-        adb("thread", {"id": thread, "worker": "", "summary": f"error: {str(e)[:200]}"})
+        adb("thread", {"id": thread, "worker": "", "status": "open", "summary": f"error: {str(e)[:200]}"})
+        if thread.startswith('report:'):
+            with open(ARCHIVE, 'a') as f:
+                f.write(json.dumps({'ts': time.time(), 'thread': thread, 'kind': 'report',
+                                   'verdict': 'error', 'detail': f'{type(e).__name__}: {str(e)[:300]}'}) + '\n')
+            adb('add_trigger', {'source': 'harness', 'kind': 'report_review', 'status': 'review', 'thread': thread,
+                               'dedupe': f'report-worker-error:{thread}:{int(time.time())}',
+                               'summary': f'Report worker failed: {type(e).__name__}: {str(e)[:200]}',
+                               'payload': {'rid': thread.split(':', 1)[1]}})
     finally:
         try:
             os.remove(os.path.join(RUN, f"worker_{safe}.pid"))
@@ -559,6 +636,57 @@ def replay_compare(wt):
         return {"ok": False, "error": (r.stderr or r.stdout)[-300:]}
 
 
+def validated_replay(wt, branch):
+    """Replay only after rebase; reject evidence if either tree changes while judging."""
+    status, detail, binding = ra.prepare_candidate(wt, branch)
+    if status != 'ready':
+        return status, detail, binding, {'ok': False, 'error': 'candidate preparation did not complete'}
+    rep = replay_compare(wt)
+    rep['validated_heads'] = binding
+    if not ra.validation_matches(wt, branch, binding):
+        rep['ok'] = False
+        rep['error'] = 'the compared code changed during replay; fresh validation is required'
+        return 'queued', rep['error'], binding, rep
+    if rep.get('ok') is not True:
+        return 'replay_worse', '; '.join(rep.get('worse', []))[:300] or rep.get('error', 'replay failed'), binding, rep
+    return 'ready', '', binding, rep
+
+
+def start_shadow(thread, wt, branch, binding, replay, previous=None):
+    """A changed candidate starts a new timed window and never reuses old shadow frames."""
+    safe = re.sub(r'[^a-zA-Z0-9_.-]', '_', thread)
+    stamp = time.time()
+    job = {'thread': thread, 'wt': wt, 'branch': branch, 'commit': binding['candidate'],
+           'validated_heads': binding, 'replay': replay, 'started': stamp, 'since': stamp,
+           'frames': 0, 'disagree': [],
+           'frames_dir': os.path.join(RUN, f'frames_{safe}_{time.time_ns()}')}
+    if previous:
+        job['previous_rounds'] = previous.get('previous_rounds', []) + [
+            {key: previous.get(key) for key in ('commit', 'validated_heads', 'started', 'frames', 'frames_dir')}]
+    save_queue(os.path.join(RUN, f'shadow_{safe}.json'), job)
+    return job
+
+
+def judge_improvement(thread, wt, branch, res):
+    """The direct worker path uses the same exact-commit boundary as queued replay."""
+    res['requires_shadow'] = touches_detection(wt)
+    status, detail, binding, rep = validated_replay(wt, branch)
+    res['replay'] = rep
+    commit = binding['candidate'] if binding else ra.git('rev-parse', 'HEAD', cwd=wt)
+    if status != 'ready':
+        return status, detail, commit
+    res['requires_shadow'] = res['requires_shadow'] or touches_detection(wt)
+    if res['requires_shadow']:
+        start_shadow(thread, wt, branch, binding, rep)
+        return 'shadow', f'replay passed; shadow run on live frames for {SHADOW_HOURS} h', commit
+    st = ra.load_state()
+    status, detail = ra.ship(thread, wt, branch, st, expected=binding)
+    ra.save_state(st)
+    if status == 'live':
+        detail += ' | upstream: ' + offer_upstream(thread, commit, res)
+    return status, detail, commit
+
+
 def touches_detection(wt):
     """A change to how frames become 'the pet' gets a shadow run on live frames before it ships."""
     changed = ra.git("diff", "--name-only", "HEAD~1", "HEAD", cwd=wt).split()
@@ -570,13 +698,50 @@ def touches_detection(wt):
     return False
 
 
+def finish_shadow(path, job):
+    """Complete a persisted terminal verdict without repeating a deployment."""
+    result = job['result']
+    status, detail = result['status'], result['detail']
+    note('shadow', f"[{status}] {job['frames']} live frames: {detail}"[:900], job['thread'], 'result')
+    with open(ARCHIVE, 'a') as f:
+        f.write(json.dumps({'ts': result['ts'], 'thread': job['thread'], 'kind': 'shadow', 'commit': job['commit'],
+                            'verdict': status, 'detail': detail[:300], 'frames': job['frames'],
+                            'disagree': len(job['disagree']), 'validated_heads': job.get('validated_heads'),
+                            'replay': job.get('replay'), 'frames_dir': job.get('frames_dir'),
+                            'previous_rounds': job.get('previous_rounds', [])}) + '\n')
+    adb('thread', {'id': job['thread'], 'worker': '', 'status': 'closed' if status == 'live' else 'open',
+                   'summary': f'{status}: {detail}'[:600]})
+    if os.path.isdir(job['wt']) and not ra.git('status', '--porcelain', cwd=job['wt']):
+        subprocess.run(['git', 'worktree', 'remove', '--force', job['wt']], cwd=ROOT, capture_output=True)
+    # Keep the named branch and frame evidence for later review, including rejected drafts.
+    os.remove(path)
+
+
 def shadow_step():
     """Every metrics run: new live candidate frames go through both trees; disagreements are judged by an independent
     labeller after SHADOW_HOURS; the candidate ships only if it is right at least as often as the current code."""
     for f in [x for x in os.listdir(RUN) if x.startswith("shadow_") and x.endswith(".json")]:
         path = os.path.join(RUN, f)
-        job = json.load(open(path))
-        fd = os.path.join(RUN, f"frames_{f[7:-5]}")
+        with open(path) as source:
+            job = json.load(source)
+        if job.get('result'):
+            finish_shadow(path, job)
+            continue
+        if job.get('validation_invalidated') or not ra.validation_matches(job['wt'], job['branch'], job.get('validated_heads')):
+            status, detail, binding, rep = validated_replay(job['wt'], job['branch'])
+            if status != 'ready':
+                job['hold_reason'] = detail
+                save_queue(path, job)
+                note('shadow', f'[hold] {detail}'[:900], job['thread'], 'result')
+                continue
+            # Neither a legacy unbound job nor a changed/rebased tree inherits elapsed
+            # time, votes, or frames from the previous shadow candidate.
+            job.setdefault('frames_dir', os.path.join(RUN, f"frames_{f[7:-5]}"))
+            start_shadow(job['thread'], job['wt'], job['branch'], binding, rep, previous=job)
+            note('shadow', 'Code changed or had no binding; replay passed and a fresh shadow window started.', job['thread'], 'result')
+            continue
+        fd = job.get('frames_dir') or os.path.join(RUN, f"frames_{f[7:-5]}")
+        job['frames_dir'] = fd
         os.makedirs(fd, exist_ok=True)
         day = time.strftime("%Y-%m-%d")
         newer = time.strftime("%H%M%S", time.localtime(job["since"]))
@@ -584,7 +749,7 @@ def shadow_step():
                               capture_output=True, timeout=300)
         subprocess.run(["tar", "-C", fd, "-xf", "-"], input=pull.stdout, capture_output=True)
         job["since"] = time.time()
-        frames = sorted(os.listdir(fd))
+        frames = sorted(name for name in os.listdir(fd) if name.lower().endswith(('.jpg', '.jpeg', '.png')))
         votes, replay_err = {}, None
         for tree, key in ((ROOT, "cur"), (job["wt"], "cand")):
             r = subprocess.run([sys.executable, os.path.join(HERE, "replay.py"), "pipeline", "--tree", tree, "--frames", fd],
@@ -599,7 +764,13 @@ def shadow_step():
                 votes[key] = {}
         job["frames"] = len(frames)
         job["disagree"] = [fr for fr in frames if bool(votes["cur"].get(fr)) != bool(votes["cand"].get(fr))]
-        json.dump(job, open(path, "w"))
+        if not ra.validation_matches(job['wt'], job['branch'], job['validated_heads']):
+            job['validation_invalidated'] = True
+            job['hold_reason'] = 'Code changed during shadow replay; fresh replay and shadow evidence are required.'
+            save_queue(path, job)
+            note('shadow', '[hold] ' + job['hold_reason'], job['thread'], 'result')
+            continue
+        save_queue(path, job)
         if time.time() - job["started"] < SHADOW_HOURS * 3600 or len(frames) < SHADOW_MIN_FRAMES:
             continue
         if replay_err:
@@ -611,20 +782,19 @@ def shadow_step():
             continue
         st = ra.load_state()
         if verdict == "ship":
-            status, why = ra.ship(job["thread"], job["wt"], job["branch"], st)
+            status, why = ra.ship(job["thread"], job["wt"], job["branch"], st, expected=job['validated_heads'])
         else:
             status, why = "shadow_worse", detail
         ra.save_state(st)
-        note("shadow", f"[{status}] {len(frames)} live frames, {len(job['disagree'])} disagreements: {detail} {why if status != 'shadow_worse' else ''}"[:900],
-             job["thread"], "result")
-        with open(ARCHIVE, "a") as fa:
-            fa.write(json.dumps({"ts": time.time(), "thread": job["thread"], "kind": "shadow", "commit": job["commit"],
-                                 "verdict": status, "detail": detail[:300], "frames": len(frames), "disagree": len(job["disagree"])}) + "\n")
-        if status != "queued":
-            subprocess.run(["git", "worktree", "remove", "--force", job["wt"]], cwd=ROOT, capture_output=True)
-        if status != "live":
-            subprocess.run(["git", "branch", "-D", job["branch"]], cwd=ROOT, capture_output=True)
-        os.remove(path)
+        if status == 'queued':
+            job['hold_reason'] = why
+            job['validation_invalidated'] = not ra.validation_matches(job['wt'], job['branch'], job['validated_heads'])
+            save_queue(path, job)
+            note('shadow', '[queued] ' + why, job['thread'], 'result')
+            continue
+        job['result'] = {'status': status, 'detail': f'{detail}; {why}', 'ts': time.time()}
+        save_queue(path, job)
+        finish_shadow(path, job)
 
 
 def adjudicate(fd, disagree, votes):
@@ -739,7 +909,9 @@ def lessons():
 # ------------------------------------------------------------------ metrics (goals, measured)
 
 METRICS_REMOTE = r'''
-import json, os, sqlite3, time, subprocess
+import json, os, sqlite3, time, subprocess, sys
+sys.path.insert(0, "/opt/petcam")
+import followmetrics
 S = "/var/lib/petcam"; now = time.time(); out = {}
 units = "petcam-watch mediamtx petcam-app caddy".split()
 cur = {u: int(subprocess.run(["systemctl", "show", "-p", "CPUUsageNSec", "--value", u], capture_output=True, text=True).stdout.strip() or 0) for u in units}
@@ -756,8 +928,13 @@ if prev and now - prev["t"] > 300 and not restarted:
     out["cpu"] = round(sum(cur[u] - prev["cpu"].get(u, cur[u]) for u in units) / 1e9 / (now - prev["t"]) * 100, 1)
 # read the clock when reading the file: `now` was taken before the CPU and search queries, so a fresh status could
 # read as -10 s old (plot 2026-11-04)
-out["live_age"] = round(time.time() - json.load(open(f"{S}/live.json"))["t"], 1)
+snapshot = json.load(open(f"{S}/live.json"))
+out["live_age"] = followmetrics.status_age(snapshot)
 c = sqlite3.connect(f"{S}/petcam.db")
+c.row_factory = sqlite3.Row
+follow_obs = c.execute("select ts, score, box from obs where ts>? order by ts", (now - 86400,)).fetchall()
+follow_track = c.execute("select ts from track where ts>? order by ts", (now - 86400,)).fetchall()
+out["follow_retention"] = followmetrics.retention(follow_obs, follow_track)
 ev = c.execute("select ts, detail from events where kind='search' and ts > ?", (now - 86400,)).fetchall()
 home = found = 0
 for ts, d in ev:
@@ -812,8 +989,13 @@ def metrics():
         rows.append({"goal": goal, "value": value, "target": target, "ok": ok, "detail": detail})
     if "cpu" in m:
         add("cpu", m["cpu"], "<= 8", m["cpu"] <= 8, "% of one core, camera services, since last measure")
-    add("app_status_fresh", m.get("live_age"), "<= 1", (m.get("live_age") if m.get("live_age") is not None else 999) <= 1,
-        "seconds since live.json")
+    add("app_status_fresh", m.get("live_age"), "<= 0.1", (m.get("live_age") if m.get("live_age") is not None else 999) <= 0.1,
+        "seconds since a status publication; detector and camera-frame latency are separate")
+    follow = m.get("follow_retention") or {}
+    follow_value = follow.get("visible_percent")
+    add("follow_retention", follow_value, ">= 80", follow_value is not None and follow_value >= 80,
+        f"detector-visible % of logged Follow time within 30 min of a sighting; "
+        f"{follow.get('eligible_seconds', 0):g} eligible seconds in 24 h; not independently known at-home time")
     f, h = m.get("search", [0, 0])
     if h:
         add("search_success", round(f / h, 2), ">= 0.8", f / h >= 0.8, f"{f} found of {h} searches when she was near (24 h, definition v2)")
@@ -958,6 +1140,9 @@ if __name__ == "__main__":
         shadow_step()
     elif cmd == "recall":
         recall(sys.argv[2])
+    elif cmd == "reconcile-reports":
+        records = json.load(open(sys.argv[2])) if len(sys.argv) > 2 else None
+        print(json.dumps(reconcile_reports(records), indent=2))
     else:
         print(__doc__)
         sys.exit(2)

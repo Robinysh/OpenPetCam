@@ -17,7 +17,9 @@ Pure logic over an injected camera, detector and clock, so it is tested without 
 (tests/server/tracker_test.py).
 """
 import collections
+import json
 import math
+import os
 import time
 
 TRACK_WINDOW = 4.0      # seconds of detections used for the velocity estimate
@@ -36,6 +38,7 @@ SOUND_SEARCH_EVERY = 180.0  # a dog sound while she is not visible may search ev
 GIVE_UP_AFTER = 2       # this many unprompted searches in a row found nothing: stop searching on a timer
                         # until something moves in the picture or a dog sound is heard (2026-11-02: the
                         # camera swept the empty flat every 10 min for an hour while she was out on a walk)
+MEMORY_MAX_AGE = 3600.0  # retain search limits across nearby restarts; never restore a stale visual track
 MOTION_CHASE_QUIET = 180.0  # after a chase set off by motion alone, no new motion chase for this long unless
                         # she is seen (2026-11-02 16:44-16:48: people moving about while she slept on the rug
                         # set off 6 motion chases, 18 motor moves in 4 min; the owner wants fewer, quieter moves)
@@ -125,6 +128,8 @@ SCAN_POLL = 0.2         # check a new frame this often while panning (the stream
 WEAK_MAX = 8.0
 WEAK_GATE = 0.12        # a weak box counts only this close (share of the frame) to where she is predicted, plus speed x time
 POST_MOVE_IGNORE = 1.6  # after our own aim, frames this young may predate the move (stream lag + settle): don't re-aim on them
+BOX_MAX_AGE = 10.0      # a delayed watcher cycle must not aim at a pet position from many seconds ago
+TOP_EDGE_NUDGE = 0.18   # reveal a cropped upper body with at most two small tilts per continuous clipped track
 
 
 class SearchHalted(Exception):
@@ -132,7 +137,7 @@ class SearchHalted(Exception):
 
 
 class Tracker:
-    def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None, can_scan=None, tick=None, cancelled=None):
+    def __init__(self, cam, find_pet, clock, log=print, sleep=None, find_now=None, can_scan=None, tick=None, cancelled=None, memory=None):
         """cam: position() -> (x, y); home() -> (x, y); goto(x, y) (returns at once); aim(fx, fy); wait_idle(); busy(); stop();
                  limits() -> (xmax, ymax);
                  frame_steps() -> (pan steps per frame width, tilt steps per frame height);
@@ -175,8 +180,47 @@ class Tracker:
         self.searching = False
         self.was_paused = False
         self.fast = None              # fasttrack.FastTrack the watcher feeds (or None); told about our own moves
+        self.fast_used_t = -1e9       # a frozen motion estimate is not a new sighting on every watcher cycle
+        self.top_edge_t, self.top_edge_n, self.top_edge_nudges = -1e9, 0, 0
+        self.activity_search_used = False  # one household-noise re-arm per absence, not periodic music-driven sweeps
+        self.memory = memory
+        self._load_memory()
 
     # ---- helpers -------------------------------------------------------------------------
+    def _load_memory(self):
+        if not self.memory:
+            return
+        try:
+            with open(self.memory) as f:
+                state = json.load(f)
+            if not isinstance(state, dict):
+                return
+            last, count = state.get("last_search"), state.get("failed_searches")
+            if isinstance(last, bool) or not isinstance(last, (int, float)) or not math.isfinite(last):
+                return
+            if type(count) is not int or count < 0 or not 0 <= self.clock() - last <= MEMORY_MAX_AGE:
+                return
+            self.last_search, self.failed_searches = last, min(count, GIVE_UP_AFTER)
+            self.activity_search_used = state.get("activity_search_used") is True
+        except (OSError, ValueError, TypeError):
+            pass
+
+    def _save_memory(self):
+        if not self.memory or self.last_search < 0:
+            return
+        tmp = f"{self.memory}.tmp"
+        try:
+            with open(tmp, "w") as f:
+                json.dump({"last_search": self.last_search, "failed_searches": self.failed_searches,
+                           "activity_search_used": self.activity_search_used}, f)
+            os.replace(tmp, self.memory)
+        except OSError:
+            # Losing persistence must not stop camera control or the watcher heartbeat.
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
     def _move(self, fn, *a, shift=None):
         # During a search every motor command is a boundary: a cancel or a person's move since the last check stops
         # it here, before the camera moves (review 2026-11-04: cancelled at 8.5 s, aimed at 8.9 s, reported found).
@@ -225,7 +269,7 @@ class Tracker:
         return ((x1 - x0) / dt, (y1 - y0) / dt) if dt >= 0.8 else (0.0, 0.0)
 
     # ---- every cycle ---------------------------------------------------------------------
-    def step(self, box, moving, sound=False, motion=None, weak=None, box_t=None, fast=None):
+    def step(self, box, moving, sound=False, motion=None, weak=None, box_t=None, fast=None, activity_sound=False):
         """Call once per watcher cycle with the verified pet box (or None), the latest motion centroid (t, fx, fy)
         from the frame reader, and `weak`: dog-like boxes from this cycle that the verifier scored below its cut-off
         but not near zero. box_t: when the detector produced `box` (the watcher reuses its last answer between
@@ -245,17 +289,25 @@ class Tracker:
         # and turned the camera off her while she lay still. A box from before our last move says nothing new.
         if box is not None and box_t is not None and box_t < self.last_move + POST_MOVE_IGNORE:
             return None
+        if box is not None and box_t is not None and t - box_t > BOX_MAX_AGE:
+            return None
         fbox = self._fast_box(t, box, fast)
         if fbox is not None:
             return self._track(t, fbox, True, src="fast")
         if box is not None:
             self.last_verified_t = t
             self.box_t = box_t if box_t is not None else t
-            return self._track(t, box, moving)
+            if self.box_t > self.top_edge_t:
+                clipped = moving and box[1] <= 0.01 and box[3] - box[1] >= 0.5
+                self.top_edge_n = self.top_edge_n + 1 if clipped and self.box_t - self.top_edge_t <= BOX_MAX_AGE else int(clipped)
+                self.top_edge_t = self.box_t
+                if box[1] > 0.03:
+                    self.top_edge_nudges = 0
+            return self._track(t, box, moving, verified=True)
         wbox = self._weak_match(t, weak)
         if wbox is not None:
             return self._track(t, wbox, moving)
-        return self._lost(t, sound, motion)
+        return self._lost(t, sound, motion, activity_sound)
 
     def _fast_box(self, t, box, fast):
         """A box at the motion tracker's estimate, when it should replace the detector's: it has followed her since
@@ -263,15 +315,17 @@ class Tracker:
         from it, or there is no box and she was verified less than FAST_LOST_MAX ago."""
         if not FAST_FOLLOW or fast is None:
             return None
-        fx, fy, n, age, _, bw, bh = fast
+        fx, fy, n, age, t_update, bw, bh = fast
         if n <= 0:
             return None
         if box is not None:
             cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
             if math.hypot(fx - cx, fy - cy) < FAST_MIN_MOVE:
                 return None
-        elif t - self.last_verified_t > FAST_LOST_MAX:
+        elif t - self.last_verified_t > FAST_LOST_MAX or t_update <= self.fast_used_t:
             return None
+        else:
+            self.fast_used_t = t_update
         return [fx + 0.5 - bw / 2, fy + 0.5 - bh / 2, fx + 0.5 + bw / 2, fy + 0.5 + bh / 2]
 
     def _weak_match(self, t, weak):
@@ -299,7 +353,7 @@ class Tracker:
         xs, ys = [h[1] for h in self.hist], [h[2] for h in self.hist]
         return max(xs) - min(xs) <= spread and max(ys) - min(ys) <= spread
 
-    def _track(self, t, box, moving, src=None):
+    def _track(self, t, box, moving, src=None, verified=False):
         cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
         self.hist.append((t, cx, cy))
         while self.hist and t - self.hist[0][0] > TRACK_WINDOW:
@@ -307,7 +361,11 @@ class Tracker:
         recent = t - self.last_seen_t < 3.0
         self.chase_dir, self.chase_steps, self.chase_origin = None, 0, None
         self.motion_chase_t = -1e9
-        self.failed_searches = 0
+        if self.failed_searches or verified and self.activity_search_used:
+            self.failed_searches = 0
+            if verified:
+                self.activity_search_used = False
+            self._save_memory()
         self.last_moving = bool(moving)
         self.last_seen_t, self.last_seen_c = t, (cx, cy)
         if len(self.hist) >= 2 and self.hist[-1][0] - self.hist[0][0] >= 0.8:
@@ -330,6 +388,20 @@ class Tracker:
             self.last_aim_t = self.clock()
             self.offcentre_since = None
             return f"track{' (' + src + ')' if src else ''}: aim ({fx:+.2f}, {fy:+.2f}), speed {speed:.2f}/s"
+        if verified and moving and self.top_edge_n >= 2 and self.top_edge_nudges < 2:
+            # A whole-body box can stay centred while its head is above the image. Only fresh
+            # verified moving boxes confirm this; weak/fast tracks and resting pets never do.
+            x, y = self.cam.position()
+            _, fh = self.cam.frame_steps()
+            _, ymax = self.cam.limits()
+            target_y = min(ymax, y + TOP_EDGE_NUDGE * fh)
+            if target_y - y >= 5 and (ROOM_MAP is None or ROOM_MAP.has_floor(x, target_y)):
+                fy = -(target_y - y) / fh
+                self._move(self.cam.aim, 0.0, fy, shift=(0.0, fy))
+                self.last_aim_t = self.clock()
+                self.top_edge_nudges += 1
+                self.top_edge_n = 0
+                return f"frame upper edge: tilt ({fy:+.2f}), {self.top_edge_nudges}/2"
         # Lying down but cut off at the side of the picture: centre her once, but only if she is mostly
         # out of the picture. A motor next to a sleeping dog startles her (owner, 2026-11-02).
         if CENTRE_RESTING_ON and not moving and max(abs(cx), abs(cy)) > CENTRE_RESTING:
@@ -425,7 +497,7 @@ class Tracker:
         self._move(self.cam.goto, *o)
         return f"chase: not found, {why}; back to where it was looking ({o[0]:.0f}, {o[1]:.0f})"
 
-    def _lost(self, t, sound, motion=None):
+    def _lost(self, t, sound, motion=None, activity_sound=False):
         gone = t - self.last_seen_t
         if METRIC_FOLLOW and ROOM_FOLLOW is not None and t - getattr(self, "exit_wait_t", -1e9) < HIDDEN_WAIT:
             return None                                   # she went where no pose can see: wait at the exit
@@ -464,22 +536,28 @@ class Tracker:
         # camera. Something moving in the picture since the last sweep (not our own move) re-arms it.
         stirred = bool(motion) and motion[0] > max(self.last_search, self.own_move_t) + 2.0
         timer_ok = self.failed_searches < GIVE_UP_AFTER or stirred
+        household = bool(activity_sound) and not self.activity_search_used and gone > SEARCH_AFTER
         due = (gone > SEARCH_AFTER and t - self.last_search > SEARCH_EVERY and timer_ok) or \
-              (sound and t - self.last_search > SOUND_SEARCH_EVERY)
+              (sound and t - self.last_search > SOUND_SEARCH_EVERY) or \
+              (household and t - self.last_search > SEARCH_EVERY)
         # Report 2026-11-02 18:31: after a restart the watcher ran 3.5 min on camera snapshots; the search
         # panned all 3 rows with no frames to check, "found nothing" past her on the rug by the TV, and
         # counted as an empty search. Sweeping blind is only motor noise: wait for the live stream.
         if due and not self.can_scan():
             return None
         if due:
-            res = self.search(reason="dog sound while out of sight" if sound and gone <= SEARCH_AFTER else
-                              f"out of sight {gone:.0f} s")
+            if household:
+                self.activity_search_used = True
+            reason = "household sound while out of sight" if household else (
+                "dog sound while out of sight" if sound and gone <= SEARCH_AFTER else f"out of sight {gone:.0f} s")
+            res = self.search(reason=reason)
             if "not found" in res:
                 self.failed_searches += 1
                 if self.failed_searches == GIVE_UP_AFTER:
                     res += f"; {GIVE_UP_AFTER} empty searches, waiting for movement or a sound before the next"
             elif "found her" in res:
                 self.failed_searches = 0
+            self._save_memory()
             return res
         return None
 
@@ -645,6 +723,9 @@ class Tracker:
         if centre and max(abs(cx), abs(cy)) > 0.15:
             self._move(self.cam.aim, cx * 0.9, cy * 0.8)
         self.last_seen_t, self.last_seen_c = self.clock(), (0.0, 0.0)
+        self.failed_searches = 0
+        self.activity_search_used = False
+        self._save_memory()
         return f"search ({reason}): found her {where} in {self.clock() - t0:.0f} s"
 
     def _scan_to(self, b, y, t0, reason):
@@ -737,6 +818,7 @@ class Tracker:
         ~0.7 s, so she is now behind the centre) and confirms on fresh frames before aiming."""
         t0 = self.clock()
         self.last_search = t0
+        self._save_memory()
         self.search_t0 = t0
         self.searching = True
         self.search_reason = reason

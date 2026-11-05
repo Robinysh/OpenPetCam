@@ -23,6 +23,7 @@ Heartbeat: /var/lib/petcam/report_agent_ok on the server each run; alert.py page
 """
 import fcntl
 import glob
+import hashlib
 import json
 import os
 import re
@@ -33,6 +34,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from siteconf import PET, ROOT, SSH  # noqa: E402
+sys.path.insert(0, ROOT)
+from server.reportstate import classify  # noqa: E402
 
 DRY = "--dry-run" in sys.argv
 REMOTE = "/var/lib/petcam/reports"
@@ -103,6 +106,90 @@ def unanswered():
     if out.returncode != 0:
         raise RuntimeError(f"listing reports failed: {out.stderr[-300:]}")
     return sorted(x for x in out.stdout.split() if x[:8].isdigit())
+
+
+def report_inventory(heartbeat=False):
+    """Read every report's lifecycle metadata, without changing replies or the heartbeat."""
+    script = """
+import json, pathlib, re
+out = []
+for path in sorted(pathlib.Path('/var/lib/petcam/reports').glob('*/report.json')):
+    if not re.fullmatch(r'\d{8}-\d{6}', path.parent.name):
+        continue
+    row = {'id': path.parent.name}
+    try:
+        report = json.loads(path.read_text())
+        if not isinstance(report, dict):
+            raise ValueError('report metadata is not an object')
+        row['report'] = {'ts': report.get('ts')}
+    except (OSError, ValueError) as e:
+        row['read_error'] = str(e)
+    try:
+        row['resolution'] = json.loads(path.with_name('resolution.json').read_text())
+    except FileNotFoundError:
+        row['resolution'] = None
+    except (OSError, ValueError) as e:
+        row['read_error'] = str(e)
+    reply = path.with_name('reply.json')
+    try:
+        row['reply'] = json.loads(reply.read_text())
+    except FileNotFoundError:
+        row['reply'] = None
+    except (OSError, ValueError) as e:
+        row['read_error'] = str(e)
+    out.append(row)
+print(json.dumps(out))
+"""
+    if heartbeat:
+        script += "\npathlib.Path('/var/lib/petcam/report_agent_ok').touch()\n"
+    r = run(SSH + ["sudo python3 -"], input=script)
+    if r.returncode:
+        raise RuntimeError(f"reading report inventory failed: {r.stderr[-300:]}")
+    return json.loads(r.stdout)
+
+
+def report_backlog(records, now=None):
+    """A reply acknowledges a request; only an explicit outcome can close it.
+
+    Legacy 'live' is a reported outcome, not independent proof. Ambiguous no-change,
+    duplicate and planned replies remain reviewable. No model or remote writes here.
+    """
+    now = time.time() if now is None else now
+    out = []
+    for row in records:
+        rid = row['id']
+        if not re.fullmatch(r"\d{8}-\d{6}", rid):
+            raise ValueError(f"invalid report id: {rid!r}")
+        reply = row.get('reply')
+        reply = reply if isinstance(reply, dict) else {}
+        fix = reply.get('fix')
+        fix = fix if isinstance(fix, dict) else {}
+        status = fix.get('status') or 'unknown'
+        lifecycle = classify(row.get('report'), row.get('reply'), row.get('resolution'), now)
+        if row.get('read_error'):
+            state = 'needs_review'
+            lifecycle = {'state': 'needs_review', 'label': 'Needs review', 'reason': 'Report evidence could not be read.'}
+        elif lifecycle['state'] == 'done':
+            state = 'resolved'
+        elif row.get('resolution') is not None:
+            state = 'needs_review'
+        elif lifecycle['state'] == 'not_started' and row.get('reply') is None:
+            state = 'new'
+        elif reply.get('status') == 'looking':
+            state = 'working' if lifecycle['state'] == 'in_progress' else 'stalled'
+        elif status == 'queued':
+            state = 'queued'
+        else:
+            state = 'needs_review'
+        # Hash persisted evidence, never the current clock: repeated reconciliation is idempotent.
+        revision = hashlib.sha256(json.dumps({'reply': row.get('reply'), 'resolution': row.get('resolution'),
+                                             'read_error': row.get('read_error')},
+                                             sort_keys=True).encode()).hexdigest()[:16]
+        out.append({'id': rid, 'state': state, 'fix_status': status, 'revision': revision,
+                    'lifecycle': lifecycle, 'unresolved': state != 'resolved',
+                    'needs_owner': fix.get('needs_owner') or '', 'commit': fix.get('commit'),
+                    'read_error': row.get('read_error')})
+    return sorted(out, key=lambda row: row['id'])
 
 
 def write_reply(rid, status, text="", fix=None):
@@ -208,10 +295,13 @@ def run_agent(rid, d, wt, rep):
     cmd = ["timeout", "-k", "10", str(AGENT_TIMEOUT), "claude", "-p", prompt, "--add-dir", d, "--add-dir", OUT, "--add-dir", os.path.join(ROOT, "models"),
            "--allowedTools", "Read", "Grep", "Glob", "Edit", "Write", "Bash(python3:*)", "Bash(ffmpeg:*)", "Bash(ffprobe:*)",
            "Bash(git diff:*)", "Bash(git status:*)", "Bash(ls:*)", "--output-format", "json"]
+    res_path = os.path.join(d, "agent_result.json")
+    if os.path.exists(res_path):
+        # A successful process that wrote no result must not reuse an older diagnosis.
+        os.replace(res_path, os.path.join(d, f"agent_result.previous-{time.time_ns()}.json"))
     r = run(cmd, cwd=wt, timeout=AGENT_TIMEOUT + 60, env=dict(ENV, PETCAM_AGENT_WORKER="1"))
     with open(os.path.join(d, "agent_transcript.json"), "w") as f:
         f.write(r.stdout or "")
-    res_path = os.path.join(d, "agent_result.json")
     if r.returncode != 0 or not os.path.exists(res_path):
         raise RuntimeError(f"agent failed (rc {r.returncode}): {(r.stderr or r.stdout)[-300:]}")
     with open(res_path) as f:
@@ -312,25 +402,55 @@ def healthy(t_deploy):
     return ok, r.stdout.strip().replace("\n", " ")
 
 
-def ship(rid, wt, branch, st):
-    today = time.strftime("%Y-%m-%d")
-    if st["deploys"].get(today, 0) >= MAX_DEPLOYS_PER_DAY:
-        return "queued", f"{MAX_DEPLOYS_PER_DAY} fixes already went live today; this one waits for tomorrow"
+def prepare_candidate(wt, branch):
+    """Rebase and check before replay, returning the exact base/candidate binding."""
     if git("status", "--porcelain"):
-        return "queued", "the code is being edited on the computer right now; it ships once that is committed"
+        return "queued", "the code is being edited on the computer right now; the draft waits", None
+    if git('status', '--porcelain', cwd=wt):
+        return 'queued', 'the candidate worktree has uncommitted edits; review is required', None
     head = git("rev-parse", "HEAD")
     if git("merge-base", head, branch) != head:
         # the code moved on while the worker ran: replay the fix on top of the latest code, then re-check everything
         r = run(["git", "rebase", head], cwd=wt, timeout=120)
         if r.returncode != 0:
             run(["git", "rebase", "--abort"], cwd=wt)
-            return "queued", "the fix no longer applies to the latest code; it will be redone"
+            return "queued", "the fix no longer applies to the latest code; it will be redone", None
         ok, why = gates(wt)
         if not ok:
-            return "failed_checks", f"after rebasing onto the latest code: {why}"
+            return "failed_checks", f"after rebasing onto the latest code: {why}", None
+    candidate = git('rev-parse', 'HEAD', cwd=wt)
+    if git('status', '--porcelain', cwd=wt):
+        return 'queued', 'candidate checks left uncommitted edits; review is required', None
+    if candidate != git('rev-parse', branch):
+        return 'queued', 'the draft branch and worktree differ; review is required', None
+    return 'ready', '', {'main': head, 'candidate': candidate}
+
+
+def validation_matches(wt, branch, expected):
+    """Both compared working trees must still be clean at the recorded commits."""
+    if not isinstance(expected, dict) or not expected.get('main') or not expected.get('candidate'):
+        return False
+    return not git('status', '--porcelain') and not git('status', '--porcelain', cwd=wt) \
+        and git('rev-parse', 'HEAD') == expected['main'] \
+        and git('rev-parse', branch) == expected['candidate'] \
+        and git('rev-parse', 'HEAD', cwd=wt) == expected['candidate'] \
+        and git('merge-base', expected['main'], expected['candidate']) == expected['main']
+
+
+def ship(rid, wt, branch, st, expected=None):
+    today = time.strftime("%Y-%m-%d")
+    if st["deploys"].get(today, 0) >= MAX_DEPLOYS_PER_DAY:
+        return "queued", f"{MAX_DEPLOYS_PER_DAY} fixes already went live today; this one waits for tomorrow"
+    if expected is None:
+        status, detail, expected = prepare_candidate(wt, branch)
+        if status != 'ready':
+            return status, detail
+    else:
+        if not validation_matches(wt, branch, expected):
+            return 'queued', 'the main code or candidate changed after replay; fresh validation is required'
     if DRY:
         return "dry", "would deploy"
-    git("merge", "--ff-only", branch)
+    git("merge", "--ff-only", expected['candidate'])
     t = time.time()
     r = run(["./deploy.sh"], cwd=ROOT, timeout=1200)
     ok, why = (r.returncode == 0, r.stdout[-300:] + r.stderr[-300:])
@@ -379,7 +499,7 @@ def handle(rid, st):
             git("commit", "-q", "--no-verify", "-m", f"UNSHIPPED report {rid}: {res.get('fix_summary') or 'fix'} (failed checks)\n\n{why[:1500]}", cwd=wt)
             commit = git("rev-parse", "--short", "HEAD", cwd=wt)
     reply = (res.get("reply") or "Looked at it.").strip()
-    tail = {"live": " The fix is live now.", "queued": " A fix is ready and goes live shortly.",
+    tail = {"live": " The fix is live now.", "queued": " A draft passed its initial checks and is queued; it has not shipped.",
             "rolled_back": " A fix was tried but undone because the server didn't look healthy; noted for review.",
             "failed_checks": " A fix was drafted but failed its checks, so nothing changed yet.",
             "dry": "", "no_change": ""}[status]
@@ -396,14 +516,16 @@ def handle(rid, st):
             contrib = " Shared with everyone as a pull request."
         detail = f"{detail} | upstream: {cst} {cdet[:150]}"
     tail += contrib
-    write_reply(rid, "answered", (reply + tail)[:600],
-                {"status": status, "commit": commit, "labels": n_labels, "detail": detail[:300]})
+    outcome = {"status": status, "commit": commit, "labels": n_labels, "detail": detail[:300],
+               "needs_owner": res.get("needs_owner") or "", "summary": res.get("fix_summary") or ""}
+    write_reply(rid, "answered", (reply + tail)[:600], outcome)
     notify(rep.get("device"), "About your report", reply + tail)
     log(rid, "->", status, f"labels={n_labels}", detail[:200])
     if status not in ("queued",):
         run(["git", "worktree", "remove", "--force", wt], cwd=ROOT)
         if status in ("no_change", "dry", "rolled_back"):      # failed_checks keeps its branch for review
             run(["git", "branch", "-D", branch], cwd=ROOT)
+    return outcome
 
 
 def main():
@@ -434,6 +556,10 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "backlog":
+        records = json.load(open(sys.argv[2])) if len(sys.argv) > 2 else report_inventory()
+        print(json.dumps(report_backlog(records), indent=2))
+        sys.exit(0)
     if len(sys.argv) < 2 or sys.argv[1] not in ("run", "--dry-run"):
         print(__doc__)
         sys.exit(2)

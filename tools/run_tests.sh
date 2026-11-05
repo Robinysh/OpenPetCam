@@ -10,7 +10,9 @@ export PETCAM_CONFIG=config/site.env.example         # tools/siteconf.py (the si
 if python3 -c "import pyflakes" 2>/dev/null; then echo "== pyflakes"; python3 -m pyflakes server tools tests sim; fi
 for t in tracker events presence stall disconnect pill search_here_first search_roommap install_files no_rotation room roomfollow update pet_name theme search_evidence \
          follow search_cancel spot_highlight talk_button policy fast_mode search_glimpse install_retire \
-         clip_player coverage zones search_overshoot js_syntax flap agent_loop fasttrack chase_wall remount; do
+         clip_player coverage zones search_overshoot js_syntax flap agent_loop fasttrack chase_wall remount moving scheduled_sweep fast_lost search_memory watch_evidence framing_sound pose_observation \
+         agent_backlog agent_validation viewstats view_insights_api view_insights_ui activity_history follow_metrics report_api requests_history_frontend live_ui_regression build_reload_ui \
+         clip_media clip_acquisition clip_player_ui; do
   echo "== $t"
   timeout 300 python3 "tests/server/${t}_test.py"
 done

@@ -13,6 +13,7 @@ every healthy cycle for the absence alerter.
 """
 import collections
 import datetime as dt
+import hashlib
 import io
 import json
 import math
@@ -53,6 +54,7 @@ PRIVACY = f"{STATE}/privacy"         # "1" while the camera is paused (privacy m
 SETTINGS = f"{STATE}/settings.json"  # {"follow": bool, "talk_volume": int} written by the web app
 FLAP_LOCK_FILE = f"{STATE}/daynight_lock_until"   # survives restarts, so a lock always ends
 HOUSE_FILE = f"{STATE}/housekeeping_day"            # date of the last nightly housekeeping run
+SEARCH_MEMORY_FILE = f"{STATE}/search_memory.json"  # empty-search budget and cooldown across watcher restarts
 MODEL = "/opt/petcam/models/yolox_nano.onnx"
 MODEL_DYN = "/opt/petcam/models/yolox_nano_dyn.onnx"   # the same weights with a free input size (tools/make_dyn_detector.py)
 DETECT_RECT = True    # run the detector at 256x416 (the 16:9 frame without square padding): same answers on 389 recorded
@@ -75,6 +77,12 @@ YAMNET_CLASSES = "/opt/petcam/models/yamnet_class_map.csv"
 DOG_SOUND_THRESHOLD = 0.55    # PROVISIONAL, see SoundModel; refit on the 👍/👎 labels from the app
 LOUD_NON_DOG_DB = -28.0       # non-dog sounds become a moment only when this loud (a crash, an alarm)
 DOG_SOUND_KINDS = set(petconf.DOG_SOUND_KINDS)
+HOUSEHOLD_SOUND_LABELS = {"Door", "Doorbell", "Knock", "Walk, footsteps", "Water",
+                          "Water tap, faucet", "Sink (filling or washing)", "Bathtub (filling or washing)"}
+ACTIVITY_SOUND_MAX_AGE = 30.0  # a hint from the existing sound classifier, never evidence that the pet is home
+STILL_RECHECK_RECENT = 120.0
+STILL_RECHECK_FULL_EVERY = 60.0
+STILL_RECHECK_ENABLED = False  # research only: existing tiles add 2 false positives on118 owner-absent frames
 
 SUB_URL = "rtsp://127.0.0.1:8554/sub"   # the camera's 640x360 stream, relayed by MediaMTX
 MAIN_URL = "rtsp://127.0.0.1:8554/cam"  # the 1080p main stream (MediaMTX pulls it all day for the recording)
@@ -186,6 +194,10 @@ def init_db():
     CREATE INDEX IF NOT EXISTS obs_ts ON obs(ts);
     CREATE TABLE IF NOT EXISTS track(ts REAL, pan INT, tilt INT, act TEXT, weak INT);
     CREATE INDEX IF NOT EXISTS track_ts ON track(ts);
+    CREATE TABLE IF NOT EXISTS pose_observation(
+        ts REAL PRIMARY KEY, capture_ts REAL, source TEXT, pan INT, tilt INT, pose_ts REAL,
+        moved_ts REAL, pose_settled INT, sharpness REAL, score REAL, detection_capture_ts REAL,
+        frame_sha256 TEXT, model_fingerprint TEXT, map_fingerprint TEXT);
     CREATE TABLE IF NOT EXISTS minute(ts INTEGER PRIMARY KEY, n INT, present INT, moving INT,
                                       person INT, motion REAL, noise_db REAL, sounds INT, snap TEXT);
     CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, ts REAL, kind TEXT, detail TEXT,
@@ -818,20 +830,38 @@ class Audio(threading.Thread):
 # ---------------------------------------------------------------- clips
 
 class Clips(threading.Thread):
-    """Cuts short MP4 clips out of MediaMTX's rolling 1-hour recording (no re-encoding)."""
+    """Keep source clips and publish browser MP4s with copied video and AAC audio."""
 
     def __init__(self):
         super().__init__(daemon=True)
         self.jobs = queue.Queue()
         self.last_clip_end = 0.0
+        self.clip_lock = threading.Lock()
+        self.pending = {}
+        self.last_job = None
 
     def want(self, event_id, ts):
         start = ts - CLIP_BEFORE
-        if start < self.last_clip_end - 5:          # overlaps the previous clip: reuse it
-            return False
-        self.last_clip_end = start + CLIP_LEN
-        self.jobs.put((event_id, start))
-        return True
+        with self.clip_lock:
+            job = self.last_job
+            if job and job["start"] <= ts <= job["end"] - 5:
+                job["events"].append(event_id)
+                if job.get("clip"):
+                    self.link_events([event_id], job["clip"])
+                return False
+            self.last_clip_end = start + CLIP_LEN
+            job = {"start": start, "end": self.last_clip_end, "events": [event_id]}
+            self.pending[event_id] = self.last_job = job
+            self.jobs.put((event_id, start))
+            return True
+
+    @staticmethod
+    def link_events(event_ids, name):
+        con = db()
+        try:
+            con.executemany("UPDATE events SET clip=? WHERE id=?", [(name, event_id) for event_id in event_ids])
+        finally:
+            con.close()
 
     def run(self):
         while True:
@@ -842,6 +872,10 @@ class Clips(threading.Thread):
             try:
                 self.cut(event_id, start)
             except Exception as e:  # noqa: BLE001
+                with self.clip_lock:
+                    failed = self.pending.pop(event_id, None)
+                    if failed is self.last_job:
+                        self.last_job = None
                 log("clip failed", event_id, e)
 
     def cut(self, event_id, start):
@@ -854,17 +888,30 @@ class Clips(threading.Thread):
 
         def call():
             with urllib.request.urlopen(url, timeout=30) as r:
-                return r.read(80_000_000)
+                data = r.read(80_000_001)
+                if len(data) > 80_000_000:
+                    raise ValueError("recording exceeds the bounded response size")
+                return data
 
-        data = camapi.with_deadline(call, 45)
-        if len(data) < 10_000:
-            raise RuntimeError(f"clip too small ({len(data)} bytes)")
-        with open(f"{CLIPS}/{name}", "wb") as f:
-            f.write(data)
-        con = db()
-        con.execute("UPDATE events SET clip=? WHERE id=?", (name, event_id))
-        con.close()
-        log("clip", name, f"{len(data) // 1024} KB")
+        from clipmedia import browser_copy, collect_recording, write_receipt
+        source = f"{CLIPS}/{name[:-4]}.source.mp4"
+        receipt_path = f"{CLIPS}/{name[:-4]}.capture.json"
+        receipt = collect_recording(lambda: camapi.with_deadline(call, 45), source, CLIP_LEN, receipt_path)
+        receipt.update(requested_start_unix=start, requested_end_unix=start + CLIP_LEN)
+        write_receipt(receipt_path, receipt)
+        if not receipt["source_file"]:
+            raise RuntimeError("recording unavailable after three bounded attempts")
+        if not receipt["duration_complete"]:
+            # A short file cannot stand in for a complete event window. Its source stays available for diagnosis.
+            raise RuntimeError(f"partial clip: {receipt['observed_duration_s']} of {CLIP_LEN}s; source preserved")
+        browser_copy(source, f"{CLIPS}/{name}")
+        with self.clip_lock:
+            job = self.pending.get(event_id)
+            self.link_events(job["events"] if job else [event_id], name)
+            self.pending.pop(event_id, None)
+            if job:
+                job["clip"] = name
+        log("clip", name, "duration checked; AAC browser copy; source preserved")
 
 
 # ---------------------------------------------------------------- daily housekeeping
@@ -971,6 +1018,7 @@ def housekeeping():
     con = db()
     con.execute("DELETE FROM obs WHERE ts < ?", (now() - RETAIN["obs_days"] * 86400,))
     con.execute("DELETE FROM track WHERE ts < ?", (now() - RETAIN["obs_days"] * 86400,))
+    con.execute("DELETE FROM pose_observation WHERE ts < ?", (now() - RETAIN["obs_days"] * 86400,))
     con.execute("UPDATE events SET clip=NULL WHERE clip IS NOT NULL AND ts < ?", (now() - RETAIN["clips_days"] * 86400,))
     con.close()
 
@@ -1023,6 +1071,22 @@ class Watch:
         except Exception as e:  # noqa: BLE001 - no verifier yet: YOLOX score alone, as before
             self.verifier = None
             log("verifier unavailable, using detector score only:", e)
+        # Read weights once at startup, never during a frame cycle. A fingerprint identifies
+        # the pipeline that produced the passive evidence; it is not an accuracy claim.
+        paths = [MODEL_DYN if DETECT_RECT and os.path.exists(MODEL_DYN) else MODEL]
+        if self.verifier:
+            cfg = self.verifier.cfg
+            paths += [VERIFIER, os.path.join(os.path.dirname(VERIFIER), cfg.get("model") if cfg.get("mode") == "finetuned"
+                                           else cfg.get("feature_model", "mobilenetv2-12.onnx"))]
+        hashes = {}
+        for path in paths:
+            try:
+                with open(path, "rb") as f:
+                    hashes[os.path.basename(path)] = hashlib.file_digest(f, "sha256").hexdigest()
+            except OSError:
+                hashes[os.path.basename(path)] = None
+        self.observation_model_fingerprint = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+        self.observation_map_fingerprint = None
         self.last_candidate_save = 0.0
         self.events = queue.Queue()
         self.audio = Audio(self.events)
@@ -1033,12 +1097,13 @@ class Watch:
         self.frames.on_frame = self.publish_tick       # every new frame refreshes the app's status
         self.source = None
         self.dog_sound_pending = False
+        self.activity_sound_pending = 0.0
         self.last_bark = None                          # {"t", "kind"} of the latest dog sound, for the app's status
         self.cam_moves = collections.deque(maxlen=20)
         self.move_box0 = None
         self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep,
                                find_now=self.find_pet_now, can_scan=lambda: self.source != "snapshot",   # idle is fine (frames start on demand); a broken stream is blind
-                               tick=self.search_tick, cancelled=self.find_cancelled)
+                               tick=self.search_tick, cancelled=self.find_cancelled, memory=SEARCH_MEMORY_FILE)
         self.tracker.fast = self.frames.motion_track
         self.last_tick = 0.0
         self.last_motion_t = 0.0
@@ -1116,10 +1181,13 @@ class Watch:
             if T.ROOM_MAP is not None:
                 log("room map: file gone, searching without it")
             T.ROOM_MAP, self.room_map_mtime = None, None
+            self.observation_map_fingerprint = None
             return
         if m != getattr(self, "room_map_mtime", None):
             self.room_map_mtime = m
             T.ROOM_MAP = RoomMap.load(ROOM_MAP)
+            self.observation_map_fingerprint = (hashlib.sha256(json.dumps(T.ROOM_MAP.doc, sort_keys=True).encode()).hexdigest()
+                                                if T.ROOM_MAP is not None else None)
             log("room map:", f"{len(T.ROOM_MAP.grid)} poses, built {T.ROOM_MAP.doc.get('built')}" if T.ROOM_MAP else "unreadable, not used")
 
     def apply_policy(self, t):
@@ -1328,6 +1396,7 @@ class Watch:
             if self.verifier:
                 for f in sorted((f for f in self.last_found if f["label"] != "person"), key=lambda f: -f["score"])[:3]:
                     f["verified"] = round(self.verifier.prob(img, f["box"]), 3)
+            self.recover_still_pet(img, t, motion, moved_recently)
             if any(f["label"] != "person" for f in self.last_found):
                 self.save_candidate(jpg, t)
         found = self.last_found
@@ -1352,6 +1421,9 @@ class Watch:
         else:
             self.prev_box = None
 
+        # Record before Follow can move the camera or spend minutes searching: the cached pose
+        # and move stamps here belong to this captured frame's context, not the later view.
+        self.record_pose_observation(con, t, jpg, score)
         self.update_pet(con, t, score, moving, jpg, best["box"] if best else None)
         if not privacy and self.find_requested(t):
             # "already in view" only from THIS cycle's detector run: between runs `best` repeats an older answer
@@ -1375,7 +1447,10 @@ class Watch:
                                         getattr(self, "ppo_weak_n", 0), (px, py), st != "0")
                 else:
                     act = self.tracker.step(best["box"] if best and score >= PRESENT_SCORE else None, moving,
-                                            sound=self.dog_sound_pending and not self.present,
+                                            # Tracker searches only without a current box. Arrival/left presence
+                                            # stays true for 3 minutes and must not suppress an out-of-view bark.
+                                            sound=self.dog_sound_pending,
+                                            activity_sound=0 <= t - getattr(self, "activity_sound_pending", 0.0) <= ACTIVITY_SOUND_MAX_AGE,
                                             motion=motion_c, weak=weak,
                                             fast=self.frames.motion_track.estimate(now()) if T.FAST_FOLLOW and person < 0.5 else None,
                                             # on the substream's clock (the constants were tuned on it): a fresher
@@ -1398,6 +1473,7 @@ class Watch:
             except Exception as e:  # noqa: BLE001 - following must never stop the watcher
                 log("follow failed:", e)
         self.dog_sound_pending = False
+        self.activity_sound_pending = 0.0
         try:
             self.check_zones(con, t, best if score >= PRESENT_SCORE else None, jpg)
         except Exception as e:  # noqa: BLE001 - zones must never stop the watcher
@@ -1406,7 +1482,7 @@ class Watch:
         con.execute("INSERT INTO obs VALUES(?,?,?,?,?,?,?)",
                     (t, round(score, 3), round(person, 3), json.dumps(best["box"]) if best else None,
                      round(motion, 2), int(self.present), int(moving and self.present)))
-        self.accumulate(con, t, jpg, motion, moving, person >= 0.5)
+        self.accumulate(con, t, jpg, motion, moving, person >= 0.5, visible=score >= ABSENT_SCORE)
 
         if t - self.last_imaging > IMAGING_EVERY:
             try:
@@ -1442,7 +1518,8 @@ class Watch:
             return
         g = gray.astype(np.float32)
         lap = -4 * g[10:-1, 1:-1] + g[9:-2, 1:-1] + g[11:, 1:-1] + g[10:-1, :-2] + g[10:-1, 2:]
-        low = float(lap.var()) < BLOCKED_SHARPNESS
+        self.frame_sharpness = float(lap.var())
+        low = self.frame_sharpness < BLOCKED_SHARPNESS
         self.sharp_samples = [x for x in self.sharp_samples if t - x[0] < BLOCKED_WINDOW] + [(t, low)]
         if len(self.sharp_samples) < BLOCKED_WINDOW / PERIOD * 0.6:
             return
@@ -1453,6 +1530,34 @@ class Watch:
         elif self.view_blocked and frac <= 0.2:
             self.view_blocked = False
             add_event(con, "view_clear", {}, None, t)
+
+    def record_pose_observation(self, con, t, jpg, score):
+        """Passive evidence only; no camera query, movement, extra frame, or obstacle decision.
+
+        Pose age and movement provenance are retained instead of pretending the30-second
+        motor cache measured this capture. Only an unchanged pose measured after the latest
+        known movement, before capture and at most30s old is marked settled.
+        """
+        pose, pose_t = getattr(self, "pose", None), getattr(self, "pose_t", None)
+        capture_t = getattr(self, "frame_capture_t", None)
+        moved_t = self.tracker.last_move
+        try:
+            moved_t = max(moved_t, os.path.getmtime(MOVED))
+        except OSError:
+            pass
+        settled = bool(pose and pose_t is not None and capture_t is not None
+                       and 0 <= capture_t - pose_t <= 30 and pose_t >= moved_t
+                       and capture_t - moved_t >= T.POST_MOVE_IGNORE)
+        try:
+            con.execute("INSERT OR REPLACE INTO pose_observation VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (t, capture_t, getattr(self, "frame_mode", None),
+                         pose[0] if pose else None, pose[1] if pose else None, pose_t,
+                         moved_t if moved_t > 0 else None, int(settled), getattr(self, "frame_sharpness", None),
+                         score, getattr(self, "last_detect_capture", None), hashlib.sha256(jpg).hexdigest(),
+                         getattr(self, "observation_model_fingerprint", None),
+                         getattr(self, "observation_map_fingerprint", None)))
+        except Exception as e:  # noqa: BLE001 - passive logging must never stop following
+            log("pose observation:", e)
 
     def check_flapping(self, con, t):
         """Day/night flapping: with the camera facing something close, its own IR light reads as
@@ -1530,13 +1635,15 @@ class Watch:
         except OSError:
             pass
         stale = t - getattr(self, "pose_t", 0) > 30 or (moved > getattr(self, "pose_t", 0) and t - moved > 3)
-        if stale:
+        if stale and t >= getattr(self, "pose_retry_after", 0):
             try:
                 _, x, y = camapi.motor_status()
                 self.pose, self.pose_t = (x, y), t
+                self.pose_retry_after = 0
             except Exception as e:  # noqa: BLE001
                 log("pose:", e)
-                self.pose_t = t
+                # Retry later without relabelling an old coordinate as a fresh measurement.
+                self.pose_retry_after = t + 30
         return getattr(self, "pose", None)
 
     def check_zones(self, con, t, best, jpg):
@@ -1626,17 +1733,66 @@ class Watch:
             self.record_search_frame(img, judged, best[1] if best else None, settled)
         return VerifiedBox(best[1], best[0]) if best else None
 
-    def tiled_box(self, img, thr, judged):
+    def recover_still_pet(self, img, t, motion, moved_recently):
+        """One bounded zoom re-check of fresh misses at a recently verified, unchanged view.
+
+        A proposal still needs the existing verifier. An old box locates a crop, never proves
+        presence; cached detector answers do not refresh this anchor. Full tiles are a bounded
+        fallback when the first crop fails, not a continuous empty-room detector.
+        """
+        if not STILL_RECHECK_ENABLED or not self.verifier:
+            return
+        pets = [f for f in self.last_found if f.get("verified", 0) >= self.verifier.threshold]
+        if pets:
+            box = max(pets, key=lambda f: f["verified"])["box"]
+            self.still_anchor = (self.frame_capture_t, list(box))
+            self.still_full_misses = 0
+            return
+        anchor = getattr(self, "still_anchor", None)
+        move_t = self.tracker.last_move
+        try:
+            move_t = max(move_t, os.path.getmtime(MOVED))
+        except OSError:
+            pass
+        if anchor and move_t > anchor[0]:
+            self.still_anchor = None
+            return
+        if not anchor or not 0 <= t - anchor[0] <= STILL_RECHECK_RECENT or moved_recently \
+                or motion > MOTION_DETECT or not self.setting("follow", False) \
+                or any(f["label"] == "person" and f["score"] >= 0.5 for f in self.last_found) \
+                or t - getattr(self, "last_still_recheck", -1e9) < DETECT_STILL:
+            return
+        self.last_still_recheck = t
+        b = anchor[1]
+        cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+        roi = min(TILES, key=lambda q: ((q[0] + q[2]) / 2 - cx) ** 2 + ((q[1] + q[3]) / 2 - cy) ** 2)
+        judged = []
+        best = self.tiled_box(img, self.verifier.threshold, judged, tiles=[roi], stop_first=True)
+        if best is None and getattr(self, "still_full_misses", 0) < 2 \
+                and t - getattr(self, "last_still_full", -1e9) >= STILL_RECHECK_FULL_EVERY:
+            self.last_still_full = t
+            self.still_full_misses = getattr(self, "still_full_misses", 0) + 1
+            best = self.tiled_box(img, self.verifier.threshold, judged,
+                                  tiles=[tile for tile in TILES if tile != roi], stop_first=True)
+        if best:
+            p, box = best
+            score = next((f["det"] for f in judged if f["box"] == [round(v, 4) for v in box]), 0.0)
+            self.last_found.append({"label": "dog", "box": box, "score": score, "verified": p, "zoom_recheck": True})
+            self.still_anchor = (self.frame_capture_t, list(box))
+            self.still_full_misses = 0
+
+    def tiled_box(self, img, thr, judged, tiles=None, stop_first=False):
         """A stopped search frame, judged again in zoomed tiles: the same detector and the same verifier threshold
         on half-size tiles of the frame (only those showing floor, per the room map). A curled-up dog is too few
         pixels for the detector in the whole 640 x 360 frame. On 124 hand-labelled frames of her resting spot
         (2026-11-03..05) whole-frame detection found her in 11 of 21, whole frame or tiles in 17 of 21, and neither
         accepted anything in the 103 frames without her. Returns (p, box in frame coordinates) or None."""
-        try:
-            x, y = self.tracker.cam.position()
-            tiles = T.ROOM_MAP.tiles(x, y) if T.ROOM_MAP else TILES
-        except Exception:  # noqa: BLE001
-            tiles = TILES
+        if tiles is None:
+            try:
+                x, y = self.tracker.cam.position()
+                tiles = T.ROOM_MAP.tiles(x, y) if T.ROOM_MAP else TILES
+            except Exception:  # noqa: BLE001
+                tiles = TILES
         w, h = img.size
         best = None
         for (tx0, ty0, tx1, ty1) in tiles:
@@ -1650,6 +1806,8 @@ class Watch:
                 judged.append({"box": [round(v, 4) for v in fb], "det": round(f["score"], 3), "p": round(p, 4), "tile": True})
                 if p >= thr and (best is None or p > best[0]):
                     best = (p, fb)
+                    if stop_first:
+                        return best
         return best
 
     # ------------------------------------------------------------ search evidence (step 0: measure Find honestly)
@@ -1847,6 +2005,12 @@ class Watch:
                     log("sound: dropped, it is the owner talking through the speaker")
                     continue
                 if name == "loud_sound":
+                    # The owner's return/paw washing can be audible before the dog enters this
+                    # view. Music/speech and our speaker do not re-arm searches. Tracker permits
+                    # one household hint per absence under its existing 10-minute cooldown.
+                    # Event/notification caps must not discard this independent bounded hint.
+                    if y.get("top") in HOUSEHOLD_SOUND_LABELS and 0 <= now() - ts <= ACTIVITY_SOUND_MAX_AGE:
+                        self.activity_sound_pending = ts
                     # The cap counts the database, not memory: today's restarts reset it (14 in 28 min).
                     n = con.execute("SELECT count(*) FROM events WHERE kind='loud_sound' AND ts > ?", (ts - 3600,)).fetchone()[0]
                     if n >= LOUD_PER_HOUR:
@@ -1886,7 +2050,7 @@ class Watch:
             f.write(jpg)
         return name
 
-    def accumulate(self, con, t, jpg, motion, moving, person):
+    def accumulate(self, con, t, jpg, motion, moving, person, visible):
         minute = int(t // 60 * 60)
         if self.minute is not None and minute != self.minute:
             a = self.acc
@@ -1905,8 +2069,10 @@ class Watch:
             self.acc = {"n": 0, "present": 0, "moving": 0, "person": 0, "motion": 0.0, "snap": snap}
         a = self.acc
         a["n"] += 1
-        a["present"] += int(self.present)
-        a["moving"] += int(self.present and moving)
+        # Minute activity describes visual evidence. The 3-minute leave debounce is for events,
+        # not evidence that an empty frame contains a resting pet.
+        a["present"] += int(visible)
+        a["moving"] += int(visible and moving)
         a["person"] += int(person)
         a["motion"] += motion
 

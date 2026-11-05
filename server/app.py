@@ -753,6 +753,41 @@ def delete_preset(name):
     return items
 
 
+_view_insights_lock = threading.Lock()
+_view_insights_cache = {}
+
+
+def view_insights(days=7):
+    """Read-only, cached statistics; querying them never wakes or moves the camera."""
+    import viewstats
+
+    days = int(days)
+    if not 1 <= days <= 7:
+        raise ValueError("days must be between 1 and 7")
+    presets = load_presets()
+    key = (days, json.dumps(presets, sort_keys=True))
+    with _view_insights_lock:
+        cached = _view_insights_cache.get(key)
+        if cached and time.monotonic() - cached[0] < 300:
+            return cached[1]
+        end = time.time()
+        start = end - days * 86400
+        con = dbc()
+        try:
+            # Cursors plus bounded lookahead keep the first request small too;
+            # materializing seven days of both tables exceeds this server's RAM.
+            obs = con.execute("SELECT ts, score, box FROM obs WHERE ts>=? AND ts<=? ORDER BY ts", (start, end))
+            track = con.execute("SELECT ts, pan, tilt, act, moves FROM track WHERE ts>=? AND ts<=? ORDER BY ts",
+                                (start - 33, end + 33))
+            result = viewstats.summarize_sorted(obs, track, presets, PAN_STEPS_PER_FRAME, TILT_STEPS_PER_FRAME)
+        finally:
+            con.close()
+        result.update(days=days, since=start, until=end)
+        _view_insights_cache.clear()
+        _view_insights_cache[key] = (time.monotonic(), result)
+        return result
+
+
 def state():
     xm, ym = limits()
     x, y = position()
@@ -1167,11 +1202,29 @@ def bucket_of(ts):
     return (lt.tm_hour * 60 + lt.tm_min) // 10
 
 
+def activity_rows(con, start, end):
+    """Correct legacy leave-debounce totals from complete retained observations.
+
+    Keep original minute records intact, and do not replace a minute when only
+    part of its raw evidence survives retention. Other minute fields stay intact.
+    """
+    rows = [dict(row) for row in con.execute("SELECT * FROM minute WHERE ts>=? AND ts<? ORDER BY ts", (start, end))]
+    evidence = {r[0]: r[1:] for r in con.execute(
+        "SELECT CAST(ts/60 AS INTEGER)*60, count(*), sum(score>=0.15), "
+        "sum(score>=0.15 AND moving>0) FROM obs WHERE ts>=? AND ts<? GROUP BY CAST(ts/60 AS INTEGER)", (start, end))}
+    for row in rows:
+        raw = evidence.get(row["ts"])
+        if raw and raw[0] >= row["n"] and raw[0] > 0:
+            row["present"] = (raw[1] or 0) / raw[0] * row["n"]
+            row["moving"] = (raw[2] or 0) / raw[0] * row["n"]
+    return rows
+
+
 def day_report(day=None):
     day, start, end = day_bounds(day)
     con = dbc()
     try:
-        rows = con.execute("SELECT * FROM minute WHERE ts>=? AND ts<? ORDER BY ts", (start, end)).fetchall()
+        rows = activity_rows(con, start, end)
         events = con.execute("SELECT * FROM events WHERE ts>=? AND ts<? ORDER BY ts DESC LIMIT 200",
                              (start, end)).fetchall()
         # Totals over the whole day: the feed above is capped at 200, the tiles must not be.
@@ -1184,7 +1237,11 @@ def day_report(day=None):
     visible = active = 0
     rest_run = longest_rest = 0
     first = last = None
+    previous_ts = None
     for r in rows:
+        if previous_ts is not None and r["ts"] - previous_ts > 60:
+            rest_run = 0
+        previous_ts = r["ts"]
         b = buckets[bucket_of(r["ts"])]
         n = max(1, r["n"])
         pres, mov = r["present"] / n, r["moving"] / n
@@ -1327,14 +1384,19 @@ def day_metrics(day):
     prev_night = time.mktime((dt.date.fromisoformat(d) - dt.timedelta(days=1)).timetuple()) + 22 * 3600
     con = dbc()
     try:
-        rows = con.execute("SELECT ts, n, present, moving FROM minute WHERE ts>=? AND ts<? ORDER BY ts", (start, end)).fetchall()
-        night = con.execute("SELECT n, present, moving FROM minute WHERE ts>=? AND ts<?", (prev_night, start + 6 * 3600)).fetchall()
+        rows = activity_rows(con, start, end)
+        night = activity_rows(con, prev_night, start + 6 * 3600)
         visits = con.execute("SELECT detail FROM events WHERE kind='visit' AND ts>=? AND ts<?", (start, end)).fetchall()
     finally:
         con.close()
     visible = active = run = longest = settles = 0
     prev_active = False
+    previous_ts = None
     for r in rows:
+        if previous_ts is not None and r["ts"] - previous_ts > 60:
+            run = 0
+            prev_active = False
+        previous_ts = r["ts"]
         n = max(1, r["n"])
         here = r["present"] / n >= 0.5
         act = here and r["moving"] / n >= 0.15
@@ -1415,7 +1477,10 @@ def _db_rows(sql, args):
 
 
 def _report_clip(d, t):
-    """Cut the 90 s before the report (+10 s after) from the rolling recording, once it is on disk."""
+    """Request -90/+10 s, retry short/unavailable recordings, and retain explicit coverage provenance."""
+    from clipmedia import collect_recording, write_receipt
+    if os.path.exists(f"{d}/clip.mp4"):
+        return                 # preserve an existing report's original evidence
     time.sleep(max(0.0, t + 16 - time.time()))
     start = t - 90
     iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(start)) + f".{int((start % 1) * 1e6):06d}Z"
@@ -1423,11 +1488,19 @@ def _report_clip(d, t):
 
     def call():
         with urllib.request.urlopen(url, timeout=30) as r:
-            return r.read(60_000_000)
+            data = r.read(60_000_001)
+            if len(data) > 60_000_000:
+                raise ValueError("report recording exceeds the bounded response size")
+            return data
     try:
-        data = with_deadline(call, 60)
-        with open(f"{d}/clip.mp4", "wb") as f:
-            f.write(data)
+        receipt = collect_recording(lambda: with_deadline(call, 60), f"{d}/clip.source.mp4", 100, f"{d}/clip-capture.json")
+        receipt.update(requested_start_unix=start, requested_end_unix=t + 10,
+                       post_report_tail_verified=False)
+        write_receipt(f"{d}/clip-capture.json", receipt)
+        if receipt["source_file"]:
+            os.link(f"{d}/clip.source.mp4", f"{d}/clip.mp4")
+        if not receipt["duration_complete"]:
+            raise RuntimeError(f"partial or unavailable report recording: {receipt['observed_duration_s']} of 100s; any recovered source is preserved")
     except Exception as e:  # noqa: BLE001 - the report is still useful without video
         with open(f"{d}/clip-error.txt", "w") as f:
             f.write(str(e))
@@ -1463,28 +1536,44 @@ def file_report(device_id, device_name, body):
 
 
 def list_reports(limit=20):
-    """The household's reports, newest first, with the report agent's reply when there is one
-    (reply.json, written by tools/report_agent.py: status looking | answered, text, fix)."""
+    """Compatibility list; paginated clients use report_page to reach older requests."""
+    return report_page(limit)["reports"]
+
+
+def report_page(limit=20, before=None):
+    """Read all request ages through stable ID cursors; resolution is separate from replies."""
+    import re
+    import reportstate
+    limit = int(limit)
+    if not 1 <= limit <= 100:
+        raise ValueError("report limit must be 1..100")
+    if before is not None and not re.fullmatch(r"\d{8}-\d{6}", before):
+        raise ValueError("invalid report cursor")
     out = []
     try:
-        ids = sorted((n for n in os.listdir(REPORTS_DIR) if n[:8].isdigit()), reverse=True)[:limit]
+        ids = sorted((n for n in os.listdir(REPORTS_DIR) if re.fullmatch(r"\d{8}-\d{6}", n)), reverse=True)
     except OSError:
-        return []
-    for rid in ids:
+        ids = []
+    remaining = [rid for rid in ids if before is None or rid < before]
+    selected = remaining[:limit]
+    for rid in selected:
         try:
             with open(f"{REPORTS_DIR}/{rid}/report.json") as f:
                 r = json.load(f)
         except (OSError, ValueError):
             continue
-        reply = None
-        try:
-            with open(f"{REPORTS_DIR}/{rid}/reply.json") as f:
-                reply = json.load(f)
-        except (OSError, ValueError):
-            pass
+        def optional(name):
+            try:
+                with open(f"{REPORTS_DIR}/{rid}/{name}.json") as f:
+                    return json.load(f)
+            except (OSError, ValueError):
+                return None
+        reply, resolution = optional("reply"), optional("resolution")
         out.append({"id": rid, "ts": r.get("ts"), "by": r.get("by"), "note": r.get("note"),
-                    "shown": (r.get("client") or {}).get("shown_status"), "reply": reply})
-    return out
+                    "shown": (r.get("client") or {}).get("shown_status"), "reply": reply,
+                    "resolution": resolution, "status": reportstate.classify(r, reply, resolution)})
+    return {"reports": out, "total": len(ids),
+            "next_before": selected[-1] if len(remaining) > len(selected) else None}
 
 
 def version_info():
@@ -1733,7 +1822,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, list_devices((self.device() or {}).get("id")))
         if path == "/api/zones":
             return self.send_json(200, list_zones())
+        if path == "/api/views/insights":
+            return self.camera_call(view_insights, q.get("days", 7))
         if path == "/api/reports":
+            if q.get("page") == "1":
+                return self.camera_call(report_page, q.get("limit", 20), q.get("before"))
             return self.send_json(200, list_reports())
         if path == "/api/agent":
             return self.send_json(200, agent_dashboard())

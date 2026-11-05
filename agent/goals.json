@@ -18,9 +18,9 @@
     {
       "id": "search_success",
       "what": "Find <pet> finds her when she is home",
-      "metric": "share of searches that found her, among searches after which she was seen within 10 min (she was home)",
+      "metric": "share of searches that found her, among searches with nearby visual evidence, excluding owner-cancelled searches",
       "target": ">= 0.8",
-      "ground_truth": "detections in the 10 min after the search, owner reports"
+      "ground_truth": "search events plus at least two detections in the defined nearby windows (definition v2); a proxy, not independent at-home ground truth"
     },
     {
       "id": "find_time",
@@ -28,6 +28,14 @@
       "metric": "median seconds from a search starting to 'found her', last 24 h",
       "target": "<= 20",
       "ground_truth": "search events and records (/var/lib/petcam/searches); owner asked 2026-11-03"
+    },
+    {
+      "id": "follow_retention",
+      "what": "Follow keeps her in view after seeing her",
+      "metric": "time-weighted detector visibility during logged Follow intervals within 30 min of a sighting, last 24 h",
+      "target": ">= 80",
+      "ground_truth": "obs score/box and track rows; detector-derived proxy, not independently labeled at-home time",
+      "note": "Owner request 2026-11-05. Provisional 80% operational target. Excludes disabled Follow and long telemetry gaps. Does not authorize extra movement; motor/rest guards remain in force."
     },
     {
       "id": "cpu",
@@ -54,8 +62,8 @@
       "id": "app_status_fresh",
       "what": "The app's status is current",
       "metric": "seconds since the watcher last published, sampled each collect",
-      "target": "<= 1",
-      "note": "owner, 2026-11-04: raised from <= 10. The watcher publishes once per cycle (every 1-3 s), so today a sample is 0-3 s old; meeting 1 s needs a sub-second cycle or a status that is published as soon as anything in it changes, without more detector runs on a CPU-limited server",
+      "target": "<= 0.1",
+      "note": "Owner request from 2026-11-03 restored during the full request audit. This is a target, not an achieved result. Publication age is separate from source frame and detector age; do not refresh timestamps without new evidence to claim success.",
       "ground_truth": "live.json age"
     },
     {
