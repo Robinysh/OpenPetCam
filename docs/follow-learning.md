@@ -21,7 +21,7 @@ python3 sim/ab_report.py 3                    # after a few days: does the learn
 | 5. Gate 1 (`sim/gate1.py`) | The unchanged controller, in the simulator, on seeds never used for calibration. | Real metrics inside the simulator's range |
 | 6. Train (`sim/train_policy.py`) | Direct policy search (CMA-ES) over the controller's tuning constants, on randomised rooms around the calibrated ones, scored by the worst quarter of rooms, with no more motor moves than today. A recurrent PPO policy (`sim/train_ppo.py`) is trained on the same environment as a challenger. | |
 | 7. Gate 2 | Learned vs today's constants on 32 held-out rooms (different seeds and parameter draws). | More time in view, better worst quarter, no more moves |
-| 8. Live A/B (gate 3, `sim/ab_report.py`) | The watcher alternates the learned constants and today's in 2-hour blocks and logs which one ran. | Logged in-view share not lower and moves per home hour not higher, over 8+ home hours per arm; else remove `models/follow_policy.json` |
+| 8. Live check (gate 3, `sim/ab_report.py`) | No rotation since 0.2.3 (owner: no live A/B). The report reads the logs before and after a change, hour-of-day matched; the 2026-10/11 rotation logs remain readable. | Logged in-view share not lower and moves per home hour not higher, over 8+ home hours per arm; else remove `models/follow_policy.json` |
 
 The policy is the existing controller with learned constants, so it costs nothing to run on a $5 server, stays readable,
 and keeps every hard rule: the server accepts only whitelisted constants clamped to fixed bounds

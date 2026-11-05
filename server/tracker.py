@@ -42,8 +42,8 @@ MOTION_CHASE_QUIET = 180.0  # after a chase set off by motion alone, no new moti
 REST_MISS_HOLD = 8.0  # she was seen lying still this recently: edge motion is not her, so no motion chase
                         # (report 2026-11-03 12:22: two hours asleep on the sofa, one missed frame right after the
                         # stream restarted, and a motion chase turned the camera 3 times away from her)
-# A learned Follow policy (sim/train_policy.py) may set only these constants, clamped to these bounds; the watcher
-# alternates it with the constants above in 2-hour blocks (live A/B) and logs which one ran (track.policy).
+# A learned Follow policy (sim/train_policy.py) may set only these constants, clamped to these bounds. The watcher runs
+# the constants above (no live rotation since 0.2.3); a policy override file can force the learned ones for a test.
 POLICY_BOUNDS = {"LEAD": (0.0, 2.0), "EDGE": (0.10, 0.35), "MOVE_EVERY": (1.0, 5.0), "CHASE_EDGE": (0.10, 0.40),
                  "WEAK_GATE": (0.05, 0.25), "WEAK_MAX": (3.0, 15.0), "POST_MOVE_IGNORE": (0.8, 2.5),
                  "TRACK_WINDOW": (2.0, 6.0), "MOTION_CHASE_QUIET": (30.0, 600.0), "SEARCH_AFTER": (15.0, 120.0)}

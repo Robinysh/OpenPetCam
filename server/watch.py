@@ -58,8 +58,7 @@ VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.
 ROOM_MAP = "/opt/petcam/models/room_map.json"         # from sim/world/find_map.py (this home's room model); optional
 FOLLOW_POLICY = "/opt/petcam/models/follow_policy.json"   # from sim/train_policy.py (learned on this camera's simulator)
 FOLLOW_PPO = "/opt/petcam/models/follow_ppo.onnx"         # a recurrent PPO policy (sim/train_ppo.py), server/ppo_follow.py
-POLICY_BLOCK_S = 7200          # live A/B: the learned constants and today's alternate in 2-hour blocks
-POLICY_OVERRIDE = f"{STATE}/policy_override"   # "<arm> <unix expiry>": force one arm for a live smoke test, expires itself
+POLICY_OVERRIDE = f"{STATE}/policy_override"   # "<arm> <unix expiry>": force learned/ppo for a live smoke test, expires itself
 REPORTS = f"{STATE}/reports"                         # "Something wrong?" reports from the app
 CANDIDATES = f"{STATE}/candidates"                  # frames with dog-like things, for the next bootstrap
 SEARCHES = f"{STATE}/searches"                      # what each search saw, to label Find right/wrong (tools/search_review.py)
@@ -1115,8 +1114,13 @@ class Watch:
             log("room map:", f"{len(T.ROOM_MAP.grid)} poses, built {T.ROOM_MAP.doc.get('built')}" if T.ROOM_MAP else "unreadable, not used")
 
     def apply_policy(self, t):
-        """Live A/B of a learned Follow policy: odd 2-hour blocks run its constants, even blocks today's. Fails closed:
-        no file, a bad file or no valid constants -> today's constants, logged as 'base'."""
+        """Which Follow policy runs. No rotation (owner, 2026-11-05: no live A/B): today's Follow constants always,
+        plus the learned search stops when the policy file has valid ones (the room-map replay that shipped v0.2.2
+        measured them together: in view at a stop 48 of 56). Why not the learned Follow constants: over the week
+        before, the live logs (sim/ab_report.py) gave them 18% of watched time with her in view and 48 motor
+        commands an hour, against 33% and 29 for today's constants (hours not matched, but both point the same
+        way, against the simulator's verdict). POLICY_OVERRIDE ("<arm> <unix expiry>") still forces 'learned' or
+        'ppo' for a deliberate live smoke test; it expires itself."""
         self.load_room_map()
         if not hasattr(self, "policy_base"):
             self.policy_base = {k: getattr(T, k) for k in T.POLICY_BOUNDS}
@@ -1129,35 +1133,32 @@ class Watch:
                 self.policy_doc = T.policy_constants(doc)
                 self.policy_stops = T.policy_stops(doc)
                 self.policy_mtime = m
-                log("follow policy:", self.policy_doc or "none valid")
+                log("follow policy:", self.policy_doc or "none valid", "| search stops:", len(self.policy_stops))
         except (OSError, ValueError):
             self.policy_doc, self.policy_mtime, self.policy_stops = {}, None, []
-        if not hasattr(self, "ppo"):
+        arm = "base"
+        try:
+            want, until = open(POLICY_OVERRIDE).read().split()[:2]
+            if want in ("learned", "ppo") and t < float(until):
+                arm = want
+        except (OSError, ValueError):
+            pass
+        if arm == "ppo" and getattr(self, "ppo", None) is None:
             self.ppo = None
             if os.path.exists(FOLLOW_PPO):
                 try:
                     from ppo_follow import PPOFollow
                     self.ppo = PPOFollow(FOLLOW_PPO, CamAdapter(), Tracker, self.find_pet, now,
                                          log=lambda m: log("follow:", m), sleep=time.sleep, find_now=self.find_pet_now)
-                    log("follow policy: PPO controller loaded")
                 except Exception as e:  # noqa: BLE001 - a broken model must never stop following: base runs instead
                     log("follow policy: PPO controller unavailable:", e)
-        arms = ["base"] + (["learned"] if self.policy_doc or self.policy_stops else []) + (["ppo"] if self.ppo else [])
-        # 2-hour blocks rotate through every policy present, shifted one block per day: with 12 blocks a day and 2 arms
-        # an unshifted rotation gave each arm the SAME hours every day (review 2026-11-04), confounding policy with
-        # her daily routine. Shifted, each hour of the day alternates between arms day by day.
-        arm = arms[(int(t // POLICY_BLOCK_S) + int(t // 86400)) % len(arms)]
-        try:
-            want, until = open(POLICY_OVERRIDE).read().split()[:2]
-            if want in arms and t < float(until):
-                arm = want
-        except (OSError, ValueError):
-            pass
+            if self.ppo is None:
+                arm = "base"
         for k, v in self.policy_base.items():
             setattr(T, k, self.policy_doc.get(k, v) if arm == "learned" else v)
-        T.SEARCH_STOPS = self.policy_stops if arm == "learned" else []
+        T.SEARCH_STOPS = self.policy_stops
         if arm == "ppo" and self.policy_arm != "ppo":
-            self.ppo.reset()                                # a fresh memory at the start of each PPO block
+            self.ppo.reset()
         self.policy_arm = arm
 
     def check_stream_stall(self):

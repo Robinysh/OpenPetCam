@@ -137,7 +137,7 @@ You don't need a camera or any code to help:
 | `server/` | everything that runs on the server, plus `install.sh` and `update.py` |
 | `config/site.env.example` | the one file you fill in (`./setup` does it for you) |
 | `tools/` | run on your computer: setup helpers, training, the agent, `run_tests.sh`, `make_release.sh` |
-| `sim/` | the camera-and-pet simulator, its calibration, policy training and the live A/B report |
+| `sim/` | the camera-and-pet simulator, its calibration, policy training and the live before/after report |
 | `tests/` | `server/` and `sim/` run anywhere; `onserver/` needs a running install |
 | `docs/` | install, updates, privacy, architecture, camera notes, performance, learning, the agent |
 

@@ -2,9 +2,9 @@
 
 Worked top to bottom. Each item moves to Done with the commit or date that shipped it.
 
-1. **Live A/B verdict** (gate 3). The corrected report (`sim/ab_report.py`) needs ~3 days of blocks with the
-   day-shifted rotation; then promote or remove the learned arm (constants retrained 2026-11-04 on the validated
-   simulator). Add labelled spot checks (is she really in view?) as the ground truth the telemetry cannot give.
+1. **Follow without live A/B** (owner, 2026-11-05: no A/B tests; rotation removed in 0.2.3, today's constants run
+   always). A learned Follow change ships only on offline evidence the live logs can check before/after: labelled spot
+   checks (is she really in view?) and the logged in-view share and motor commands per hour, hour-of-day matched.
 2. **Find v2: infer where she is before sweeping.** In the calibrated simulator half the automatic searches start while
    she is out of the room. Track where a lost track ended (Claude's exits on the room map): if she left through a
    doorway, watch that doorway and say so ("left through the corridor 12 min ago") instead of sweeping; if she lay down
@@ -28,7 +28,7 @@ Worked top to bottom. Each item moves to Done with the commit or date that shipp
 8. **On-camera tracker** (owner, 2026-11-03): a tiny model inside prudynt's frame path (a hardware-scaled ~96x54 NV12
    channel) tracking 5-10 times a second next to the motor. First student: 11,851 params, 1.5 MMAC/frame, held-out recall
    0.88 / precision 0.57 against the server's detector. Ship gate: camera under ~70% busy, beats the server path in the
-   simulator and in a live A/B.
+   simulator and on before/after live numbers (no A/B).
 9. **Fine-tune the pet classifier on weeks of footage** (owner, 2026-11-03), held out by day, the 118-frame walk set
    at 0 false accepts, a shadow run before it ships.
 10. **Agent**: weakness mining over transcripts and reports; a pairwise judge for changes with no metric (copy,

@@ -4,6 +4,15 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-05
+
+### Follow
+- No live A/B: the watcher no longer alternates Follow policies in 2-hour blocks. Today's Follow constants run
+  always, with the learned search stops (the v0.2.2 room-map replay measured them together). Over the week before,
+  the logs gave the learned Follow constants 18% of watched time with her in view and 48 motor commands an hour,
+  against 33% and 29 for today's (hours not matched). An override file can still force the learned constants or the
+  PPO controller for a deliberate live test; it expires itself.
+
 ## [0.2.2] - 2026-11-05
 
 ### Find
