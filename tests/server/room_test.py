@@ -2,7 +2,6 @@
 of the watcher's own records as the room model's presence layer computes them, and textures cannot escape the bundle.
   python3 tests/server/room_test.py"""
 import json
-import math
 import os
 import sqlite3
 import sys
