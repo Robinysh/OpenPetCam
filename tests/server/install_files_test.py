@@ -14,4 +14,9 @@ for f in os.listdir(S):
             if m in mods and f"$SRC/{m}.py" not in inst:
                 missing.add((f, m))
 assert not missing, f"imported but not installed by install.sh: {sorted(missing)}"
+# files the app serves straight from its folder (read_file routes): each must be installed too
+app = open(os.path.join(S, "app.py")).read()
+served = set(re.findall(r'"/((?:vendor/)?[\w.-]+\.(?:js|css|html|svg|png))"', app))
+not_installed = sorted(f for f in served if os.path.exists(os.path.join(S, f)) and f"$SRC/{f}" not in inst)
+assert not not_installed, f"served by app.py but not installed by install.sh: {not_installed}"
 print("install files ok")

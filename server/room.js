@@ -1,0 +1,309 @@
+// Room tab: your room as a dollhouse (its fitted floor, walls and furniture, textured from the camera), where the pet
+// is now, and where she spent the day. Loaded only when the tab opens (index.html imports it), so Live stays light.
+//
+// Designed from what an owner asks of a room, not from the sensors behind it: Where is she? Where does she spend her
+// time? When? What is that spot? One look (Day / Night), up to three floor overlays, one day strip to scrub, and a tap
+// on any spot. Everything else the model holds (depth points, echoes, sound plots) stays in the developer viewer
+// (sim/world/viewer). Data: /api/room (the bundle from sim/world/app_bundle.py) and /api/room/positions.
+import * as THREE from "/vendor/three.module.min.js";
+import { OrbitControls } from "/vendor/OrbitControls.js";
+
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const DAY = 86400;
+const store = (k, v) => { try { v === undefined ? (v = localStorage.getItem(k)) : localStorage.setItem(k, v); } catch { v = null; } return v; };
+
+export async function mountRoom(root, pet) {
+  const name = (pet && pet.name) || "your pet";
+  const info = await (await fetch("/api/room", { credentials: "same-origin" })).json().catch(() => ({ available: false }));
+  root.innerHTML = "";
+  if (!info.available) {
+    root.append(el("div", "room-empty", `<h2>No room model yet</h2><p>The Room tab shows your room in 3D, where ${name} is and
+      where ${name} spends the day. Build the model on your computer (<code>sim/world</code>, see its README), then
+      <code>python3 -m sim.world.app_bundle eval/world</code> and deploy: it is installed on your server only.</p>`));
+    return { show() {}, hide() {} };
+  }
+  // ---------------------------------------------------------------- layout
+  const stage = el("div", "room-stage"); root.append(stage);
+  const pill = el("div", "room-pill", `<i></i><span>Loading the room…</span>`); root.append(pill);
+  const rail = el("div", "room-rail"); root.append(rail);
+  const ICON = {
+    layers: `<svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>`,
+    centre: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>`,
+  };
+  const bLayers = el("button", "iconbtn glass", ICON.layers); bLayers.setAttribute("aria-label", "Looks and overlays");
+  const bView = el("button", "iconbtn glass word", "3D"); bView.setAttribute("aria-label", "Switch between 3D and the plan from above");
+  const bCentre = el("button", "iconbtn glass", ICON.centre); bCentre.setAttribute("aria-label", `Show ${name}`);
+  rail.append(bLayers, bView, bCentre);
+  const spot = el("div", "room-card hidden"); root.append(spot);
+  const dock = el("div", "room-dock"); root.append(dock);
+  dock.innerHTML = `<div class="room-dock-head"><button class="iconbtn" data-d="-1" aria-label="Previous day"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+    <b class="room-day"></b><button class="iconbtn" data-d="1" aria-label="Next day"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+    <span class="room-time"></span><button class="chip room-now" type="button">Now</button></div>
+    <canvas class="room-strip" aria-label="The day: drag to see where ${name} was"></canvas>
+    <div class="room-strip-axis"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>`;
+  const sheet = el("div", "sheet-bg hidden"); document.body.append(sheet);
+  const LOOKS = [["photo", "Day", "the camera's daytime sweep"], ["night", "Night", "its infrared night picture"]];
+  const OVERS = [["heat", "Time spent", `where ${name} was, brighter for longer`],
+                 ["unsure", "Unsure areas", "where the model knows least (bright = uncertain)"],
+                 ["materials", "Materials", "near-infrared minus visible: plants, fabrics and fur glow"]];
+  const tx = (k) => info.textures?.[k] ? `/api/room/tex?f=${encodeURIComponent(info.textures[k])}` : null;
+  sheet.innerHTML = `<div class="sheet" role="dialog" aria-label="Looks and overlays"><div class="grab"></div><h3>Room</h3>
+    <div class="room-sec">Look</div><div class="room-tiles">${LOOKS.filter(([k]) => tx(k)).map(([k, t, d]) =>
+      `<button class="room-tile" data-look="${k}" title="${d}"><span style="background-image:url(${tx(k)})"></span>${t}</button>`).join("")}</div>
+    <div class="room-sec">On the floor</div>${OVERS.filter(([k]) => k === "heat" || tx(k)).map(([k, t, d]) =>
+      `<button class="room-over" data-over="${k}"><span class="room-thumb ${k}"${k !== "heat" ? ` style="background-image:url(${tx(k)})"` : ""}></span>
+       <span><b>${t}</b><small>${d}</small></span><i class="room-check"></i></button>`).join("")}
+    <p class="room-foot">Built ${info.built}. The model lives on your server only.</p></div>`;
+
+  // ---------------------------------------------------------------- state
+  const S = { look: store("room.look") || "photo", over: store("room.over") || "heat", view: store("room.view") || "3d",
+              day0: startOfDay(Date.now() / 1000), T: null, rows: [], live: true };
+  // ---------------------------------------------------------------- 3D
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+  stage.append(renderer.domElement);
+  const scene = new THREE.Scene();
+  const bg = () => { scene.background = new THREE.Color(css("--bg") || "#111"); };
+  bg();
+  const world = new THREE.Group(); world.scale.x = -1; scene.add(world);       // the model's frame is left-handed
+  const cam = new THREE.PerspectiveCamera(50, 1, 0.05, 100);
+  const controls = new OrbitControls(cam, renderer.domElement);
+  controls.enableDamping = true; controls.maxPolarAngle = Math.PI * 0.49; controls.minDistance = 1.5; controls.maxDistance = 16;
+  const H = info.floor_height_m, CEIL = info.ceiling_m || 2.6, C = info.calib;
+  const loader = new THREE.TextureLoader();
+  const tex = (k) => { const u = tx(k); if (!u) return null; const t = loader.load(u, () => draw()); t.colorSpace = THREE.SRGBColorSpace; return t; };
+  const T = { photo: tex("photo"), night: tex("night"), unsure: tex("unsure"), materials: tex("materials") };
+  const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); blank.needsUpdate = true;
+  const U = { pano: { value: T.photo || blank }, over: { value: blank }, overOn: { value: 0 }, cut: { value: 0 },
+              clay: { value: new THREE.Color("#c9c6c0") }, light: { value: new THREE.Vector3(0.45, 0.8, 0.35).normalize() } };
+  const vert = `varying vec3 wp; void main(){ vec4 w = modelMatrix * vec4(position,1.); wp = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`;
+  const frag = `uniform sampler2D pano, over; uniform float overOn, cut; uniform vec3 clay, light; varying vec3 wp;
+  void main(){
+    vec3 d = normalize(vec3(-wp.x, wp.y, wp.z));
+    vec2 uv = vec2(atan(d.x, d.z) / 6.2831853 + 0.5, 0.5 + asin(clamp(d.y,-1.,1.)) / 3.1415927);
+    vec3 p = texture2D(pano, uv).rgb; float seen = step(0.02, p.r + p.g + p.b);
+    vec3 fn = normalize(cross(dFdx(wp), dFdy(wp))); float lens = dot(fn, normalize(-wp));
+    if (cut > 0.5 && lens < -0.02) discard;                       // seen from behind: cut away (dollhouse)
+    float sh = 0.64 + 0.36 * (0.5 + 0.5 * dot(fn, normalize(vec3(-light.x, light.y, light.z))));
+    vec3 col = mix(clay * sh, p * mix(1.0, sh, 0.3), seen);
+    if (lens < 0.12) col = clay * sh * 0.93;                       // the lens only grazed it: untextured, honestly
+    if (overOn > 0.5) { vec3 o = texture2D(over, uv).rgb; float so = step(0.03, o.r + o.g + o.b); col = mix(col * 0.55, o, so * 0.85); }
+    gl_FragColor = vec4(col, 1.);
+    #include <colorspace_fragment>
+  }`;
+  const mat = (cut) => new THREE.ShaderMaterial({ uniforms: { ...U, cut: { value: cut } }, vertexShader: vert, fragmentShader: frag, side: THREE.DoubleSide });
+  const solidMat = mat(0), cutMat = mat(1);
+  // floor: a fan from the lens to the outline (gaps up to 25 deg bridged; wider ones are not floor we know)
+  const OL = info.outline.map((o) => ({ az: o[0], r: o[1] }));
+  for (let i = 0; i < OL.length; i++) if (OL[i].r == null) {
+    let a = i, b = i; while (OL[(a - 1 + OL.length) % OL.length].r == null && i - a < 30) a--; while (OL[(b + 1) % OL.length].r == null && b - i < 30) b++;
+    const ra = OL[(a - 1 + OL.length) % OL.length].r, rb = OL[(b + 1) % OL.length].r;
+    OL[i].gap = (b - a + 1) > 25 || ra == null || rb == null; OL[i].rr = OL[i].gap ? null : ra + (rb - ra) * (i - a + 1) / (b - a + 2);
+  } else OL[i].rr = OL[i].r;
+  const fp = []; const pt = (o) => [Math.sin(o.az * Math.PI / 180) * o.rr, -H, Math.cos(o.az * Math.PI / 180) * o.rr];
+  for (let i = 0; i < OL.length; i++) { const j = (i + 1) % OL.length; if (OL[i].gap || OL[j].gap) continue; fp.push(0, -H, 0, ...pt(OL[j]), ...pt(OL[i])); }
+  const fg = new THREE.BufferGeometry(); fg.setAttribute("position", new THREE.Float32BufferAttribute(fp, 3));
+  const floor = new THREE.Mesh(fg, solidMat); floor.userData.floor = true; world.add(floor);
+  const onFloor = (x, z) => { const o = OL[(Math.round(Math.atan2(x, z) * 180 / Math.PI) + 180 + 360) % 360]; return o && !o.gap && Math.hypot(x, z) <= o.rr + 0.05; };
+  // walls (cut away when they face away from you) with light caps, as a dollhouse
+  const COUNTER = H + (info.overhead_m || 0), walls = [];
+  for (const w of info.walls) {
+    const [ax, az] = w.a, [bx, bz] = w.b, len = Math.hypot(bx - ax, bz - az), mid = [(ax + bx) / 2, (az + bz) / 2];
+    const hgt = Math.hypot(...mid) < 0.6 ? COUNTER : CEIL;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(len, hgt, 6, 6), cutMat);
+    m.position.set(mid[0], -H + hgt / 2, mid[1]); m.rotation.y = Math.atan2(-(bz - az), bx - ax); world.add(m);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(len, 0.03, 0.06), new THREE.MeshBasicMaterial({ color: 0xebe8e2 }));
+    cap.position.set(mid[0], -H + hgt, mid[1]); cap.rotation.y = m.rotation.y; world.add(cap);
+    const nx = -(bz - az) / len, nz = (bx - ax) / len, s = -(mid[0] * nx + mid[1] * nz) > 0 ? 1 : -1;
+    walls.push({ mid, n: [nx * s, nz * s], cap });
+  }
+  // furniture boxes
+  const objects = [];
+  for (const o of info.objects) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(...o.size), solidMat);
+    m.position.set(...o.center); m.rotation.y = Math.atan2(Math.sin(o.yaw_deg * Math.PI / 180), Math.cos(o.yaw_deg * Math.PI / 180));
+    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 })));
+    world.add(m); objects.push({ ...o, mesh: m });
+  }
+  // the camera (a small dot at the lens)
+  const lens = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 12), new THREE.MeshBasicMaterial({ color: css("--accent") || "#7aa7ff" })); world.add(lens);
+  // time-spent heat on the floor
+  const HC = 0.1, HN = 140, HALF = HN * HC / 2, heatData = new Uint8Array(HN * HN * 4);
+  const heatTex = new THREE.DataTexture(heatData, HN, HN); heatTex.magFilter = THREE.LinearFilter; heatTex.needsUpdate = true;
+  const heat = new THREE.Mesh(new THREE.PlaneGeometry(HN * HC, HN * HC), new THREE.MeshBasicMaterial({ map: heatTex, transparent: true, depthWrite: false }));
+  heat.rotation.x = -Math.PI / 2; heat.position.y = -H + 0.012; heat.renderOrder = 2; world.add(heat);
+  // the pet
+  const petCol = new THREE.Color(css("--viz-active") || "#ff8a5b");
+  const dot = new THREE.Group(); world.add(dot);
+  dot.add(new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.05, 32), new THREE.MeshBasicMaterial({ color: petCol })));
+  dot.add(new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.04, 32), new THREE.MeshBasicMaterial({ color: 0xffffff })));
+  const halo = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.31, 48), new THREE.MeshBasicMaterial({ color: petCol, transparent: true, side: THREE.DoubleSide }));
+  halo.rotation.x = -Math.PI / 2; dot.add(halo); dot.visible = false;
+
+  // ---------------------------------------------------------------- behaviour
+  const label = (o) => o.label.replace(/\s*\(.*?\)\s*/g, "").replace(/,.*$/, "").trim();
+  function placeOf(x, z) {
+    let best = null, bd = 0.6;
+    for (const o of objects) {
+      if (o.kind === "thin") continue;                       // a screen is not a place she can be
+      const dx = x - o.center[0], dz = z - o.center[2], c = Math.cos(o.yaw_deg * Math.PI / 180), s = Math.sin(o.yaw_deg * Math.PI / 180);
+      const lx = Math.abs(dx * c - dz * s) - o.size[0] / 2, lz = Math.abs(dx * s + dz * c) - o.size[2] / 2;
+      const dd = Math.hypot(Math.max(lx, 0), Math.max(lz, 0));
+      if (dd < bd) { bd = dd; best = o; }
+    }
+    return best ? (bd < 0.05 ? `on the ${label(best)}` : `by the ${label(best)}`) : "on the open floor";
+  }
+  const fmtT = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const fmtDur = (s) => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
+  function startOfDay(t) { const d = new Date(t * 1000); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; }
+  const dayLabel = (d0) => { const today = startOfDay(Date.now() / 1000); return d0 === today ? "Today" : d0 === today - DAY ? "Yesterday" : new Date(d0 * 1000).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
+
+  async function loadDay() {
+    const until = Math.min(S.day0 + DAY, Date.now() / 1000);
+    try {
+      const r = await (await fetch(`/api/room/positions?since=${S.day0}&until=${until}`, { credentials: "same-origin" })).json();
+      S.rows = r.rows || [];
+    } catch { S.rows = []; }
+    if (S.live || S.T == null || S.T > until || S.T < S.day0) S.T = until;
+    apply();
+  }
+  function buildHeat() {
+    const g = new Float32Array(HN * HN);
+    for (const r of S.rows) { if (r[0] > S.T || r[5]) continue; const i = Math.floor((r[1] + HALF) / HC), j = Math.floor((r[2] + HALF) / HC); if (i >= 0 && i < HN && j >= 0 && j < HN) g[j * HN + i] += r[4]; }
+    const k = [0.06, 0.24, 0.4, 0.24, 0.06], t = new Float32Array(HN * HN), b = new Float32Array(HN * HN);
+    for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) { let s = 0; for (let d = -2; d <= 2; d++) { const ii = i + d; if (ii >= 0 && ii < HN) s += g[j * HN + ii] * k[d + 2]; } t[j * HN + i] = s; }
+    for (let j = 0; j < HN; j++) for (let i = 0; i < HN; i++) { let s = 0; for (let d = -2; d <= 2; d++) { const jj = j + d; if (jj >= 0 && jj < HN) s += t[jj * HN + i] * k[d + 2]; } b[j * HN + i] = s; }
+    let mx = 0; for (const v of b) mx = Math.max(mx, v);
+    const stops = [[0, [92, 38, 20]], [0.35, [205, 82, 44]], [0.7, [255, 146, 98]], [1, [255, 236, 220]]];
+    for (let p = 0; p < HN * HN; p++) {
+      const row = p / HN | 0, col = p % HN, o = ((HN - 1 - row) * HN + col) * 4;
+      const v = mx ? Math.sqrt(b[p] / mx) : 0;
+      let c = stops[0][1]; for (let s = 1; s < stops.length; s++) if (v <= stops[s][0]) { const a = stops[s - 1], z = stops[s], f = (v - a[0]) / (z[0] - a[0]); c = a[1].map((x, q) => x + (z[1][q] - x) * f); break; }
+      heatData[o] = c[0]; heatData[o + 1] = c[1]; heatData[o + 2] = c[2];
+      heatData[o + 3] = v < 0.03 || !onFloor(col * HC - HALF + HC / 2, row * HC - HALF + HC / 2) ? 0 : Math.min(230, 70 + 190 * v);
+    }
+    heatTex.needsUpdate = true;
+  }
+  function apply() {
+    U.pano.value = T[S.look] || T.photo || blank;
+    const ov = S.over === "unsure" || S.over === "materials" ? T[S.over] : null;
+    U.over.value = ov || blank; U.overOn.value = ov ? 1 : 0;
+    for (const m of [solidMat, cutMat]) { m.uniforms.pano.value = U.pano.value; m.uniforms.over.value = U.over.value; m.uniforms.overOn.value = U.overOn.value; }
+    heat.visible = S.over === "heat"; if (heat.visible) buildHeat();
+    // where she is (or was, at the playhead)
+    let last = null; for (const r of S.rows) { if (r[0] <= S.T) last = r; else break; }
+    const ago = last ? S.T - last[0] : Infinity;
+    dot.visible = !!last && ago < 6 * 3600; if (last) dot.position.set(last[1], -H + 0.02, last[2]);
+    dot.children[0].material.opacity = 1; halo.material.opacity = ago < 120 ? 1 : 0.35;
+    const live = S.live && Math.abs(Date.now() / 1000 - S.T) < 90;
+    pill.className = `room-pill ${last && ago < 120 ? "here" : ""}`;
+    pill.querySelector("span").textContent = !last ? `${name} not seen ${S.day0 === startOfDay(Date.now() / 1000) ? "today" : "that day"}`
+      : ago < 120 ? `${name} · ${placeOf(last[1], last[2])}${live ? " · now" : ` · ${fmtT(last[0])}`}`
+      : live ? `${name} · ${placeOf(last[1], last[2])} · ${fmtDur(ago)} ago` : `${name} · ${placeOf(last[1], last[2])} · ${fmtT(last[0])}`;
+    dock.querySelector(".room-day").textContent = dayLabel(S.day0);
+    dock.querySelector(".room-time").textContent = live ? "now" : S.T >= S.day0 + DAY - 60 ? "end of day" : fmtT(S.T);
+    dock.querySelector(".room-now").classList.toggle("hidden", live);
+    dock.querySelector('[data-d="1"]').disabled = S.day0 >= startOfDay(Date.now() / 1000);
+    sheet.querySelectorAll("[data-look]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.look === S.look));
+    sheet.querySelectorAll("[data-over]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.over === S.over));
+    bView.textContent = S.view === "3d" ? "3D" : "Top";
+    drawStrip(); draw();
+  }
+  // day strip: minutes she was seen, in 10-minute bars; the playhead is draggable
+  const strip = dock.querySelector(".room-strip");
+  function drawStrip() {
+    const w = strip.clientWidth, h = strip.clientHeight, r = devicePixelRatio || 1;
+    if (!w) return;
+    strip.width = w * r; strip.height = h * r; const g = strip.getContext("2d"); g.scale(r, r); g.clearRect(0, 0, w, h);
+    const bins = new Float32Array(144); for (const x of S.rows) { const k = Math.floor((x[0] - S.day0) / 600); if (k >= 0 && k < 144) bins[k] += x[4]; }
+    const mx = Math.max(60, ...bins);
+    g.fillStyle = css("--line") || "#333"; g.fillRect(0, h - 1, w, 1);
+    const end = Math.min(1, (Date.now() / 1000 - S.day0) / DAY);
+    g.fillStyle = css("--card2") || "#222"; g.fillRect(end * w, 0, w - end * w, h - 1);           // the future
+    g.fillStyle = css("--viz-active") || "#ff8a5b";
+    for (let k = 0; k < 144; k++) if (bins[k]) { const bh = Math.max(3, (h - 6) * Math.sqrt(bins[k] / mx)); g.fillRect(k / 144 * w + 0.5, h - 1 - bh, w / 144 - 1, bh); }
+    const x = (S.T - S.day0) / DAY * w;
+    g.fillStyle = css("--text") || "#fff"; g.fillRect(x - 1, 0, 2, h); g.beginPath(); g.arc(x, 4, 4, 0, 7); g.fill();
+  }
+  const scrub = (e) => {
+    const b = strip.getBoundingClientRect(), f = Math.max(0, Math.min(1, ((e.touches ? e.touches[0].clientX : e.clientX) - b.left) / b.width));
+    S.T = Math.min(S.day0 + f * DAY, Date.now() / 1000); S.live = false; apply();
+  };
+  let dragging = false;
+  strip.addEventListener("pointerdown", (e) => { dragging = true; strip.setPointerCapture(e.pointerId); scrub(e); });
+  strip.addEventListener("pointermove", (e) => dragging && scrub(e));
+  strip.addEventListener("pointerup", () => { dragging = false; });
+  dock.querySelector(".room-now").onclick = () => { S.day0 = startOfDay(Date.now() / 1000); S.live = true; loadDay(); };
+  dock.querySelectorAll("[data-d]").forEach((b) => b.onclick = () => { S.day0 += +b.dataset.d * DAY; S.live = false; S.T = null; loadDay(); });
+  // controls
+  bLayers.onclick = () => sheet.classList.remove("hidden");
+  sheet.onclick = (e) => { if (e.target === sheet) sheet.classList.add("hidden"); };
+  sheet.querySelectorAll("[data-look]").forEach((b) => b.onclick = () => { S.look = b.dataset.look; store("room.look", S.look); apply(); });
+  sheet.querySelectorAll("[data-over]").forEach((b) => b.onclick = () => { S.over = S.over === b.dataset.over ? "none" : b.dataset.over; store("room.over", S.over); apply(); });
+  // fit the camera to the floor's extent for this screen's shape (a phone in portrait needs to stand much farther back)
+  const ext = (() => {
+    const xs = [], zs = [];
+    for (const o of OL) if (!o.gap && o.rr) { xs.push(-Math.sin(o.az * Math.PI / 180) * o.rr); zs.push(Math.cos(o.az * Math.PI / 180) * o.rr); }
+    const q = (a, f) => a.slice().sort((x, y) => x - y)[Math.floor(f * (a.length - 1))];
+    const x0 = q(xs, 0.04), x1 = q(xs, 0.96), z0 = q(zs, 0.04), z1 = q(zs, 0.96);
+    return { cx: (x0 + x1) / 2, cz: (z0 + z1) / 2, r: Math.max(x1 - x0, z1 - z0) / 2 + 0.4 };
+  })();
+  function frame(view) {
+    const vfov = cam.fov * Math.PI / 180, hfov = 2 * Math.atan(Math.tan(vfov / 2) * (cam.aspect || 1));
+    const d = ext.r / Math.sin(Math.min(vfov, hfov) / 2);
+    controls.target.set(ext.cx, -H, ext.cz);                    // scene coordinates (the model's x is mirrored)
+    if (view === "top") { cam.position.set(ext.cx, -H + d, ext.cz + 0.01); controls.enableRotate = false; }
+    else { const el = 52 * Math.PI / 180, az = -35 * Math.PI / 180;
+           cam.position.set(ext.cx + d * Math.cos(el) * Math.sin(az), -H + d * Math.sin(el), ext.cz - d * Math.cos(el) * Math.cos(az)); controls.enableRotate = true; }
+    controls.maxDistance = d * 2; controls.update(); draw();
+  }
+  bView.onclick = () => { S.view = S.view === "3d" ? "top" : "3d"; store("room.view", S.view); frame(S.view); apply(); };
+  bCentre.onclick = () => { if (dot.visible) { const p = dot.getWorldPosition(new THREE.Vector3()); controls.target.copy(p); controls.update(); draw(); } else frame(S.view); };
+  // tap a spot: what it is and how long she spent there that day
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); let down = null;
+  renderer.domElement.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener("pointerup", (e) => {
+    if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
+    const b = renderer.domElement.getBoundingClientRect();
+    ndc.set(((e.clientX - b.left) / b.width) * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1); ray.setFromCamera(ndc, cam);
+    const hit = ray.intersectObjects([floor, ...objects.map((o) => o.mesh)], false)[0];
+    if (!hit) { spot.classList.add("hidden"); return; }
+    const p = world.worldToLocal(hit.point.clone());
+    const near = S.rows.filter((r) => Math.hypot(r[1] - p.x, r[2] - p.z) < 0.5 && r[0] <= S.T);
+    const total = near.reduce((s, r) => s + r[4], 0);
+    spot.innerHTML = `<b>${placeOf(p.x, p.z).replace(/^(on|by) the /, "").replace(/^on the open floor$/, "Open floor")}</b>
+      <span>${near.length ? `${name} spent ${fmtDur(total)} here ${dayLabel(S.day0).toLowerCase() === "today" ? "today" : "that day"} · last ${fmtT(near.at(-1)[0])}` : `${name} was not seen here ${S.day0 === startOfDay(Date.now() / 1000) ? "today" : "that day"}`}</span>
+      <small>${(Math.hypot(p.x, p.z)).toFixed(1)} m from the camera</small>`;
+    spot.classList.remove("hidden");
+  });
+  // render on demand (battery): while the controls move, when data changes, and the halo's pulse while she is here
+  let raf = 0, visible = false;
+  function draw() { if (!raf && visible) raf = requestAnimationFrame(tick); }
+  function tick(t) {
+    raf = 0;
+    const moving = controls.update();
+    camLocal.copy(cam.position); world.worldToLocal(camLocal);
+    for (const w of walls) w.cap.visible = (camLocal.x - w.mid[0]) * w.n[0] + (camLocal.z - w.mid[1]) * w.n[1] > 0;
+    const pulse = dot.visible && halo.material.opacity === 1;
+    if (pulse) { const s = 1 + 0.25 * (0.5 + 0.5 * Math.sin(t / 300)); halo.scale.set(s, s, s); }
+    renderer.render(scene, cam);
+    if (moving || pulse) draw();
+  }
+  const camLocal = new THREE.Vector3();
+  controls.addEventListener("change", draw);
+  function resize() {
+    const w = stage.clientWidth, h = stage.clientHeight; if (!w || !h) return;
+    const first = !cam.userData.sized; cam.userData.sized = true;
+    renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); if (first) frame(S.view); drawStrip(); draw();
+  }
+  new ResizeObserver(resize).observe(stage);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { bg(); drawStrip(); draw(); });
+  frame(S.view);
+  let poll = 0;
+  return {
+    show() { visible = true; bg(); resize(); loadDay(); clearInterval(poll); poll = setInterval(() => { if (S.live) loadDay(); }, 30000); },
+    hide() { visible = false; clearInterval(poll); sheet.classList.add("hidden"); },
+    state: S, // for scripted checks
+  };
+}

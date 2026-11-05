@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export PETCAM_SITE_ENV=config/site.env.example       # the server code's settings
 export PETCAM_CONFIG=config/site.env.example         # tools/siteconf.py (the simulator's camera tools import it)
-for t in tracker events presence stall disconnect pill search_here_first search_roommap install_files no_rotation update pet_name theme search_evidence \
+for t in tracker events presence stall disconnect pill search_here_first search_roommap install_files no_rotation room update pet_name theme search_evidence \
          follow search_cancel spot_highlight talk_button policy fast_mode search_glimpse install_retire \
          clip_player coverage zones search_overshoot js_syntax flap agent_loop; do
   echo "== $t"

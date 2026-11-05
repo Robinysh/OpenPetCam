@@ -19,10 +19,14 @@ python3 -m sim.world.build eval/world --collect [--tape 0.86]           # 4. pul
 python3 -m http.server -d eval/world/model 8765                          # 5. open http://localhost:8765 (Dollhouse view)
 blender -b --python sim/world/blender_export.py -- eval/world/model      #    optional: room.blend / room.glb
 python3 -m sim.world.find_map eval/world                                 # 6. the room map for Find -> model/room_map.json
+python3 -m sim.world.app_bundle eval/world                               # 7. the app's Room tab -> models/room/
 ```
 
-Copy `model/room_map.json` to your server's `models/` folder (next to `follow_policy.json`) and deploy: the search
-then uses it. Without it the search runs as before.
+Copy `model/room_map.json` to your server's `models/` folder (next to `follow_policy.json`), keep `models/room/`
+there too, and deploy: the search uses the map, and the app gains its **Room** tab (your room as a dollhouse, where
+your pet is, where they spent the day, tap any spot). Both stay on your server and are served to signed-in devices
+only. Without them the app and the search run as before. `python3 tools/room_dev.py eval/world` previews the Room tab
+on this computer from your local data.
 
 Walls are placed from marks you make on the calibrated panorama (`eval/<world>/picks.json`: the floor junction of each
 wall, and object windows with a label such as `sofa`, `chair`, `bowls`, `stand`, `stool`). The sweep never moves the
@@ -64,9 +68,10 @@ method it was measured by. Sensors with `needs_room = True` run after the room i
   the server within a permission window you set; a verified 3D FDTD solver (`python3 -m sim.world.fdtd verify`) and a
   near-field model of the camera body. Each must beat a direction-shuffle null before it may change the geometry.
 
-## The viewer
+## The developer viewer (`viewer/`)
 
-Dollhouse (default): the room's fitted planes with the walls facing you cut away, furniture boxes, the pet's dwell
+The app's Room tab shows what an owner needs. This viewer shows everything the model holds, for building and
+checking it. Dollhouse (default): the room's fitted planes with the walls facing you cut away, furniture boxes, the pet's dwell
 heatmap on the floor. Orbit: the full fused surface. Camera eye and Floor plan. "Colour the room by" shows any surfel
 attribute (uncertainty, class, near-IR, sound support, dwell), and a click lists every modality at that point.
 

@@ -23,6 +23,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import petconf
+import roomapi
 
 STATE_DIR = petconf.STATE
 
@@ -1753,6 +1754,30 @@ class Handler(BaseHTTPRequestHandler):
             return self.camera_call(lambda: push_status((self.device() or {}).get("id")) | push_key())
         if path == "/api/state":
             return self.camera_call(state)
+        # ---- Room tab: your room model and where the pet was on its floor (signed-in devices only) ----
+        if path in ("/room.js", "/vendor/three.module.min.js", "/vendor/OrbitControls.js"):
+            return self.send(200, read_file(path[1:]), "text/javascript; charset=utf-8", {"Cache-Control": "max-age=300"})
+        if path == "/api/room":
+            return self.send_json(200, roomapi.info())
+        if path == "/api/room/tex":
+            f = roomapi.texture(q.get("f", ""))
+            if not f:
+                return self.send(404, b"not found")
+            with open(f, "rb") as fh:
+                body = fh.read()
+            return self.send(200, body, "image/png" if f.endswith(".png") else "image/jpeg", {"Cache-Control": "private, max-age=3600"})
+        if path == "/api/room/positions":
+            now_t = time.time()
+            try:
+                until = min(float(q.get("until", now_t)), now_t)
+                since = max(float(q.get("since", until - 86400)), until - 3 * 86400)    # at most 3 days per request
+            except ValueError:
+                return self.send_json(400, {"error": "since/until must be unix times"})
+            con = dbc()
+            try:
+                return self.send_json(200, {"since": since, "until": until, "rows": roomapi.positions(con, since, until)})
+            finally:
+                con.close()
         return self.send(404, b"not found")
 
     def camera_call(self, fn, *args):
