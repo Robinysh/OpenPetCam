@@ -161,9 +161,11 @@ export async function mountRoom(root, pet) {
   const rx = (a) => [[1, 0, 0], [0, Math.cos(a), -Math.sin(a)], [0, Math.sin(a), Math.cos(a)]];
   const ry = (a) => [[Math.cos(a), 0, Math.sin(a)], [0, 1, 0], [-Math.sin(a), 0, Math.cos(a)]];
   const rz = (a) => [[Math.cos(a), -Math.sin(a), 0], [Math.sin(a), Math.cos(a), 0], [0, 0, 1]];
-  function camRay(pan, tilt, u, v) {                       // roomcam.Camera.ray without the lens distortion term
+  // a re-mount starts a new dated correction (mount_offsets: [since, pitch, yaw, roll]); poses use the one in force then
+  const offAt = (t) => { let o = null; for (const m of info.mount_offsets || []) { if (m[0] <= t) o = m.slice(1); } return o || (info.mount_offsets || [])[0]?.slice(1) || OFF; };
+  function camRay(pan, tilt, u, v, off = OFF) {           // roomcam.Camera.ray without the lens distortion term
     const Rm = [ry((1850 - pan) * C.deg_per_step_pan * D2R), rx(-(tilt - C.level_tilt) * C.deg_per_step_tilt * D2R), rz(C.roll_deg * D2R),
-                ry(OFF[1] * D2R), rx(OFF[0] * D2R)].reduce(mul);
+                ry(off[1] * D2R), rx(off[0] * D2R)].reduce(mul);
     const c = [(u * 1920 - 960) / C.focal_px, -(v * 1080 - 540) / C.focal_px, 1];
     const w = [0, 1, 2].map((i) => Rm[i][0] * c[0] + Rm[i][1] * c[1] + Rm[i][2] * c[2]), n = Math.hypot(...w);
     return w.map((x) => x / n);
@@ -174,19 +176,19 @@ export async function mountRoom(root, pet) {
   const coneEdge = new THREE.LineSegments(coneLines, new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.85 }));
   cone.renderOrder = coneEdge.renderOrder = 3; world.add(cone, coneEdge);
   const axis = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), 0.45, accent.getHex(), 0.12, 0.08); world.add(axis);
-  function camRayFor(T) { let pose = null; for (const p of S.poses || []) { if (p[0] <= T) pose = p; else break; } return pose ? camRay(pose[1], pose[2], 0.5, 0.5) : []; }
+  function camRayFor(T) { let pose = null; for (const p of S.poses || []) { if (p[0] <= T) pose = p; else break; } return pose ? camRay(pose[1], pose[2], 0.5, 0.5, offAt(pose[0])) : []; }
   function showCamera(pose) {
     cone.visible = coneEdge.visible = axis.visible = !!pose;
     if (!pose) return;
     const corners = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => {
-      const d = camRay(pose[1], pose[2], u, v), r = Math.min(rangeAt(d[0] * 5, d[1] * 5, d[2] * 5) || 3, 6);
+      const d = camRay(pose[1], pose[2], u, v, offAt(pose[0])), r = Math.min(rangeAt(d[0] * 5, d[1] * 5, d[2] * 5) || 3, 6);
       return d.map((x) => x * r);
     });
     const P = []; for (let k = 0; k < 4; k++) P.push(0, 0, 0, ...corners[k], ...corners[(k + 1) % 4]);
     coneGeo.setAttribute("position", new THREE.Float32BufferAttribute(P, 3)); coneGeo.computeBoundingSphere();
     const E = []; for (let k = 0; k < 4; k++) E.push(0, 0, 0, ...corners[k], ...corners[k], ...corners[(k + 1) % 4]);
     coneLines.setAttribute("position", new THREE.Float32BufferAttribute(E, 3)); coneLines.computeBoundingSphere();
-    axis.setDirection(new THREE.Vector3(...camRay(pose[1], pose[2], 0.5, 0.5)));
+    axis.setDirection(new THREE.Vector3(...camRay(pose[1], pose[2], 0.5, 0.5, offAt(pose[0]))));
   }
   // the strongest-link bearing of the camera's WiFi (radio_map.py): a dashed horizontal line from the lens
   // the router lies opposite the strongest-link bearing (the antenna is on the back of the pan body: radio_map.py)

@@ -13,7 +13,10 @@ For a grid of camera poses (pan, tilt in motor steps) it writes:
 Probabilities come from the presence layer (every detection of her, weighted by how long she stayed). With
 `exclude_day` the map is built without that day's detections, so a replay of that day is judged on a map that
 did not see it (find_bench --replay).
-    python3 -m sim.world.find_map eval/world_remap1 [out.json]"""
+    python3 -m sim.world.find_map eval/world_remap1 [out.json]
+Known limit (2026-11-05): searches are read in raw pan/tilt. After a re-mount (sim/world/remount.py) a rebuild mixes
+poses from two mounts; until searches are converted through models/room/room.json's mount_offsets, rebuild only from
+searches after the latest re-mount, or re-run remount.py on the rebuilt map."""
 import json
 import os
 import sys

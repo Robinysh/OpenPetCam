@@ -4,6 +4,15 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-11-05
+
+### Room model
+- Re-mounts are carried through (`sim/world/remount.py`). A pan/tilt pose only means something with the mount's
+  rotation, so after a re-mount the new correction (from registering new snapshots to the panorama) starts a dated
+  entry in `mount_offsets`: positions logged before the move keep the old correction, later ones get the new, in the
+  server's position history and in the Room tab's view cone. Stored poses are re-aimed so each points where it did:
+  the room map's search stops (plus a pose shift for its floor grid), the learned search stops and the saved views.
+
 ## [0.3.4] - 2026-11-05
 
 ### Fixed

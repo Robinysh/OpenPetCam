@@ -88,6 +88,13 @@ def build(world, out):
         smooth = (json.load(open(rp)) or {}).get("smooth") or []
         if smooth:
             off = (float(smooth[-1][1]), float(smooth[-1][2]), 0.0)
+    # re-mounts (sim/world/remount.py): dated corrections, so positions logged before a move keep the old one
+    mh = os.path.join(world, "raw", "mount_history.json")
+    offsets = None
+    if os.path.exists(mh):
+        hist = json.load(open(mh))
+        offsets = [[h["since"] if h["since"] is not None else 0, *h["off"]] for h in hist]
+        off = tuple(hist[-1]["off"])
     legends = legends_for(model, (L.get("fused.surfels") or {}).get("data") or {}, ((L.get("radio.rssi") or {}).get("data") or {}).get("by_direction"))
     outline = []
     for row in room["outline"]:                        # [azimuth deg, range m or None, label]: labels stay out
@@ -98,7 +105,7 @@ def build(world, out):
            "outline": outline, "walls": [{"a": w["a"], "b": w["b"]} for w in room["walls"]],
            "objects": [{"label": o["label"], "center": o["center"], "size": o["size"], "yaw_deg": o["yaw_deg"],
                         "kind": o.get("kind", "solid")} for o in fused.get("objects", [])],
-           "mount_offset_deg": off, "textures": tex, "range_shape": shape, "blind_fill": meta.get("blind_fill"),
+           "mount_offset_deg": off, "mount_offsets": offsets, "textures": tex, "range_shape": shape, "blind_fill": meta.get("blind_fill"),
            "radio": ((L.get("radio.rssi") or {}).get("data") or {}).get("by_direction"),
            "legends": legends}
     json.dump(doc, open(os.path.join(out, "room.json"), "w"))

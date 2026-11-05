@@ -15,6 +15,8 @@ class RoomMap:
     def __init__(self, doc):
         self.doc = doc
         self.ps, self.ts = int(doc["pan_step"]), int(doc["tilt_step"])
+        # after a re-mount the grid was measured in the old mount's poses: look up (x - dx, y - dy) (sim/world/remount.py)
+        self.dx, self.dy = (int(v) for v in (doc.get("pose_shift") or (0, 0)))
         self.min_floor = float(doc.get("min_floor", 0.02))
         self.grid = {(int(p["pan"]), int(p["tilt"])): p for p in doc["poses"]}
         self.stops_by_hour = {int(h): [(int(s[0]), int(s[1]), float(s[2])) for s in v] for h, v in doc["stops"].items()}
@@ -33,6 +35,7 @@ class RoomMap:
             return None
 
     def _pose(self, x, y):
+        x, y = x - self.dx, y - self.dy
         k = (int(round(x / self.ps)) * self.ps, int(round(y / self.ts)) * self.ts)
         return self.grid.get(k)
 

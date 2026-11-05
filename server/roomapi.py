@@ -82,13 +82,27 @@ def camera_poses(con, since, until):
     return out
 
 
+def offset_at(doc, ts):
+    """The mount correction in force at ts: the latest dated entry in mount_offsets at or before it (a re-mount
+    starts a new one, sim/world/remount.py), else the bundle's single mount_offset_deg."""
+    best = None
+    for row in doc.get("mount_offsets") or []:
+        if row[0] <= ts:
+            best = row
+    if best is not None:
+        return tuple(best[1:4])
+    rows = doc.get("mount_offsets") or []
+    if rows:
+        return tuple(rows[0][1:4])
+    return tuple(doc.get("mount_offset_deg") or (0, 0, 0))
+
+
 def positions(con, since, until):
     """Where she was between since and until: rows [t, x, z, moving, dwell_s, cut_off], oldest first."""
     doc, cam = bundle()
     if not doc:
         return []
     h = float(doc["floor_height_m"])
-    off = tuple(doc.get("mount_offset_deg") or (0, 0, 0))
     tt, pp = poses(con, since, until)
     out, last_box, last_ts = [], None, None
     for ts, box, present, moving in con.execute(
@@ -110,7 +124,7 @@ def positions(con, since, until):
             b = json.loads(box)
         except ValueError:
             continue
-        p = floor_point(cam, pose[0], pose[1], b, h, off)
+        p = floor_point(cam, pose[0], pose[1], b, h, offset_at(doc, ts))
         if p is None:
             continue
         out.append([round(ts, 1), round(p[0], 3), round(p[1], 3), int(moving or 0), 1.5, int(b[3] > 0.97)])
