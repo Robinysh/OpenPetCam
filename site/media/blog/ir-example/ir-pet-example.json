@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "description": "A cropped recorded LED off/on/off sequence and its signed JPEG-level diagnostics",
+  "quality": "qualitative_only",
+  "quantitative": false,
+  "units": "encoded JPEG pixel levels, averaged across decoded RGB channels",
+  "source_sha256": {
+    "off_before": "75ed6e06d8d81b59021c16651aebe44056b58dc9370feac42755625e2b4b4996",
+    "on": "5520b0a05e92eb9f99c1882b123007e4b34dbfde5b3d7a2423d9105ab8cb5603",
+    "off_after": "1d921234b887029d9741822be0e78df70ebadeb82a9c167ad8912fb125d39eed"
+  },
+  "source_log_sha256": "3ef48436e97ee8ac90987d556a56466c4427ea53adbccf174f82d54a3269e19f",
+  "source_dimensions": [
+    1920,
+    1080
+  ],
+  "crop_dimensions": [
+    250,
+    360
+  ],
+  "elapsed_seconds": {
+    "off_before": 0.0,
+    "on": 7.562777757644653,
+    "off_after": 14.8314688205719
+  },
+  "interpolation": {
+    "off_before_weight": 0.49008571914639043,
+    "off_after_weight": 0.5099142808536096
+  },
+  "formula": {
+    "grey": "(R + G + B) / 3 in encoded JPEG levels",
+    "estimated_ambient": "off_before_weight * off_before + off_after_weight * off_after",
+    "residual": "on - estimated_ambient",
+    "drift": "off_after - off_before"
+  },
+  "sample": {
+    "pixel_xy": [
+      105,
+      220
+    ],
+    "coordinate_system": "zero-based crop pixels",
+    "rgb": {
+      "off_before": [
+        60,
+        39,
+        54
+      ],
+      "on": [
+        63,
+        38,
+        57
+      ],
+      "off_after": [
+        60,
+        40,
+        52
+      ]
+    },
+    "grey": {
+      "off_before": 51.0,
+      "on": 52.666666666666664,
+      "off_after": 50.666666666666664
+    },
+    "estimated_ambient": 50.83002857304879,
+    "residual": 1.8366380936178714,
+    "drift": -0.3333333333333357
+  },
+  "crop_statistics": {
+    "pixels": 90000,
+    "residual": {
+      "minimum": -244.01982856170721,
+      "maximum": 211.60530487370033,
+      "mean": -0.44086573389903855,
+      "median": 0.0,
+      "median_absolute": 2.4966952397154643,
+      "p05": -12.651665323076069,
+      "p95": 11.346552374471472,
+      "clipped_display_fraction": 0.058255555555555553
+    },
+    "drift": {
+      "minimum": -229.33333333333334,
+      "maximum": 225.66666666666666,
+      "mean": 0.9286074074074074,
+      "median": 0.0,
+      "median_absolute": 2.0,
+      "p05": -12.666666666666671,
+      "p95": 17.66666666666667,
+      "clipped_display_fraction": 0.09385555555555555
+    },
+    "any_input_channel_at_least_254_fraction": 0.2399111111111111
+  },
+  "legend": {
+    "minimum": -16.0,
+    "maximum": 16.0,
+    "zero": 0,
+    "low_label": "-16 or less",
+    "high_label": "+16 or more",
+    "units": "JPEG pixel levels",
+    "clipped_at_endpoints": true,
+    "colours": [
+      "#2187e0",
+      "#477aa7",
+      "#6d6d6d",
+      "#b64da7",
+      "#ff2de0"
+    ],
+    "interpretation": "Blue is negative, grey zero, magenta positive; identical scale for residual and drift"
+  },
+  "limitations": [
+    "Logged LED/filter states do not establish verified hardware controls or a calibrated camera response",
+    "Subject movement, ambient drift, clipping, sensor noise and automatic image processing can affect the difference",
+    "The arithmetic uses encoded JPEG values, without linearization or exposure normalization",
+    "Residual colours are qualitative diagnostics, not infrared reflectivity or temperature"
+  ],
+  "output_sha256": {
+    "ir-pet-drift.png": "adeb5a56a65a009706d8f15b7f84c5f493ff45d7c25226e0301bea8d4bf770aa",
+    "ir-pet-off-after.png": "a78e0c758f319334078ca5d79167fe374c9a9819caabbf6e8ceec596f1e19622",
+    "ir-pet-off-before.png": "3116e80785439fb43a06953ea0c0fe2894e85cef08d0b24c68e819125b528916",
+    "ir-pet-on.png": "626476c54cc75719aa292fd7021c3e2fbf2215910cfcd4c3faf685f419b09e1a",
+    "ir-pet-residual.png": "688c9e49290741f7a5d307d9604e98f4b644d7099cd6037141dd058e6db1d933"
+  }
+}
