@@ -755,37 +755,100 @@ def delete_preset(name):
 
 _view_insights_lock = threading.Lock()
 _view_insights_cache = {}
+_view_insights_errors = {}
+_view_insights_fingerprint = None
+_view_insights_worker = None
+_view_insights_active_key = None
+_VIEW_INSIGHTS_TTL = 300
+_VIEW_INSIGHTS_RETRY = 60
+_VIEW_INSIGHTS_ERROR = "View statistics could not be refreshed. Please try again shortly."
+
+
+def _compute_view_insights(days, presets):
+    """Full-window aggregation, called only by the single background worker."""
+    import viewstats
+
+    end = time.time()
+    start = end - days * 86400
+    con = dbc()
+    try:
+        # Stream the complete requested window, with bounded pose lookahead.
+        obs = con.execute("SELECT ts, score, box FROM obs WHERE ts>=? AND ts<=? ORDER BY ts", (start, end))
+        track = con.execute("SELECT ts, pan, tilt, act, moves FROM track WHERE ts>=? AND ts<=? ORDER BY ts",
+                            (start - 33, end + 33))
+        result = viewstats.summarize_sorted(obs, track, presets, PAN_STEPS_PER_FRAME, TILT_STEPS_PER_FRAME)
+    finally:
+        con.close()
+    result.update(days=days, since=start, until=end)
+    return result
+
+
+def _refresh_view_insights(key, days, presets):
+    global _view_insights_worker, _view_insights_active_key
+    try:
+        result = _compute_view_insights(days, presets)
+    except Exception:
+        # Neither SQL paths nor exception details belong in this public status.
+        with _view_insights_lock:
+            if key[1] == _view_insights_fingerprint:
+                _view_insights_errors[key] = time.monotonic()
+    else:
+        with _view_insights_lock:
+            if key[1] == _view_insights_fingerprint:
+                _view_insights_cache[key] = (time.monotonic(), result)
+                _view_insights_errors.pop(key, None)
+    finally:
+        with _view_insights_lock:
+            _view_insights_worker = None
+            _view_insights_active_key = None
 
 
 def view_insights(days=7):
-    """Read-only, cached statistics; querying them never wakes or moves the camera."""
-    import viewstats
-
+    """Return cached data or prompt progress; never wait for a full history scan."""
+    global _view_insights_fingerprint, _view_insights_worker, _view_insights_active_key
     days = int(days)
     if not 1 <= days <= 7:
         raise ValueError("days must be between 1 and 7")
     presets = load_presets()
-    key = (days, json.dumps(presets, sort_keys=True))
+    fingerprint = json.dumps(presets, sort_keys=True)
+    key = (days, fingerprint)
     with _view_insights_lock:
+        if fingerprint != _view_insights_fingerprint:
+            _view_insights_fingerprint = fingerprint
+            _view_insights_cache.clear()
+            _view_insights_errors.clear()
+        now = time.monotonic()
         cached = _view_insights_cache.get(key)
-        if cached and time.monotonic() - cached[0] < 300:
-            return cached[1]
-        end = time.time()
-        start = end - days * 86400
-        con = dbc()
-        try:
-            # Cursors plus bounded lookahead keep the first request small too;
-            # materializing seven days of both tables exceeds this server's RAM.
-            obs = con.execute("SELECT ts, score, box FROM obs WHERE ts>=? AND ts<=? ORDER BY ts", (start, end))
-            track = con.execute("SELECT ts, pan, tilt, act, moves FROM track WHERE ts>=? AND ts<=? ORDER BY ts",
-                                (start - 33, end + 33))
-            result = viewstats.summarize_sorted(obs, track, presets, PAN_STEPS_PER_FRAME, TILT_STEPS_PER_FRAME)
-        finally:
-            con.close()
-        result.update(days=days, since=start, until=end)
-        _view_insights_cache.clear()
-        _view_insights_cache[key] = (time.monotonic(), result)
-        return result
+        if cached and now - cached[0] < _VIEW_INSIGHTS_TTL:
+            return dict(cached[1], status="ready", refreshing=False)
+        failed = _view_insights_errors.get(key)
+        if failed is not None and now - failed < _VIEW_INSIGHTS_RETRY:
+            if cached:
+                return dict(cached[1], status="ready", refreshing=False,
+                            refresh_error=_VIEW_INSIGHTS_ERROR, retry_after_s=_VIEW_INSIGHTS_RETRY)
+            return {"status": "error", "error": _VIEW_INSIGHTS_ERROR,
+                    "retry_after_s": _VIEW_INSIGHTS_RETRY, "days": days}
+        if _view_insights_worker is None:
+            _view_insights_active_key = key
+            _view_insights_worker = threading.Thread(target=_refresh_view_insights,
+                                                     args=(key, days, presets), daemon=True,
+                                                     name="view-insights")
+            try:
+                _view_insights_worker.start()
+            except RuntimeError:
+                _view_insights_worker = None
+                _view_insights_active_key = None
+                _view_insights_errors[key] = now
+                if cached:
+                    return dict(cached[1], status="ready", refreshing=False,
+                                refresh_error=_VIEW_INSIGHTS_ERROR, retry_after_s=_VIEW_INSIGHTS_RETRY)
+                return {"status": "error", "error": _VIEW_INSIGHTS_ERROR,
+                        "retry_after_s": _VIEW_INSIGHTS_RETRY, "days": days}
+        if cached:
+            # Another requested window may own the worker. Keep polling stale
+            # data so this window can refresh once that single worker is free.
+            return dict(cached[1], status="ready", refreshing=True, retry_after_s=5)
+        return {"status": "pending", "retry_after_s": 5, "days": days}
 
 
 def state():
@@ -1268,10 +1331,15 @@ def day_report(day=None):
             b["present"] = round(b["present"] / b["n"], 2)
             b["moving"] = round(b["moving"] / b["n"], 2)
             b["person"] = round(b["person"] / b["n"], 2)
-    ev = [{"id": e["id"], "ts": e["ts"], "kind": e["kind"], "detail": json.loads(e["detail"] or "{}"),
-           "label": e["label"] if "label" in e.keys() else None,
-           "clip": f"/media/clips/{e['clip']}" if e["clip"] else None,
-           "thumb": f"/media/clips/{e['thumb']}" if e["thumb"] else None} for e in events]
+    ev = []
+    for e in events:
+        detail = json.loads(e["detail"] or "{}")
+        warning = detail.get("clip_warning") if isinstance(detail, dict) else None
+        ev.append({"id": e["id"], "ts": e["ts"], "kind": e["kind"], "detail": detail,
+                   "label": e["label"] if "label" in e.keys() else None,
+                   "clip": f"/media/clips/{e['clip']}" if e["clip"] and not (warning and detail.get("clip_unusable", True)) else None,
+                   "clip_warning": warning,
+                   "thumb": f"/media/clips/{e['thumb']}" if e["thumb"] else None})
     dog_kinds = petconf.DOG_SOUND_KINDS
     sounds = sum(kind_counts.get(k, 0) for k in dog_kinds + ("loud_sound",))
     barks = sum(kind_counts.get(k, 0) for k in dog_kinds)
@@ -1500,7 +1568,8 @@ def _report_clip(d, t):
         if receipt["source_file"]:
             os.link(f"{d}/clip.source.mp4", f"{d}/clip.mp4")
         if not receipt["duration_complete"]:
-            raise RuntimeError(f"partial or unavailable report recording: {receipt['observed_duration_s']} of 100s; any recovered source is preserved")
+            raise RuntimeError(f"partial or unavailable report recording: video {receipt['observed_video_duration_s']} of 100s; "
+                               f"audio {receipt['observed_audio_duration_s']}s, complete={receipt['audio_window_complete']}; any recovered source is preserved")
     except Exception as e:  # noqa: BLE001 - the report is still useful without video
         with open(f"{d}/clip-error.txt", "w") as f:
             f.write(str(e))

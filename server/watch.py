@@ -877,6 +877,21 @@ class Clips(threading.Thread):
                     if failed is self.last_job:
                         self.last_job = None
                 log("clip failed", event_id, e)
+                try:
+                    con = db()
+                    try:
+                        for ident in failed["events"] if failed else [event_id]:
+                            row = con.execute("SELECT detail FROM events WHERE id=? AND clip IS NULL", (ident,)).fetchone()
+                            if row is None:
+                                continue
+                            detail = json.loads(row[0] or "{}")
+                            detail.update(clip_warning="The recording was incomplete or unavailable. Any recovered source was retained.",
+                                          clip_unusable=True)
+                            con.execute("UPDATE events SET detail=? WHERE id=? AND clip IS NULL", (json.dumps(detail), ident))
+                    finally:
+                        con.close()
+                except Exception as status_error:  # noqa: BLE001 - a DB fault must not kill the clip worker
+                    log("clip status failed", event_id, status_error)
 
     def cut(self, event_id, start):
         day = time.strftime("%Y-%m-%d", time.localtime(start))
@@ -903,7 +918,8 @@ class Clips(threading.Thread):
             raise RuntimeError("recording unavailable after three bounded attempts")
         if not receipt["duration_complete"]:
             # A short file cannot stand in for a complete event window. Its source stays available for diagnosis.
-            raise RuntimeError(f"partial clip: {receipt['observed_duration_s']} of {CLIP_LEN}s; source preserved")
+            raise RuntimeError(f"partial clip: video {receipt['observed_video_duration_s']} of {CLIP_LEN}s; "
+                               f"audio {receipt['observed_audio_duration_s']}s, complete={receipt['audio_window_complete']}; source preserved")
         browser_copy(source, f"{CLIPS}/{name}")
         with self.clip_lock:
             job = self.pending.get(event_id)

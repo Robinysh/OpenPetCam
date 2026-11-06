@@ -41,6 +41,17 @@ def _box(value):
     return all(x is not None for x in xy) and 0 <= xy[0] < xy[2] <= 1 and 0 <= xy[1] < xy[3] <= 1
 
 
+def _observation(row):
+    """Validate a positive observation's box once, including JSON decoding."""
+    score = _number(row.get('score'))
+    if score is None or not 0 <= score <= 1:
+        return False, False
+    if score < VISIBLE_SCORE:
+        return True, False
+    visible = _box(row.get('box'))
+    return visible, visible
+
+
 def _same(a, b):
     return a is not None and b is not None and all(abs(x - y) <= POSE_TOL_STEPS for x, y in zip(a, b))
 
@@ -156,12 +167,11 @@ def summarize(obs_rows, track_rows, presets, pan_frame=733, tilt_frame=424):
     groups, invalid_obs = {}, 0
     for raw in obs_rows:
         row = dict(raw)
-        stamp, score = _number(row.get('ts')), _number(row.get('score'))
+        stamp = _number(row.get('ts'))
         if stamp is None:
             invalid_obs += 1
             continue
-        visible = score is not None and score >= VISIBLE_SCORE and _box(row.get('box'))
-        valid = score is not None and 0 <= score <= 1 and (score < VISIBLE_SCORE or _box(row.get('box')))
+        valid, visible = _observation(row)
         groups.setdefault(stamp, []).append((valid, visible))
     obs = [(stamp, all(v[0] for v in rows), all(v[1] for v in rows)) for stamp, rows in sorted(groups.items())]
     invalid_obs += sum(not valid for _, valid, _ in obs)
@@ -199,10 +209,7 @@ def _ordered_points(rows, kind, counts):
             idle = row.get('act') in (None, '', 'idle') and moves == 0 and not row.get('motor_moving')
             value = pose, idle
         else:
-            score = _number(row.get('score'))
-            visible = score is not None and score >= VISIBLE_SCORE and _box(row.get('box'))
-            valid = score is not None and 0 <= score <= 1 and (score < VISIBLE_SCORE or _box(row.get('box')))
-            value = valid, visible
+            value = _observation(row)
         if previous == stamp:
             combined = ((combined[0] and value[0], combined[1] and value[1]) if kind == 'obs'
                         else combined if combined == value else (None, False))
@@ -278,6 +285,7 @@ def summarize_sorted(obs_rows, track_rows, presets, pan_frame=733, tilt_frame=42
 def _summarize_points(obs, segments, views, frame, counts):
     total, bins = _new_stats(), {}
     eligible_seconds, contributing = 0.0, 0
+    last_pose, target = None, None
     segment = next(segments, None)
     for (start, valid, visible), (next_t, _, _) in pairwise(obs):
         end = min(start + MAX_SAMPLE_S, next_t)
@@ -291,13 +299,17 @@ def _summarize_points(obs, segments, views, frame, counts):
             lo, hi, pose = segment
             lo, hi = max(start, lo), min(end, hi)
             if hi > lo:
-                overlaps = [_overlap(pose, (view['x'], view['y']), frame) for view in views]
-                best = max(range(len(views)), key=lambda k: overlaps[k]) if views else None
-                if best is not None and overlaps[best] > 0.5:
-                    target = views[best]
-                else:
-                    key = tuple(math.floor(p / (span / 4) + 0.5) for p, span in zip(pose, frame))
-                    target = bins.setdefault(key, _new_stats())
+                # Stable poses recur across many detector rows. Their assignment
+                # depends only on geometry, not mutable accumulated statistics.
+                if pose != last_pose:
+                    overlaps = [_overlap(pose, (view['x'], view['y']), frame) for view in views]
+                    best = max(range(len(views)), key=lambda k: overlaps[k]) if views else None
+                    if best is not None and overlaps[best] > 0.5:
+                        target = views[best]
+                    else:
+                        key = tuple(math.floor(p / (span / 4) + 0.5) for p, span in zip(pose, frame))
+                        target = bins.setdefault(key, _new_stats())
+                    last_pose = pose
                 _add(target, lo, hi, visible, pose)
                 _add(total, lo, hi, visible, pose)
                 contributed = True

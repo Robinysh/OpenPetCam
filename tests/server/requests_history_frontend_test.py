@@ -24,6 +24,7 @@ class Element {
 const els={},$=id=>els[id]||(els[id]=new Element()),document={createElement:()=>new Element()};
 const setTimeout=()=>1,clearTimeout=()=>{};
 const records=Array.from({length:50},(_,i)=>({id:String(50-i).padStart(4,"0"),ts:1000-i,
+ by:i===25?"QA probe (Claude)":"Owner",
  note:"request "+(50-i),reply:{status:"answered",text:"Historical answer",fix:{status:"live"}},
  status:{state:i===0?"in_progress":"needs_review",label:i===0?"In progress":"Needs review",reason:"No verified result yet"},
  resolution:{components:[{id:"part",title:"Remaining work",state:"not_started",evidence:["Hardware limitation still needs review"]}]}}));
@@ -66,6 +67,11 @@ console.log(JSON.stringify({shown:$("report-list").children.filter(c=>c.classNam
         result = self.page('await loadReports(true);if($("report-older").onclick)await $("report-older").onclick();')
         self.assertEqual(result["shown"], 40)
         self.assertTrue(any("before=0031" in p for p in result["requests"]), result)
+
+    def test_actual_qa_named_report_is_not_hidden_from_all_requests(self):
+        result = self.page("await loadReports(true);await loadReports(false,true);await loadReports(false,true);")
+        self.assertEqual(result["shown"],50,"the real QA-named request disappeared while the API total still included it")
+        self.assertIn("QA probe (Claude)",result["text"])
 
 
 if __name__ == "__main__":

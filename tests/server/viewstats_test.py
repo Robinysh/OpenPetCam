@@ -170,6 +170,22 @@ class ViewStatsTests(unittest.TestCase):
                                       con.execute('select * from track order by ts'), [PRESET])
         self.assertEqual(result, summarize(observations(), tracks(), [PRESET]))
 
+    def test_repeated_pose_assignment_changes_and_returns_without_mixing_views(self):
+        trace = tracks(-40, 360)
+        for row in trace:
+            if 100 <= row['ts'] < 220:
+                row['pan'] = 3000
+        second = {'name': 'Other view', 'x': 3000, 'y': 500}
+        result = summarize_sorted(iter(observations(0, 320)), iter(trace), [PRESET, second])
+        # Cached-pose uncertainty excludes70..103 and190..223. Returning to
+        # the first pose starts a new visit; repeated rows cannot reuse B's bin.
+        self.assertEqual(result['observed_seconds'], 254)
+        self.assertEqual([v['observed_seconds'] for v in result['views']], [167, 87])
+        self.assertEqual([v['visits'] for v in result['views']], [2, 1])
+        unsaved = summarize_sorted(iter(observations(0, 320)), iter(trace), [PRESET])
+        self.assertEqual(unsaved['views'][0]['observed_seconds'], 167)
+        self.assertEqual(unsaved['unsaved_observed_seconds'], 87)
+
     def test_streaming_rejects_unsorted_input_and_handles_empty_edges(self):
         with self.assertRaisesRegex(ValueError, 'ordered'):
             summarize_sorted(reversed(observations()), iter(tracks()), [])

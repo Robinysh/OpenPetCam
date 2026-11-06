@@ -34,4 +34,21 @@ class ActivityHistory(unittest.TestCase):
         self.assertEqual(app.day_report()['longest_rest_min'],2)
         self.assertEqual(app.day_metrics('2026-01-01')['longest_rest'],2)
 
+    def test_unusable_clip_is_explained_without_rewriting_its_original_pointer(self):
+        self.con.execute("INSERT INTO events VALUES(1,100,'barking',?, 'original.mp4',NULL,NULL)",
+                         ('{"clip_warning":"Only partial video was recorded; original retained."}',))
+        self.con.commit()
+        event=app.day_report()['events'][0]
+        self.assertIsNone(event['clip'])
+        self.assertIn('partial video',event['clip_warning'])
+        self.assertEqual(self.con.execute('SELECT clip FROM events').fetchone()[0],'original.mp4')
+
+    def test_playable_video_with_partial_audio_keeps_play_link_and_warning(self):
+        self.con.execute("INSERT INTO events VALUES(1,100,'barking',?, 'valid.mp4',NULL,NULL)",
+                         ('{"clip_warning":"Audio is incomplete.","clip_unusable":false}',))
+        self.con.commit()
+        event=app.day_report()['events'][0]
+        self.assertEqual(event['clip'],'/media/clips/valid.mp4')
+        self.assertEqual(event['clip_warning'],'Audio is incomplete.')
+
 if __name__=='__main__':unittest.main()

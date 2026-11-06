@@ -14,7 +14,37 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 sys.path.insert(0, "/opt/petcam")
-from clipmedia import browser_copy, probe, write_receipt  # noqa: E402
+from clipmedia import audio_window_status, browser_copy, probe, validate_video_timeline, write_receipt  # noqa: E402
+
+PARTIAL_AUDIO_WARNING = "Audio does not cover this recording's full video window. The original is retained."
+
+
+def update_events(con, original, output, *, audio_partial):
+    """Publish the pointer and its warning together, preserving current event detail."""
+    # Take the writer lock only after media work, then read the latest details.
+    # A different writer's replacement pointer is excluded by the old-clip match.
+    con.execute("BEGIN IMMEDIATE")
+    if not audio_partial:
+        return con.execute("UPDATE events SET clip=? WHERE clip=?", (output, original)).rowcount
+    updates = []
+    for ident, raw in con.execute("SELECT rowid, detail FROM events WHERE clip=?", (original,)):
+        detail = json.loads(raw or "{}")
+        if not isinstance(detail, dict):
+            raise ValueError("event detail must be an object to preserve clip warnings")
+        warning = detail.get("clip_warning")
+        if warning and not isinstance(warning, str):
+            raise ValueError("existing clip warning must be text")
+        # An existing warning can describe a separate video issue. Never clear
+        # it or make a previously hidden clip playable through an audio repair.
+        if warning:
+            if PARTIAL_AUDIO_WARNING not in warning:
+                detail["clip_warning"] = warning + " " + PARTIAL_AUDIO_WARNING
+            detail.setdefault("clip_unusable", True)
+        else:
+            detail["clip_warning"] = PARTIAL_AUDIO_WARNING
+            detail.setdefault("clip_unusable", False)
+        updates.append((output, json.dumps(detail), ident, original))
+    return con.executemany("UPDATE events SET clip=?, detail=? WHERE rowid=? AND clip=?", updates).rowcount
 
 
 def sha(path):
@@ -46,16 +76,27 @@ def backfill(state, *, limit=5, deadline_s=120, execute=False, after=None):
             if not source.is_relative_to(root) or not source.is_file():
                 result["items"].append({"clip": rel, "state": "missing_or_invalid"})
                 continue
-            if source.name.endswith(".browser.mp4"):
-                continue
             try:
                 media = probe(source)
+                source_timeline = validate_video_timeline(media)
+                source_audio = audio_window_status(media)
                 audio = [s["codec_name"] for s in media["streams"] if s["codec_type"] == "audio"]
+                if source.name.endswith(".browser.mp4") and any(codec != "aac" for codec in audio):
+                    raise ValueError("browser clip contains incompatible audio")
                 if not audio or all(codec == "aac" for codec in audio):
+                    if source_audio["audio_window_complete"] is False:
+                        result["attempted"] += 1
+                        item = {"clip": rel, "state": "planned_warning", "audio_partial": True, "source_audio": source_audio}
+                        result["items"].append(item)
+                        if execute:
+                            count = update_events(con, rel, rel, audio_partial=True)
+                            con.commit()
+                            item.update(state="warning_updated", events_updated=count)
                     continue
                 result["attempted"] += 1
                 output = source.with_name(source.stem + ".browser.mp4")
-                item = {"clip": rel, "browser_clip": str(output.relative_to(root)), "state": "planned"}
+                item = {"clip": rel, "browser_clip": str(output.relative_to(root)), "state": "planned",
+                        "source_audio": source_audio, "audio_partial": source_audio["audio_window_complete"] is False}
                 result["items"].append(item)
                 if not execute:
                     continue
@@ -70,14 +111,21 @@ def backfill(state, *, limit=5, deadline_s=120, execute=False, after=None):
                     checked = browser_copy(source, output)["output"]
                 if sha(source) != before:
                     raise ValueError("source changed during conversion")
+                output_timeline = validate_video_timeline(checked)
+                output_audio = audio_window_status(checked)
+                if abs(output_timeline["video_duration_s"] - source_timeline["video_duration_s"]) > .25:
+                    raise ValueError("browser video duration differs from original")
                 if not any(s["codec_type"] == "audio" and s["codec_name"] == "aac" for s in checked["streams"]):
                     raise ValueError("browser output has no AAC audio")
                 write_receipt(receipt_path, {"source_sha256": before, "browser_sha256": sha(output),
-                                            "source_file": source.name, "browser_file": output.name})
-                # Compare the old pointer as well: don't replace an independently updated event.
-                count = con.execute("UPDATE events SET clip=? WHERE clip=?", (item["browser_clip"], rel)).rowcount
+                                            "source_file": source.name, "browser_file": output.name,
+                                            "source_video_timeline": source_timeline, "browser_video_timeline": output_timeline,
+                                            "source_audio": source_audio, "browser_audio": output_audio})
+                partial = item["audio_partial"] or output_audio["audio_window_complete"] is False
+                count = update_events(con, rel, item["browser_clip"], audio_partial=partial)
                 con.commit()
-                item.update(state="converted", events_updated=count, source_sha256=before, browser_sha256=sha(output))
+                item.update(state="converted", events_updated=count, source_sha256=before, browser_sha256=sha(output),
+                            output_audio=output_audio, audio_partial=partial)
             except Exception as exc:  # noqa: BLE001 - preserve source/pointers and continue this bounded batch
                 con.rollback()
                 if result["items"] and result["items"][-1].get("clip") == rel:
@@ -101,5 +149,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     result = backfill(args.state, limit=args.limit, deadline_s=args.deadline, execute=args.execute, after=args.after)
     print(json.dumps(result, indent=2))
-    if args.execute and any(item["state"] != "converted" for item in result["items"]):
+    if args.execute and any(item["state"] not in ("converted", "warning_updated") for item in result["items"]):
         sys.exit(1)

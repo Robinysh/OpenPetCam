@@ -18,7 +18,11 @@ import watch
 
 
 def info(duration=30):
-    return {"streams": [{"codec_type": "video", "codec_name": "h264"}], "format": {"duration": str(duration)}}
+    return {"streams": [{"codec_type": "video", "codec_name": "h264", "duration": str(duration), "start_time": "0"}],
+            "format": {"duration": str(duration), "start_time": "0"},
+            "video_timeline": {"usable_packets": 30, "unique_pts": 30, "invalid_packets": 0,
+                               "first_pts_s": 0., "last_end_s": duration,
+                               "covered_duration_s": duration, "largest_gap_s": 0.}}
 
 
 class ClipAcquisitionTest(unittest.TestCase):
@@ -38,6 +42,18 @@ class ClipAcquisitionTest(unittest.TestCase):
 
     def media(self):
         return patch.object(clipmedia,"browser_copy",side_effect=lambda source,output: Path(output).write_bytes(Path(source).read_bytes()))
+
+    def test_invalid_video_timeline_fails_closed(self):
+        import copy
+        for duration in ("-28.919889", "0", "nan", "inf", None):
+            media=info();media["streams"][0]["duration"]=duration
+            with self.subTest(duration=duration), self.assertRaisesRegex(ValueError,"video"):
+                clipmedia.validate_video_timeline(media)
+        for changes in ({"unique_pts":1}, {"covered_duration_s":.04}, {"largest_gap_s":29.},
+                        {"first_pts_s":float("nan")}, {"invalid_packets":1}):
+            media=copy.deepcopy(info());media["video_timeline"].update(changes)
+            with self.subTest(packet_timeline=changes), self.assertRaisesRegex(ValueError,"video"):
+                clipmedia.validate_video_timeline(media)
 
     def test_pending_overlap_and_later_overlap_both_link_to_the_existing_clip(self):
         worker=watch.Clips();worker.want(1,1000);worker.want(2,1005)
@@ -96,6 +112,20 @@ class ClipAcquisitionTest(unittest.TestCase):
         with patch.object(worker,"cut",side_effect=RuntimeError("unavailable")), patch.object(worker.jobs,"get",side_effect=[(1,992),StopIteration]), patch("time.sleep"):
             with self.assertRaises(StopIteration): worker.run()
         self.assertTrue(worker.want(2,1005),"a failed clip job swallowed a later moment")
+
+    def test_failed_capture_explains_missing_clips_for_all_pending_events(self):
+        worker=watch.Clips();worker.want(1,1000);worker.want(2,1005)
+        with patch.object(worker,"cut",side_effect=RuntimeError("incomplete audio")), \
+                patch.object(worker.jobs,"get",side_effect=[(1,992),StopIteration]), patch("time.sleep"):
+            with self.assertRaises(StopIteration):worker.run()
+        con=watch.db()
+        try:
+            for event_id in (1,2):
+                raw=con.execute("SELECT detail FROM events WHERE id=?",(event_id,)).fetchone()[0]
+                detail=json.loads(raw or '{}')
+                self.assertIn('recording',detail.get('clip_warning','').lower())
+                self.assertTrue(detail['clip_unusable'])
+        finally:con.close()
 
     def test_failed_database_link_does_not_leave_a_dead_overlap_job(self):
         worker=watch.Clips();worker.want(1,1000)
