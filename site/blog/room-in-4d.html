@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mapping a room with a $12 camera that can only turn | OpenPetCam</title><meta name="description" content="A pan/tilt pet camera has no parallax, so it cannot triangulate anything. It still built a 3D model of its room in metres, from its own echo, Depth Anything 3, its infrared lamp and a day of watching. The numbers, and what failed.">
+<title>Teaching a $12 pet camera where to look | OpenPetCam</title><meta name="description" content="A pet camera kept wasting searches on kitchen cabinets. A rough room model helped—and exposed the limits of its pictures, echoes and memory.">
 <link rel="canonical" href="https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html">
 <link rel="alternate" type="application/atom+xml" title="OpenPetCam blog" href="feed.xml">
 <meta property="og:type" content="article"><meta property="og:site_name" content="OpenPetCam">
-<meta property="og:title" content="Mapping a room with a $12 camera that can only turn"><meta property="og:description" content="Its own echo for scale, Depth Anything 3 for shape, its infrared lamp for materials, and time as the fourth dimension. With the numbers, and what failed.">
+<meta property="og:title" content="Teaching a $12 pet camera where to look"><meta property="og:description" content="A pet camera kept wasting searches on kitchen cabinets. A rough room model helped—and exposed the limits of its pictures, echoes and memory.">
 <meta property="og:url" content="https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html">
 <meta property="og:image" content="https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room-poster.jpg">
 <meta property="og:video" content="https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room.mp4"><meta property="og:video:type" content="video/mp4">
@@ -14,67 +14,80 @@
 <link rel="icon" href="../favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="../apple-touch-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../site.css">
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "Mapping a room with a $12 camera that can only turn", "description": "A pan/tilt pet camera has no parallax, so it cannot triangulate anything. It still built a 3D model of its room in metres, from its own echo, Depth Anything 3, its infrared lamp and a day of watching.", "datePublished": "2026-11-05", "dateModified": "2026-11-05", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html", "image": "https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room-poster.jpg", "video": {"@type": "VideoObject", "name": "Mapping a room with a $12 camera that can only turn", "description": "One minute: the echo, the depth maps, the infrared layer and time.", "thumbnailUrl": "https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room-poster.jpg", "contentUrl": "https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room.mp4", "uploadDate": "2026-11-05", "duration": "PT1M0S"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "Teaching a $12 pet camera where to look", "description": "A pet camera kept wasting searches on kitchen cabinets. A rough room model helped—and exposed the limits of its pictures, echoes and memory.", "datePublished": "2026-11-05", "dateModified": "2026-11-05", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html", "image": "https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room-poster.jpg", "video": {"@type": "VideoObject", "name": "An early walkthrough of the OpenPetCam room model", "description": "A one-minute visual introduction. The accompanying article explains the measurements, assumptions and later checks.", "thumbnailUrl": "https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room-poster.jpg", "contentUrl": "https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room.mp4", "uploadDate": "2026-11-05", "duration": "PT1M0S"}}</script>
 <script src="../analytics.js" defer></script></head>
-<body><nav class="nav"><a class="word" href="../" aria-label="OpenPetCam home"><img src="../media/openpetcam-mark-color.svg" width="34" height="34" alt="">OpenPetCam</a>
+<body>
+<nav class="nav"><a class="word" href="../" aria-label="OpenPetCam home"><img src="../media/openpetcam-mark-color.svg" width="34" height="34" alt="">OpenPetCam</a>
 <div class="links"><a href="../#search">The search</a><a href="../guide/">Guides</a><a href="./">Blog</a><a class="star" href="https://github.com/crimeacs/OpenPetCam" data-track="nav">★ GitHub</a></div></nav>
-<main class="doc post" data-section="blog">
-<p class="crumbs"><a href="../">OpenPetCam</a> / <a href="./">Blog</a> / 5 November 2026</p>
-<h1>Mapping a room with a $12 camera that can only turn</h1>
-<p class="dek">It has a lens, a speaker, an infrared lamp and a motor that rotates it. It has no way to see anything from two places. It built a 3D model of its room in metres anyway, and now uses it to find the dog.</p>
+<main class="doc post room-story" data-section="blog">
+<article>
+<header class="story-header">
+<p class="crumbs"><a href="../">OpenPetCam</a> / <a href="./">Build notes</a></p>
+<p class="story-date"><time datetime="2026-11-05">5 November 2026</time> · 7 minute read</p>
+<h1>Teaching a $12 pet camera where to look</h1>
+<p class="dek">I wanted it to stop searching the kitchen cabinets for a dog. The fix became a rough 3D room model, with a memory of where she spends her day.</p>
+</header>
 
-<figure class="reel">
-<video controls playsinline preload="metadata" poster="../media/openpetcam-4d-room-poster.jpg" width="1080" height="1920">
-<source src="../media/openpetcam-4d-room.mp4" type="video/mp4"></video>
-<figcaption>One minute, with sound. After the clay opening, everything on screen is the real model of a real room.</figcaption>
+<p>When my dog leaves the frame, OpenPetCam turns the camera to look for her. That sounds straightforward until you watch a search spend several stops inspecting the underside of a counter.</p>
+
+<figure class="story-model">
+<img src="../media/blog/shell.jpg" width="720" height="826" alt="A rough textured reconstruction of the living room and hallway, with gaps in the surface and the camera's viewing cone.">
+<figcaption>The room model, seen from outside. The gaps are real gaps in the reconstruction. This is the model used by the app, not a surveyed floor plan.</figcaption>
 </figure>
+<p>I counted. Of 1,268 settled search frames, 304 showed almost no floor according to the room model. Roughly a quarter of the views were mostly cabinet, counter or wall. Even a good dog detector cannot do much with those.</p>
+<p>I wanted to give the search a little knowledge of the room: where there is floor, which views overlap, where the sofa is, and where the dog was last seen. Building that map turned into a lesson in how easily a convincing 3D picture can get ahead of its measurements.</p>
 
-<h2>Why a pet camera wants a map</h2>
-<p>OpenPetCam runs on a cheap pan/tilt Wi-Fi camera flashed with Thingino and a $5 server. Its main trick is Find: when the dog is out of view, the camera goes looking for her. Find kept wasting its looks. Across 1,268 settled search frames, 304 (24%) showed almost no floor at all: the underside of the counter, a cabinet, a wall. A dog is never there. To skip those views, the camera needed to know what it was looking at, and that means geometry.</p>
 
-<h2>The catch: no parallax</h2>
-<p>Depth from vision normally comes from parallax. See a point from two places, measure how far it shifts, and you can triangulate its distance. A pan/tilt camera rotates about a fixed point, so every picture it can ever take is a different crop of one panorama. There is nothing to triangulate. A rotation-only camera can tell you the direction of everything and the distance of nothing. So distance had to come from somewhere other than the camera's geometry.</p>
 
-<h2>A ruler made of sound</h2>
-<p>The camera has a speaker and a microphone on the same small body. We play a sweep from 2.1 to 7.4 kHz through the speaker, record the raw microphone signal, and deconvolve it into an impulse response: what arrived, and when. The first spike is the sound going straight from speaker to microphone. Everything after it is an echo.</p>
-<figure><img src="../media/blog/echo.png" width="1540" height="505" alt="Left: echo level in decibels against round-trip time, with the floor echo marked at 4.75 ms. Right: 52 floor-distance estimates clustered around a median of 0.807 m."><figcaption>Left: one recording, in decibels so the floor echo is visible next to the direct sound. Right: the floor distance from each of 52 recordings, one tick each.</figcaption></figure>
-<p>The strongest echo between 0.7 and 0.95 m is the floor. Its median round trip over 52 recordings is 4.71 ms, and 4.71 ms × 343 m/s ÷ 2 = <strong>0.807 m</strong>. That one number turned out to be the most valuable measurement in the project, because it is the ruler for everything else.</p>
+<details class="story-film"><summary>Watch the one-minute walkthrough</summary>
+<figure class="reel"><video controls playsinline preload="none" poster="../media/openpetcam-4d-room-poster.jpg" width="1080" height="1920"><source src="../media/openpetcam-4d-room.mp4" type="video/mp4"></video>
+<figcaption>An early walkthrough, made before the later timing checks. Its acoustic scale estimates remain provisional. The animated opening is followed by views of the model.</figcaption></figure></details>
 
-<h2>Shape from a depth model, scale from the echo</h2>
-<p>First the camera calibrates itself from its own sweep: matching features across 67 overlapping views recovers the lens and the motor's step angles to about 3 pixels, and later snapshots registered against the panorama catch the mount drifting. Then <a href="https://github.com/ByteDance-Seed/Depth-Anything-3">Depth Anything 3</a> turns each photo into a depth map.</p>
-<figure><img src="../media/blog/depth.png" width="1540" height="1011" alt="Top: a photo of two bar stools and its Depth Anything 3 depth map. Bottom: a 360-degree depth panorama of the room coloured by distance in metres on a log scale."><figcaption>Top: one of the 67 photos and its depth map, in the model's own units. Bottom: all 67 merged into one panorama and scaled by the floor echo. White means no data.</figcaption></figure>
-<p>Each map is internally consistent but comes out at its own arbitrary scale, so neighbouring maps disagree where they overlap. Merging them in the gradient domain into one range panorama, then scaling that panorama so the floor sits 0.807 m below the lens, gives a single shell in metres. The check that does not trust the depth model is the dog. At 2,255 places where the detector saw her standing, her feet must be on the floor, and the shell's floor there is off by a median of 4.7% (a per-pixel median of the raw frames manages 5.2%). The walls still have no independent check; that comes up again at the end.</p>
+<h2 id="panorama">A panorama gives you directions</h2>
+<p>The camera can pan and tilt, but it stays in approximately the same place. Its lens shifts a little as the head turns; I have not calibrated that motion into a useful stereo baseline. For this build, I treated the sweep as a panorama.</p>
+<p>That gives good information about direction. If a corner appears in several overlapping photos, those matches help estimate the lens distortion and the angle of each motor step. A sweep of 67 views gave a median matching error of about three pixels. It also gave me a common coordinate system for the pictures.</p>
+<p>Distance is harder. A panorama alone does not say whether a surface is one metre away or five. I needed a depth estimate and something to set its scale.</p>
 
-<h2>The obvious idea that failed: echoes as a map</h2>
-<p>If one echo gives the floor, shouldn't fifty echoes from fifty head directions give the room? We chirped in about fifty directions and fitted a physics model to predict each recording, first rays, then a full 3D wave simulation of the near field (checked against the 1/r law to 0.1%). It matched. Then came the test that mattered: give each recording the <em>wrong</em> head direction and fit again. It matched just as well, 0.397 against 0.402. An echo from a camera this size tells you how far something is, and almost nothing about which way. Sound earned two jobs: the scale, and one blind spot the lens cannot see, the counter just above it, which 48 of 51 recordings put about 0.18 m away.</p>
+<h2 id="scale">The echo was a starting point</h2>
+<p>The camera already has a speaker and a microphone. I played a frequency sweep, recorded it, and deconvolved the recording: a way of compressing the long sweep into a short response that shows arrivals at different delays.</p>
+<p>There is plenty in that response. Some of it comes from the room; some comes from the speaker, microphone, housing and recording chain. Assigning a peak to a particular surface takes more care than plotting the peaks.</p>
+<p>In the first build, I treated a recurring return near 4.7 milliseconds as the floor. Under the timing and path assumptions I was using, that corresponds to a height of roughly 0.8 metres. I used it to put the room model on an approximate metre scale.</p>
+<p>That number is still provisional. The early reference has not been established as the physical direct arrival, and I do not have an independent tape measurement behind the estimate. The arithmetic can produce <code>0.807 m</code>; the experiment does not justify millimetre precision.</p>
 
-<h2>Materials from the infrared lamp</h2>
-<figure class="half"><img src="../media/blog/infrared.jpg" width="720" height="826" alt="The 3D room in infrared grey with plants, fabric and fur highlighted in magenta." loading="lazy"><figcaption>Near-infrared minus visible light, painted on the shell.</figcaption></figure>
-<p>At night the camera switches on its own infrared LEDs. Subtracting a passive frame leaves only the camera's light, and comparing it with daylight separates materials: plants, fabric and fur reflect near-infrared strongly, screens stay dark. For now this layer is qualitative; nobody has held up a sheet of paper and a black plastic tray to calibrate it.</p>
+<h2 id="shape">The depth model supplied the shape</h2>
+<p>I used <a href="https://github.com/ByteDance-Seed/Depth-Anything-3">Depth Anything 3</a> to estimate depth from the photos. It supplies learned assumptions about what rooms and objects tend to look like. Those assumptions are useful, especially when the camera cannot provide ordinary stereo, but they can also put a very plausible surface in the wrong place.</p>
+<figure><img src="../media/blog/depth.png" width="1540" height="1011" alt="A camera photograph beside its learned depth estimate, above a stitched panorama coloured by estimated range." loading="lazy"><figcaption>One photo and its learned depth, then the merged range panorama. The metre scale depends on the provisional floor estimate. White areas have no data.</figcaption></figure>
+<p>The pipeline merges the overlapping depth maps, smooths their seams and anchors the result to the provisional floor estimate. Wall edges marked on the calibrated pictures and simple furniture shapes add structure where the learned surface is unreliable.</p>
+<p>The result is a rough shell of the room. It is good enough to ask whether a view contains floor, or whether several motor positions mostly show the same sofa. The far wall distances and the hidden sides of furniture still need independent measurements.</p>
+<p>The dog provides a useful check: her detected feet should project onto the floor. Across 2,255 such directions, the merged surface disagreed with the assumed floor by a median 4.7%, versus 5.2% for a simple merge. The scale assumption is shared, and a detection box is an imperfect foot estimate. This is a consistency check; the absolute dimensions remain unverified.</p>
 
-<h2>Time is the fourth dimension</h2>
-<figure class="half"><img src="../media/blog/shell.jpg" width="720" height="826" alt="The reconstructed 3D room seen from outside, with the camera's view cone." loading="lazy"><figcaption>The shell in the app's Room tab, with the camera's current view.</figcaption></figure>
-<p>The model is made of small surface patches, and each one keeps a history: how its light changes from dawn to night, and how long the dog spent on it at each hour of the day. This is the part that pays for the rest. When the dog goes missing, Find now skips views that show no floor and starts where she usually rests at that hour.</p>
-<figure><img src="../media/blog/search.png" width="1320" height="352" alt="Dot chart: in view at a stop in 36 of 56 replayed searches with the old order, 38 with the room map alone, 48 with the room map followed by the learned stops." loading="lazy"><figcaption>56 recorded searches replayed, with the map built without the day being searched.</figcaption></figure>
-<p>Replayed on 56 recorded searches, she was in view at one of the stops in 48 of them, against 36 with the old order. Where both orders reach her, the map gets there first in 19 of 26 searches, a median of 4.6 seconds sooner.</p>
+<h2 id="acoustics">A good-looking acoustic fit fooled me</h2>
+<p>Once the sweep produced recognizable echoes, I wanted to use many head directions to recover more of the room. The responses changed with the camera's pose. A forward model seemed like the obvious next step: predict the sound for each pose, then compare it with the recording.</p>
+<p>The ray model produced a fit. Then I shuffled the pose labels. Its score with the correct labels was <strong>0.397</strong>; with the shuffled labels it was <strong>0.402</strong>. The correct pairing did no better. Whatever the model was matching, it had not earned a claim to predict the pose-dependent part of the sound.</p>
+<p>A later wave simulation had its own problems. Passing an idealized wave-propagation test did not validate the assumed camera housing, nearby counter or room geometry. Those experiments have not established acoustic reconstruction of the room.</p>
+<p>More recent recordings exposed an instrument problem too. Four shots within one capture can repeat extremely well, while responses from separate captures at the same pose shift by as much as about 1.8 milliseconds. I need to understand that timing before combining recordings as a coherent acoustic survey.</p>
+<p>The pose-dependent responses are real. Explaining them reliably is still an open problem.</p>
 
-<h2>What did not work, in numbers</h2>
-<ul>
-<li><strong>Wi-Fi as an imager.</strong> The idea was radio tomography with the dog as the moving probe. The link strength does follow where the antenna points (split-half correlation 0.76), which happens to locate the router behind the sofa. But once the camera's pose is controlled for, the dog's position explains nothing beyond chance.</li>
-<li><strong>Passive acoustics.</strong> Recovering echoes from ordinary room noise gave a signal well below significance over 8 minutes.</li>
-<li><strong>A simulator built on the model.</strong> We built a simulated room from the model to train the camera's following behaviour. On held-out days of real logs it did worse than a simple schematic room: 11 of 21 measures inside their range, against 20 of 21. The map is good at telling the camera where to look and bad at predicting how the dog moves.</li>
-</ul>
+<h2 id="time">A room also has a daily routine</h2>
+<p>The static shell was only part of what I wanted. The same patch of floor looks different in morning light and at night. The same view can be uninteresting most of the day, then become the first place to look when the dog settles down in the evening.</p>
+<p>So each small surface patch can carry more than a colour and a depth. The model stores appearance over the day, and the floor map accumulates logged pet detections by time. You can move through that history with a time slider. The heatmap records what the camera detected, so places it rarely sees remain uncertain.</p>
+<figure class="half"><img src="../media/blog/infrared.jpg" width="720" height="826" alt="The same room shell with a qualitative near-infrared appearance layer, highlighting some surfaces in magenta." loading="lazy"><figcaption>A near-infrared layer. The colours show an exploratory appearance comparison, not calibrated material identities.</figcaption></figure>
+<p>The infrared LEDs add another view of the surfaces. Comparing frames with the LEDs on and off helps isolate the camera's illumination. Comparing that result with visible light makes some plants, fabrics and fur stand out. I kept the layer because the differences are interesting, but exposure, lighting and surface angle still get in the way of calling it a material measurement.</p>
+<p>For search, the most useful memory is simpler: which views have floor, which areas the camera has seen the dog occupy, and which stops cover those areas with less turning.</p>
 
-<h2>What it costs</h2>
-<table><tr><th>Part</th><th>What</th></tr>
-<tr><td>Camera</td><td>A $12 pan/tilt camera on Thingino firmware</td></tr>
-<tr><td>Server</td><td>A $5/month Lightsail instance. It serves the app and keeps the model; nothing goes to a vendor's cloud</td></tr>
-<tr><td>Model build</td><td>On a laptop, from a sweep of 67 photos and about fifty chirps</td></tr></table>
+<h2 id="search">Did the map help the search?</h2>
+<p>I tested the stop order by replaying recorded searches. For each searched day, the map was built from the other days. That kept the search from learning the answer from its own day's observations.</p>
+<figure><img src="../media/blog/search.png" width="1320" height="352" alt="Offline replay: the old order puts the dog in view at a stop in 36 of 56 searches, the room map in 38, and the room map followed by remaining learned stops in 48." loading="lazy"><figcaption>Offline replay of 56 searches with an estimated dog position outside the initial view. The outcome is modelled visibility at a proposed stop.</figcaption></figure>
+<p>The old order put her in view at a stop in <strong>36 of 56</strong> searches. The room map alone managed <strong>38</strong>. Starting with the map and then visiting the remaining learned stops reached <strong>48</strong>. On the 26 searches both the old and combined orders reached, the combined order was earlier in 19, by a median of 4.6 seconds.</p>
+<p>There are limits to that result. The replay estimates whether she would be visible; it does not prove the detector would recognize her there. Her estimated position and the visibility calculation also share the room model. And the recorded searches are biased toward places the old order visited. New live searches are the next check.</p>
+<p>Still, the comparison tells me something practical: the map and the old learned stops cover different failures. Keeping both worked better in this replay than replacing one with the other.</p>
 
-<h2>Try it, and what is next</h2>
-<p>The pipeline is in <a href="https://github.com/crimeacs/OpenPetCam/tree/main/sim/world"><code>sim/world/</code></a>, and every claim above has a row in its audit table with the check behind it and what is still unproven. Your room's model and pictures stay on your own server.</p>
-<p>The next step came by accident. This week the camera was re-mounted with fresh tape, a little closer to the edge of the counter. In the first pictures afterwards, the nearest object, the sofa, shifts against the far wall by a few pixels, which a pure rotation cannot do. That is only six matched points so far, but it would be the first parallax this camera has ever had. Tonight it sweeps the room again from the new spot. If the shift holds up, the two positions make a stereo pair, and a stereo pair would finally give the walls an independent check.</p>
+<h2 id="next">The next measurements are fairly ordinary</h2>
+<p>I also tried using Wi-Fi strength to learn about the room. It changed strongly with camera pose, which made it easy to mistake antenna motion for an effect of the dog moving. Passive room noise did not produce a convincing echo result in the short recording I tested. A more detailed room simulator did worse on held-out behaviour checks than a simple schematic one.</p>
+<p>Those failures changed what I want from the model. A camera that avoids pointless views and remembers a few useful places already has a reason to keep a map. Better geometry and sound localization will need better evidence: an independently measured distance, a source at known locations, and timing I can trust across recordings.</p>
+<p>OpenPetCam runs the app on your own server, and the room build runs locally. The code for the reconstruction is in <a href="https://github.com/crimeacs/OpenPetCam/tree/main/sim/world"><code>sim/world/</code></a>. The <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/README.md">build instructions</a> explain the pipeline; the <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/AUDIT.md">audit procedure</a> explains how its claims should be checked. Your pictures, layout and activity logs stay outside the public repository.</p>
 
-<p style="margin-top:48px"><a class="btn primary" style="background:var(--blue);color:#fff;font-family:var(--snout-t)" href="https://github.com/crimeacs/OpenPetCam" data-track="blog-star">Get OpenPetCam on GitHub</a></p>
+<footer class="story-end"><a class="btn primary" href="https://github.com/crimeacs/OpenPetCam" data-track="blog-star">Explore the code</a><p>Open source · Self hosted · Built for an actual pet camera</p></footer>
+</article>
 </main>
 </body></html>

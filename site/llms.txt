@@ -24,7 +24,7 @@ Key facts:
 - [A pet camera without a subscription](https://crimeacs.github.io/OpenPetCam/guide/pet-camera-without-subscription.html)
 
 ## Blog
-- [Mapping a room with a $12 camera that can only turn](https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html): echo for scale, Depth Anything 3 for shape, infrared for materials, time as the fourth dimension; numbers and failures
+- [Teaching a $12 pet camera where to look](https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html): a rough room model and time-indexed observations for search; provisional acoustic scale, offline replay results, and unresolved calibration
 
 ## Optional
 - [Releases](https://github.com/crimeacs/OpenPetCam/releases)
