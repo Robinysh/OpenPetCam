@@ -86,7 +86,7 @@
 <div class="motion-toolbar"><span>Candidate path · schematic</span><button class="motion-toggle" type="button" hidden>Play animation</button></div>
 <figcaption>The scale depends on identifying both the return and its timing reference.</figcaption>
 </figure>
-<p>The saved value is <code>0.807 m</code>, which looks more authoritative than it deserves. I have not independently checked the arrival used as the timing reference or measured the height with a tape. For now, the room inherits an approximate ruler.</p>
+<p>The saved value is <code>0.807 m</code>, which looks more authoritative than it deserves. I have not independently checked the arrival used as the timing reference. I did fetch a tape measure: from the floor to the lowest point of the hanging camera it reads 31 inches, 0.787 m. The lens sits a few centimetres above that point, so between about 0.79 and 0.82 m, and the echo lands within about 2% of it. The room still inherits an approximate ruler, but no longer an unchecked one.</p>
 
 <h2 id="shape">Moving the sofa in software</h2>
 <p><a href="https://github.com/ByteDance-Seed/Depth-Anything-3">Depth Anything 3</a> supplied an estimate of shape from the photographs. The pipeline merges its overlapping depth maps, smooths their seams and scales the result using the floor estimate. Wall edges marked on the panorama and simple furniture shapes help organize the rough surface.</p>
