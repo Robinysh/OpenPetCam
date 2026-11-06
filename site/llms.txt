@@ -25,7 +25,7 @@ Key facts:
 - [An open-source alternative to Furbo and Petcube](https://crimeacs.github.io/OpenPetCam/guide/open-source-pet-camera.html)
 
 ## Blog
-- [Teaching a $12 pet camera where to look](https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html): a rough room map from photographs and a candidate floor echo, a history of sightings, an offline search replay, and the next experiment toward full waveform inversion
+- [A 4D model of the room using a stationary $12 camera and wave physics](https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html): a rough 3D room from photographs, a candidate floor echo and neural depth, with observations over time and a proposed loop for self-improvement
 
 ## Optional
 - [Releases](https://github.com/crimeacs/OpenPetCam/releases)

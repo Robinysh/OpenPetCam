@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Teaching a $12 pet camera where to look | OpenPetCam</title><meta name="description" content="A floor echo, a sweep of photographs and a history of sightings became a room map for a $12 pet camera—and a few better places to look for the dog.">
+<title>A 4D model of the room using a stationary $12 camera and wave physics | OpenPetCam</title><meta name="description" content="How I used a camera sweep, a floor echo and neural depth estimates to build a rough 3D room, then added observations over time.">
 <link rel="canonical" href="https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html">
 <link rel="alternate" type="application/atom+xml" title="OpenPetCam blog" href="feed.xml">
 <meta property="og:type" content="article"><meta property="og:site_name" content="OpenPetCam">
-<meta property="og:title" content="Teaching a $12 pet camera where to look"><meta property="og:description" content="A floor echo, a sweep of photographs and a history of sightings became a room map for a $12 pet camera—and a few better places to look for the dog.">
+<meta property="og:title" content="A 4D model of the room using a stationary $12 camera and wave physics"><meta property="og:description" content="How I used a camera sweep, a floor echo and neural depth estimates to build a rough 3D room, then added observations over time.">
 <meta property="og:url" content="https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html">
 <meta property="og:image" content="https://crimeacs.github.io/OpenPetCam/media/blog/film/week-observations.jpg">
 <meta property="article:published_time" content="2026-11-05">
@@ -13,10 +13,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../site.css?v=type-2">
 <link rel="stylesheet" href="room-story.css?v=3">
-<link rel="stylesheet" href="room-film.css?v=1">
+<link rel="stylesheet" href="room-film.css?v=2">
 <script src="room-story.js?v=1" defer></script>
 <script src="room-film.js?v=2" defer></script>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "Teaching a $12 pet camera where to look", "description": "A floor echo, a sweep of photographs and a history of sightings became a room map for a $12 pet camera—and a few better places to look for the dog.", "datePublished": "2026-11-05", "dateModified": "2026-11-06", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html", "image": "https://crimeacs.github.io/OpenPetCam/media/blog/film/week-observations.jpg"}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "A 4D model of the room using a stationary $12 camera and wave physics", "description": "How I used a camera sweep, a floor echo and neural depth estimates to build a rough 3D room, then added observations over time.", "datePublished": "2026-11-05", "dateModified": "2026-11-06", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html", "image": "https://crimeacs.github.io/OpenPetCam/media/blog/film/week-observations.jpg"}</script>
 <script src="../analytics.js" defer></script></head>
 <body>
 <nav class="nav"><a class="word" href="../" aria-label="OpenPetCam home"><img src="../media/openpetcam-mark-color.svg" width="34" height="34" alt="">OpenPetCam</a>
@@ -26,12 +26,11 @@
 
 <header class="story-header">
 <p class="crumbs"><a href="../">OpenPetCam</a> / <a href="./">Build notes</a></p>
-<p class="story-date"><time datetime="2026-11-05">5 November 2026</time> · updated <time datetime="2026-11-06">6 November</time> · 7 minute read</p>
-<h1>Teaching a $12 pet camera where to look</h1>
-<p class="dek">I wanted the camera to remember the room after the dog had left the picture.</p>
+<p class="story-date"><time datetime="2026-11-05">5 November 2026</time> · updated <time datetime="2026-11-06">6 November</time> · 8 minute read</p>
+<h1>A 4D model of the room using a stationary $12 camera and wave physics</h1>
 </header>
 
-<p>When my dog walks out of view, OpenPetCam goes looking for her. Too often, it looks under the kitchen counter. The picture is perfectly clear; it is just a picture of the wrong place.</p>
+<p>I started OpenPetCam last week, a fully open-source project that lets anyone set up a self-hosted pet camera with pet detection, following and many other useful features. This week, I wanted to test the limits of this setup and see if I could produce a realistic model of the room, and perhaps use it as a reinforcement learning (RL) environment to improve following and localization.</p>
 
 <figure class="story-model motion-figure hero-motion" data-motion="The room at a glance">
 <div class="motion-stage"><video muted loop playsinline preload="none" poster="../media/blog/film/week-observations.jpg" width="720" height="640" data-src="../media/blog/room-title.mp4" aria-label="A slow orbit around the reconstructed room, with recorded observation heat on the floor."></video></div>
@@ -39,12 +38,10 @@
 <figcaption>The reconstructed room. Warm patches mark logged observations; gaps remain where the surface is missing.</figcaption>
 </figure>
 
-<p>About a quarter of the settled search frames—304 of 1,268—showed almost no floor according to the room model: cabinetry, counter or wall. I wanted the camera to remember the sofa and the rug, and have a few sensible places to look when she disappeared.</p>
-<p>I ended up building a rough 3D room with a history of observations attached. The fourth dimension is time. The map connects places on the floor to motor positions, but first I had to get distances from a camera fixed to one mount.</p>
+<p>In this blog post, I aim to explain the process so you can try the experiment on your own setup. The <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/README.md">build instructions</a> have the commands and dependencies.</p>
 
-<h2 id="panorama">One place to look from</h2>
-<p>The head can turn almost all the way around, but it stays on its mount. The lens shifts a little as it turns; I have not calibrated that motion well enough to use it for stereo. For this build, I treated the photographs as views from roughly one point.</p>
-<p>Match the same corner in overlapping pictures and you can work out the lens distortion and how far each motor step turns the image. Across 67 calibration views, the median matching error was about three pixels. That let me stitch the pictures together and attach a direction to each pixel.</p>
+<h2 id="panorama">The head is spinning</h2>
+<p>The head of the camera I am using, a Cinnado D1, gives me roughly 320° of pan and 70° of tilt in this setup. The very first idea was to take overlapping pictures from every possible angle and stitch a panorama from them. Match the same corner in overlapping pictures and you can work out the lens distortion and how far each motor step turns the image. That let me stitch the pictures together and attach a direction to each pixel. Here is the code for <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/camera.py">camera calibration</a> and <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/pano.py">panorama stitching</a>.</p>
 <p>I could point to the sofa on the panorama; putting it on a floor plan would require a distance.</p>
 
 <figure class="motion-figure" data-motion="The camera sweep">
@@ -70,28 +67,57 @@
 </figure>
 
 <h2 id="scale">An approximate ruler</h2>
-<p>The camera already has a speaker and a microphone, so I tried using them as a ruler. The speaker plays a frequency sweep. Deconvolving the recording compresses that long sound into a short response, with peaks at different delays. The room contributes to those peaks, along with the speaker, microphone, housing and recording chain.</p>
+<p>How can we obtain distance in a way that doesn’t require the user to do anything? One idea I had was to send out a signal and measure how long its reflection takes to come back. On the pet camera we have:</p>
+<ul>
+<li><strong>Passive optics:</strong> the camera itself doesn’t emit light; it only collects it. On its own, this doesn’t give us an echo to time.</li>
+<li><strong>Infrared night vision and IR LEDs:</strong> we can emit light and receive it, but the speed of light is very, very fast. A 10 cm difference in distance changes the round-trip delay by about 0.67 nanoseconds, far beyond what this camera can time without dedicated time-of-flight hardware.</li>
+<li><strong>A loudspeaker and microphone:</strong> sound travels at approximately 343 m/s, so an echo from an object 5 metres away returns in about 29 milliseconds. At a 48 kHz sampling rate, one sample corresponds to roughly 3.6 mm of one-way range. That is the sample spacing, not the measurement accuracy, but sounds like this should work!</li>
+</ul>
+<p>The speaker plays a frequency sweep. Deconvolving the recording compresses that long sound into a short response, with peaks at different delays. The room contributes to those peaks, along with the speaker, microphone, housing and recording chain.</p>
 <p>I used a recurring peak near 4.7 milliseconds as a candidate floor return. With the timing and path assumptions in that first build, it put the floor roughly 0.8 metres below the lens. That gave the model a scale to work with.</p>
 
-<figure class="room-film film-portrait" id="floor-film" data-film aria-label="The speaker sweep and recorded return">
+<div class="film-pair" id="floor-film">
+<figure class="room-film film-portrait" id="speaker-film" data-film aria-label="The speaker sweep">
 <div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
-<button type="button" data-film-src="../media/blog/film/speaker-sweep.mp4" data-film-poster="../media/blog/film/speaker-sweep.jpg" data-film-title="The film&#x27;s illustrated speaker sweep" aria-pressed="true">The sweep</button>
-<button type="button" data-film-src="../media/blog/film/floor-return.mp4" data-film-poster="../media/blog/film/floor-return.jpg" data-film-title="The film&#x27;s recorded echo trace and candidate floor return" aria-pressed="false">The return</button>
+<button type="button" data-film-src="../media/blog/film/speaker-sweep.mp4" data-film-poster="../media/blog/film/speaker-sweep.jpg" data-film-title="The speaker sweep" aria-pressed="true">The speaker sweep</button>
 </div>
-<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/speaker-sweep.jpg" width="540" height="960" aria-label="The film&#x27;s illustrated speaker sweep"></video></div>
+<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/speaker-sweep.jpg" width="540" height="960" aria-label="The speaker sweep"></video></div>
 <div class="film-controls" hidden>
 <button type="button" data-film-play>Play</button>
-<label for="floor-film-scrub">Scrub<input id="floor-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="floor-film-caption"></label>
+<label for="speaker-film-scrub">Scrub<input id="speaker-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="speaker-film-caption"></label>
 <output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
 </div>
 <p class="film-status" role="status"></p>
 <noscript><p><a href="../media/blog/film/speaker-sweep.mp4">Watch this sequence</a></p></noscript>
-<figcaption id="floor-film-caption">The speaker sweep and recorded response. The clay scene illustrates the proposed floor path.</figcaption>
+<figcaption id="speaker-film-caption">The speaker sweep. The clay scene illustrates the proposed floor path.</figcaption>
 </figure>
-<p>The saved value, <code>0.807 m</code>, looks more precise than the experiment deserves. A tape measure gave me a welcome check: 31 inches from the floor to the camera, about 0.79 m. That agrees with the rough scale. I still need to measure the exact lens, speaker and microphone positions, and check the timing reference.</p>
+<figure class="room-film film-portrait" id="return-film" data-film aria-label="The recorded response">
+<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
+<button type="button" data-film-src="../media/blog/film/floor-return.mp4" data-film-poster="../media/blog/film/floor-return.jpg" data-film-title="The recorded response" aria-pressed="true">The recorded response</button>
+</div>
+<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/floor-return.jpg" width="540" height="960" aria-label="The recorded response"></video></div>
+<div class="film-controls" hidden>
+<button type="button" data-film-play>Play</button>
+<label for="return-film-scrub">Scrub<input id="return-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="return-film-caption"></label>
+<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
+</div>
+<p class="film-status" role="status"></p>
+<noscript><p><a href="../media/blog/film/floor-return.mp4">Watch this sequence</a></p></noscript>
+<figcaption id="return-film-caption">The recorded response, with the candidate floor return.</figcaption>
+</figure>
+</div>
 
-<h2 id="shape">Moving the sofa in software</h2>
-<p><a href="https://github.com/ByteDance-Seed/Depth-Anything-3">Depth Anything 3</a> supplied an estimate of shape from the photographs. The pipeline merges its overlapping depth maps, smooths their seams and scales the result using the floor estimate. Wall edges marked on the panorama and simple furniture shapes help organize the rough surface.</p>
+<p>Just for a reality check, I got out a tape measure: 31 inches, which is 0.79 m. Nice!</p>
+
+<h2 id="shape">From panorama to depth</h2>
+<p>Now we know the direction of every visible pixel and have an estimate of the distance to the floor. How can we turn that into a 3D room at the right scale? One obvious idea is photogrammetry. However, our camera stays on one mount and mostly rotates, so there is no useful stereo baseline in this build. Lucky for us, there are neural networks for depth estimation from a single camera. <a href="https://github.com/ByteDance-Seed/Depth-Anything-3">Depth Anything 3</a> and <a href="https://github.com/prs-eth/Marigold">Marigold</a> are two examples. I used Depth Anything 3 for depth here.</p>
+<p>In a nutshell, these networks have learned what the 3D world usually looks like from training images. Walls tend to be vertical, floors horizontal, and familiar objects look smaller as they move farther away. Given an image, they can estimate how far away each pixel is, producing something called a <strong>depth map</strong>.</p>
+<p>There is one problem, though: a neural network can guess the shape of a room without knowing its actual size. A room that is 3 metres wide and one that is 6 metres wide might produce very similar images, so relative-depth models cannot reliably tell them apart.</p>
+<p>Fortunately, we already have a ruler! Since we have an estimate of the camera’s height above the floor and its viewing angle, we can calculate the distance to visible points on a flat floor using simple trigonometry.</p>
+<p>We can then use these distances to estimate the scale of our depth map. For example, if the map puts a point on the floor 2 units away, but geometry tells us it is actually 4 metres away, we have a scale factor of 2.</p>
+<p>Once we have calibrated the depth, each pixel gives us two things: <strong>a direction from the panorama and an estimated distance</strong>. Multiplying the unit direction vector by that distance gives us a point in 3D space. Do this for thousands of pixels, and we get a point cloud: an approximate 3D reconstruction of the room.</p>
+<p>The <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/depthpano.py">depth fusion code</a> merges the overlapping estimates and smooths their seams. In this build, wall edges marked on the panorama and simple furniture shapes also help organize the surface.</p>
+
 <figure class="room-film film-depth" id="depth-film" data-film aria-label="Photographs and the depth panorama">
 <div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
 <button type="button" data-film-src="../media/blog/film/photo-depth.mp4" data-film-poster="../media/blog/film/photo-depth.jpg" data-film-title="The original photographs and their depth-map reveals" aria-pressed="true">Photo → depth</button>
@@ -107,9 +133,9 @@
 <noscript><p><a href="../media/blog/film/photo-depth.mp4">Watch this sequence</a></p></noscript>
 <figcaption id="depth-film-caption">A photo and its depth estimate, followed by the merged panorama. The wipe reveals the finished map.</figcaption>
 </figure>
-<p>One version put the sofa about 1.5 metres from the camera. Placing it from the line where it met the floor put it about 3 metres away. I had moved the sofa by more than a metre without touching it. Both placements used the same camera height.</p>
-<p>The dog gave me another check. When she is standing on the floor, her estimated feet should land on it. Across 2,255 detected foot directions, the merged depth disagreed with the assumed floor by a median 4.7%, compared with 5.2% for a simple merge. The check still relies on the detector placing her feet correctly and on that same floor scale.</p>
-<p>You can orbit the model and recognise the room. The sofa taught me to be careful about that feeling: the wall distances still need an independent check.</p>
+
+<p>The result is not a perfect 3D scan, but a roughly scaled initial world model that we can keep refining. We will talk about that in more detail if it works.</p>
+<p>You can orbit the model and recognise the room.</p>
 
 <figure class="room-film film-model" id="shell-film" data-film aria-label="The original pullback from the camera into the reconstructed shell">
 <div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
@@ -126,9 +152,9 @@
 <figcaption id="shell-film-caption">Pulling back from the lens into the reconstructed surface. Its gaps and displaced edges remain visible.</figcaption>
 </figure>
 
-<h2 id="time">A room also has a daily routine</h2>
-<p>Once the room had a shape, I could put an observation somewhere. A sighting left a point on the floor and a time in the history. Where I had photographs from different hours, I could also store how a surface’s brightness changed.</p>
-<p>The sequence below follows the sightings through a recorded day. Switch to the week’s accumulated observations and the familiar places begin to stand out.</p>
+<h2 id="time">Wait, but how about 4D?</h2>
+<p>Once the room had a shape, I could put an observation somewhere. The fourth dimension is time. First, there is the detected dog: I can now map her detections to estimated points in the 3D room and accumulate them as a heatmap. This gives me a map of her “hot spots”, where she likes to hang out the most. I can also store camera observations, such as brightness and IR response, and see how a surface’s brightness changes over time.</p>
+<p>Of course, the heatmap also reflects where the camera spends its time looking.</p>
 
 <figure class="room-film film-model" id="time-film" data-film aria-label="Recorded observations over a day and week">
 <div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
@@ -146,17 +172,19 @@
 <figcaption id="time-film-caption">The marker shows the last logged sighting; heat accumulates over a fixed daytime image. Scrub the short recording, or choose the week’s accumulated observations.</figcaption>
 </figure>
 
-<p>The heatmap has the camera's habits mixed into it. A corner that is rarely watched tells me little about how often the dog uses it. Even so, the places where she has repeatedly been seen are worth visiting when she disappears again.</p>
-
-<h2 id="infrared">Another view after dark</h2>
-<p>At night, the camera supplies its own light. Comparing frames with the infrared LEDs on and off helps isolate that contribution. Comparing the response with visible light makes some plants, fabrics and fur stand out.</p>
+<h2 id="infrared">Speaking of IR</h2>
+<p>At night, the camera supplies its own light. Previously, we dismissed infrared as a ruler because our camera cannot measure how quickly the light returns, but we can measure how much light comes back. The idea is simple: take one frame with the LEDs off and another with them on, then subtract: <span aria-label="I IR equals I on minus I off"><var>I</var><sub>IR</sub> = <var>I</var><sub>on</sub> − <var>I</var><sub>off</sub></span>. This approximately isolates the illumination supplied by our LEDs, provided nothing moves and the ambient light stays unchanged.</p>
+<p>For that subtraction to mean anything, exposure, gain, image processing and the IR-cut filter also need to stay fixed. We need pixel values proportional to light, or a calibrated camera response to undo their encoding.</p>
+<p>There is a catch: a surface can look bright because it reflects infrared well, because it is close, or because it faces the light directly. Fortunately, we already have an approximate 3D model!</p>
+<p>Using its distances and surface orientations, we can compensate for some of these effects. With the lamp and camera response calibrated too, this could give us an estimate of <strong>relative infrared reflectivity</strong>. For now, the layer is an approximate response map; I have not established reflectivity from these captures.</p>
+<p>This will not reliably tell us whether something is wood or fabric, and shiny surfaces need more complicated treatment. But it gives us another useful property to work towards: how each surface responds to light we control. And unlike a thermal camera, we are measuring <a href="https://whitepapers.axis.com/en-us/ir-in-surveillance">reflected light</a>, not my pet’s body temperature.</p>
 
 <figure class="room-film film-model" id="infrared-film" data-film aria-label="Comparing infrared views">
 <div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
-<button type="button" data-film-src="../media/blog/film/nir-contrast.mp4" data-film-poster="../media/blog/film/nir-contrast.jpg" data-film-title="The original near-infrared contrast layer on the reconstructed room" aria-pressed="true">Infrared contrast</button>
-<button type="button" data-film-src="../media/blog/film/infrared-response.mp4" data-film-poster="../media/blog/film/infrared-response.jpg" data-film-title="The original infrared reflectance layer on the reconstructed room" aria-pressed="false">The lamp’s response</button>
+<button type="button" data-film-src="../media/blog/film/nir-contrast.mp4" data-film-poster="../media/blog/film/nir-contrast.jpg" data-film-title="The original exploratory filter-response layer on the reconstructed room" aria-pressed="true">Filter response</button>
+<button type="button" data-film-src="../media/blog/film/infrared-response.mp4" data-film-poster="../media/blog/film/infrared-response.jpg" data-film-title="The original exploratory infrared-response layer on the reconstructed room" aria-pressed="false">The lamp’s response</button>
 </div>
-<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/nir-contrast.jpg" width="720" height="640" aria-label="The original near-infrared contrast layer on the reconstructed room"></video></div>
+<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/nir-contrast.jpg" width="720" height="640" aria-label="The original exploratory filter-response layer on the reconstructed room"></video></div>
 <div class="film-controls" hidden>
 <button type="button" data-film-play>Play</button>
 <label for="infrared-film-scrub">Scrub<input id="infrared-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="infrared-film-caption"></label>
@@ -164,52 +192,13 @@
 </div>
 <p class="film-status" role="status"></p>
 <noscript><p><a href="../media/blog/film/nir-contrast.mp4">Watch this sequence</a></p></noscript>
-<figcaption id="infrared-film-caption">Near-infrared contrast, then the response to the camera’s own lamp.</figcaption>
-</figure>
-<p>I kept those colours as another way of looking at the surface. Exposure and viewing angle still matter, and I have not calibrated the layer against known materials.</p>
-
-<h2 id="search">A better first few places</h2>
-<p>I replayed 56 recorded searches with a different stop order. For each searched day, I left that day’s detections out of the hourly habit weights. The room geometry and visibility calculation stayed the same.</p>
-<figure><img src="../media/blog/search.png" width="1320" height="352" alt="Offline replay: the old order puts the dog in view in 36 of 56 searches, the room map in 38, and the room map followed by remaining learned stops in 48." loading="lazy"><figcaption>Fifty-six searches with an estimated dog position outside the initial view. The replay asks whether a proposed stop would put her in view.</figcaption></figure>
-<p>The old order reached a view containing the estimated dog position in <strong>36 of 56</strong> searches. The room map alone reached <strong>38</strong>. Trying the map first, then the remaining learned stops, reached <strong>48</strong>.</p>
-<p>These are replayed sightlines using estimated positions from the logs. A stop can put the dog in the picture and still miss her with the detector. The recordings also favour places the old search already visited. I need live searches to find out how much of the gain carries over.</p>
-<p>Keeping the old stops gave the search a fallback for places the map had missed.</p>
-
-<figure class="room-film film-model" id="search-film" data-film aria-label="The original recorded camera sightlines and last-sighting marker">
-<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
-<button type="button" data-film-src="../media/blog/film/recorded-search.mp4" data-film-poster="../media/blog/film/recorded-search.jpg" data-film-title="The original recorded camera sightlines and last-sighting marker" aria-pressed="true">The recorded view</button>
-</div>
-<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/recorded-search.jpg" width="720" height="640" aria-label="The original recorded camera sightlines and last-sighting marker"></video></div>
-<div class="film-controls" hidden>
-<button type="button" data-film-play>Play</button>
-<label for="search-film-scrub">Scrub<input id="search-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="search-film-caption"></label>
-<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
-</div>
-<p class="film-status" role="status"></p>
-<noscript><p><a href="../media/blog/film/recorded-search.mp4">Watch this sequence</a></p></noscript>
-<figcaption id="search-film-caption">The recorded view cone and last sighting. The chart above comes from the separate search replay.</figcaption>
+<figcaption id="infrared-film-caption">Near-infrared contrast, then the response to the camera’s own lamp. These earlier captures did not verify fixed exposure and processing, so the colours are qualitative.</figcaption>
 </figure>
 
-<details class="story-notes">
-<summary>How I checked the search order</summary>
-<p>The replay uses searches where the logs let me estimate a dog position: 54 from a successful find and two from later resting detections. That selects an easier-to-reconstruct subset of searches.</p>
-<p>I withheld each searched day’s detections from the hourly habit weights. The geometry, visibility calculation and grid bounds remained shared. The counts above describe this replay; they do not establish a success rate for all searches.</p>
-</details>
-
-<h2 id="acoustics">Asking more of the waveform</h2>
-<p>A bark from outside the picture is the next reason I want the camera to understand the room. The floor return gave the visual model a rough ruler. I want to ask much more of the sound.</p>
-<p>In <a href="https://doi.org/10.1190/1.3238367">full waveform inversion</a>, I would start with the room model, solve the wave equation for each shot, and change the geometry to explain the microphone’s pressure traces. Phase and amplitude matter: reflections overlap, reinforce one another and cancel. Those patterns contain information about the room.</p>
-<p>I now have an offline three-dimensional wave solver that preserves signed pressure, and a source-position fitter that uses its phase. In a simulation check, I used the same room and numerical grid to generate the recording and fit it. Supplying the source signal let the fitter recover the prescribed positions. Taking it away or changing the model showed how fragile that result was. This work has not yet reconstructed a wall or located a real bark.</p>
-
-<details class="story-notes">
-<summary>What the acoustic checks have shown</summary>
-<p>An early ray model scored 0.397 with the correct pose labels and 0.402 after I shuffled them. Pairing the right head direction with each recording had not helped. That fit did not test full waveform inversion. An older wave experiment compared envelopes and discarded phase; a later signed-waveform fitter used one analytic reflection.</p>
-<p>There is an instrument problem too. Four shots in one capture can repeat closely, while separate captures at the same pose shift by as much as about 1.8 milliseconds. A fit could move a wall to explain a late shot. The source, microphone response and timing need constraints alongside the geometry.</p>
-</details>
-
-<h2 id="next">One measured wall</h2>
-<p>My first inversion test will use one independently measured surface. I will put it in the wrong place in the input model and ask the waveforms to move it back. Separate poses and capture sessions will test its predictions. A comparison fit that changes only the instrument response will show whether moving the wall explains anything extra.</p>
-<p>I started with a camera searching the cabinets. I now have a room I can inspect, a history of sightings, and a better search order to try. I would like a bark from outside the picture to give it the next direction. The measured wall is where I want to begin.</p>
+<h2 id="next">Uncertainty and self-improvement</h2>
+<p>As it stands, this is a fun engineering exercise. To turn it into a self-improving Room World Model, what’s missing? A useful way to act on uncertainty. If we knew where our model was weakest, we could come up with hypotheses about how to improve it. Beyond the obvious “look at it, why is this wall bent?”, one clue is how well the different measurements agree. We already have visual, depth, IR and acoustic layers attached to our surfels, small surface patches that are something between a pixel and a voxel. Their disagreement can point us towards places that need another look.</p>
+<p>The next step is to turn uncertainty into a to-do list. When different layers disagree, the model could propose competing explanations: perhaps the surface is closer than we thought, perhaps it reflects IR unusually well, or perhaps our measurement was simply noisy. Each explanation should predict something different about a future observation. We could then choose an experiment, such as inspecting the region again, changing the illumination or repeating an acoustic probe, that is likely to tell these explanations apart.</p>
+<p>The model would improve by making predictions, testing them, and keeping the changes that explain new measurements better. Over time, this loop could refine the room’s geometry, its material properties, and even our understanding of the camera itself. That is the path from a reconstructed room to a self-improving <strong>Room World Model: one that knows what it is unsure about and chooses what to measure next.</strong></p>
 
 <footer class="story-end"><a class="btn primary" href="https://github.com/crimeacs/OpenPetCam" data-track="blog-star">Explore the code</a><p><a href="https://github.com/crimeacs/OpenPetCam/tree/main/sim/world">Reconstruction code</a> · <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/README.md">Build instructions</a> · <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/AUDIT.md">Checks and assumptions</a></p><p>The build runs locally. Your room images, layout and activity logs stay outside the public repository.</p></footer>
 </article>

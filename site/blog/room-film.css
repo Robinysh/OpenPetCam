@@ -25,3 +25,11 @@
 .room-film button:focus-visible,.room-film input:focus-visible{outline:3px solid var(--blue);outline-offset:3px;border-radius:3px}
 .room-film button:active{transform:translateY(1px)}
 @media(max-width:480px){.room-film .film-controls{grid-template-columns:58px minmax(0,1fr);gap:0 8px;padding:2px 0 6px}.room-film [data-film-time]{grid-column:2;justify-self:end;margin-top:-5px}.room-film .film-controls label{gap:6px}.room-film .film-chapters{gap:0 14px}.room-film .film-chapters button{font-size:15px}}
+
+/* Both halves of the acoustic experiment stay visible without switching scenes. */
+.room-story .film-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;max-width:720px;margin:32px auto 40px}
+.room-story .film-pair .room-film{width:100%;min-width:0;max-width:none;margin:0}
+.film-pair .film-controls{grid-template-columns:58px minmax(0,1fr);gap:0 8px;padding:2px 0 6px}
+.film-pair [data-film-time]{grid-column:2;justify-self:end;margin-top:-5px}
+.film-pair .film-controls label{gap:6px}
+@media(max-width:540px){.room-story .film-pair{grid-template-columns:1fr;max-width:340px;gap:28px}}
