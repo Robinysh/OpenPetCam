@@ -4,6 +4,13 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-11-05
+
+### Fixed
+- The offline test gate called three acoustic tests that are not in the repository yet, so CI and the 0.3.5 and
+  0.3.6 release builds failed (no release archive for either). The gate runs only tests that exist, and now includes
+  the scheduled-sweep test. The site gained a blog.
+
 ## [0.3.6] - 2026-11-05
 
 ### Server

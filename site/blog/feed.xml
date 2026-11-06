@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>OpenPetCam blog</title>
+  <link href="https://crimeacs.github.io/OpenPetCam/blog/"/>
+  <link rel="self" href="https://crimeacs.github.io/OpenPetCam/blog/feed.xml"/>
+  <id>https://crimeacs.github.io/OpenPetCam/blog/</id>
+  <updated>2026-11-06T00:59:29Z</updated>
+  <author><name>OpenPetCam contributors</name></author>
+  <entry>
+    <title>Teaching a $12 pet camera where to look</title>
+    <link href="https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html"/>
+    <id>https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html</id>
+    <updated>2026-11-06T00:59:29Z</updated>
+    <summary>A pet camera kept wasting searches on kitchen cabinets. A rough room model helped—and exposed the limits of its pictures, echoes and memory.</summary>
+  </entry>
+</feed>

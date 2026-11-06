@@ -23,6 +23,9 @@ Key facts:
 - [Build a pet camera with Thingino firmware](https://crimeacs.github.io/OpenPetCam/guide/thingino-pet-camera.html)
 - [A pet camera without a subscription](https://crimeacs.github.io/OpenPetCam/guide/pet-camera-without-subscription.html)
 
+## Blog
+- [Teaching a $12 pet camera where to look](https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html): a rough room model and time-indexed observations for search; provisional acoustic scale, offline replay results, and unresolved calibration
+
 ## Optional
 - [Releases](https://github.com/crimeacs/OpenPetCam/releases)
 - [60-second film](https://crimeacs.github.io/OpenPetCam/media/openpetcam-film-720p.mp4)

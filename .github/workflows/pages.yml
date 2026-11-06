@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Public-repo guard
-        run: bash tools/check_public.sh --files site/*.html site/guide/*.html site/llms.txt
+        run: bash tools/check_public.sh --files site/*.html site/guide/*.html site/blog/*.html site/llms.txt
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
