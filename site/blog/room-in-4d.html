@@ -14,7 +14,6 @@
 <link rel="stylesheet" href="../site.css?v=type-2">
 <link rel="stylesheet" href="room-story.css?v=4">
 <link rel="stylesheet" href="room-film.css?v=2">
-<link rel="stylesheet" href="room-ir.css?v=1">
 <script src="room-story.js?v=1" defer></script>
 <script src="room-film.js?v=2" defer></script>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "A 4D model of the room using a stationary $12 camera and wave physics", "description": "How I used a camera sweep, a floor echo and neural depth estimates to build a rough 3D room, then added observations over time.", "datePublished": "2026-11-05", "dateModified": "2026-11-06", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html", "image": "https://crimeacs.github.io/OpenPetCam/media/blog/film/week-observations.jpg"}</script>
@@ -27,7 +26,7 @@
 
 <header class="story-header">
 <p class="crumbs"><a href="../">OpenPetCam</a> / <a href="./">Build notes</a></p>
-<p class="story-date"><time datetime="2026-11-05">5 November 2026</time> · updated <time datetime="2026-11-06">6 November</time> · 8 minute read</p>
+<p class="story-date"><time datetime="2026-11-05">5 November 2026</time> · updated <time datetime="2026-11-06">6 November</time> · 6 minute read</p>
 <h1>A 4D model of the room using a stationary $12 camera and wave physics</h1>
 </header>
 
@@ -171,7 +170,7 @@
 </figure>
 
 <h2 id="time">Wait, but how about 4D?</h2>
-<p>Once the room had a shape, I could put an observation somewhere. The fourth dimension is time. First, there is the detected dog: I can now map her detections to estimated points in the 3D room and accumulate them as a heatmap. This gives me a map of her “hot spots”, where she likes to hang out the most. I can also store camera observations, such as brightness and IR response, and see how a surface’s brightness changes over time.</p>
+<p>Once the room had a shape, I could put an observation somewhere. The fourth dimension is time. First, there is the detected dog: I can now map her detections to estimated points in the 3D room and accumulate them as a heatmap. This gives me a map of her “hot spots”, where she likes to hang out the most. I can also store camera observations and see how a surface’s brightness changes over time.</p>
 <p>Of course, the heatmap also reflects where the camera spends its time looking.</p>
 
 <figure class="room-film film-model" id="time-film" data-film aria-label="The recorded daily observation sequence and last-sighting marker">
@@ -204,55 +203,10 @@
 <figcaption id="week-film-caption"><strong>Across the week.</strong> An orbit over the accumulated week of recorded observations.</figcaption>
 </figure>
 
-<h2 id="infrared">Speaking of IR</h2>
-<p>At night, the camera supplies its own light. Previously, we dismissed infrared as a ruler because our camera cannot measure how quickly the light returns, but we can measure how much light comes back. The idea is simple: take one frame with the LEDs off and another with them on, then subtract: <span aria-label="I IR equals I on minus I off"><var>I</var><sub>IR</sub> = <var>I</var><sub>on</sub> − <var>I</var><sub>off</sub></span>. This approximately isolates the illumination supplied by our LEDs, provided nothing moves and the ambient light stays unchanged.</p>
-<p>For that subtraction to mean anything, exposure, gain, image processing and the IR-cut filter also need to stay fixed. We need pixel values proportional to light, or a calibrated camera response to undo their encoding.</p>
-<p>The archive does include nighttime views like this one. A useful subtraction example still needs matching off/on/off frames from the same stationary scene.</p>
-
-<figure class="ir-night" id="ir-subtraction" aria-label="A recorded nighttime view; no matched LED-off frame is available">
-<div class="ir-night-label">Recorded nighttime view</div>
-<img src="../media/blog/ir-example/ir-night-view.png" width="325" height="190" loading="lazy" alt="The dog lying on the floor in a recorded grayscale nighttime view.">
-<figcaption>A saved nighttime frame, cropped to the dog. This shows night appearance only: I have not found a matching LED-off image for this view, so no residual is plotted. The comparison needs a fixed camera and a stationary subject. <a href="../media/blog/ir-example/ir-night-view.json">Image provenance</a>.</figcaption>
-</figure>
-
-<p>There is a catch: a surface can look bright because it reflects infrared well, because it is close, or because it faces the light directly. Fortunately, we already have an approximate 3D model!</p>
-<p>Using its distances and surface orientations, we can compensate for some of these effects. With the lamp and camera response calibrated too, this could give us an estimate of <strong>relative infrared reflectivity</strong>. For now, these saved JPEG observations give us a qualitative response map, not a corrected response or reflectivity measurement. A wider layer needs the same off/on/off sequence repeated across overlapping camera directions.</p>
-<p>This will not reliably tell us whether something is wood or fabric, and shiny surfaces need more complicated treatment. But it gives us another useful property to work towards: how each surface responds to light we control. And unlike a thermal camera, we are measuring <a href="https://whitepapers.axis.com/en-us/ir-in-surveillance">reflected light</a>, not my pet’s body temperature.</p>
-
-<figure class="room-film film-model" id="infrared-film" data-film aria-label="Updated LED brightness change in qualitative JPEG levels on the reconstructed room">
-<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
-<button type="button" data-film-src="../media/blog/film/room-led-difference.mp4" data-film-poster="../media/blog/film/room-led-difference.jpg" data-film-title="Updated LED brightness change in qualitative JPEG levels on the reconstructed room" aria-pressed="true">LED brightness change</button>
-</div>
-<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/room-led-difference.jpg" width="720" height="640" aria-label="Updated LED brightness change in qualitative JPEG levels on the reconstructed room"></video></div>
-<div class="film-controls" hidden>
-<button type="button" data-film-play>Play</button>
-<label for="infrared-film-scrub">Scrub<input id="infrared-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="infrared-film-caption"></label>
-<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
-</div>
-<p class="film-status" role="status"></p>
-<noscript><p><a href="../media/blog/film/room-led-difference.mp4">Watch this sequence</a></p></noscript>
-<figcaption id="infrared-film-caption"><strong>LED brightness change.</strong> Colours show qualitative JPEG differences from one stationary capture; grey surfaces have no paired IR measurement. The scale runs from −16 to +16 pixel levels, not reflectivity.</figcaption>
-</figure>
-
-<figure class="room-film film-model" id="filter-film" data-film aria-label="Updated qualitative filter response on the reconstructed room">
-<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
-<button type="button" data-film-src="../media/blog/film/room-filter-response.mp4" data-film-poster="../media/blog/film/room-filter-response.jpg" data-film-title="Updated qualitative filter response on the reconstructed room" aria-pressed="true">Filter response</button>
-</div>
-<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/room-filter-response.jpg" width="720" height="640" aria-label="Updated qualitative filter response on the reconstructed room"></video></div>
-<div class="film-controls" hidden>
-<button type="button" data-film-play>Play</button>
-<label for="filter-film-scrub">Scrub<input id="filter-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="filter-film-caption"></label>
-<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
-</div>
-<p class="film-status" role="status"></p>
-<noscript><p><a href="../media/blog/film/room-filter-response.mp4">Watch this sequence</a></p></noscript>
-<figcaption id="filter-film-caption"><strong>Filter response.</strong> The reconstructed room coloured by the qualitative response to the IR-cut filter state. Grey surfaces have no paired measurement.</figcaption>
-</figure>
-
 <h2 id="next">Uncertainty and self-improvement</h2>
-<p>As it stands, this is a fun engineering exercise. To turn it into a self-improving Room World Model, what’s missing? A useful way to act on uncertainty. If we knew where our model was weakest, we could come up with hypotheses about how to improve it. Beyond the obvious “look at it, why is this wall bent?”, one clue is how well the different measurements agree. We already have visual, depth, IR and acoustic layers attached to our surfels, small surface patches that are something between a pixel and a voxel. Their disagreement can point us towards places that need another look.</p>
-<p>The next step is to turn uncertainty into a to-do list. When different layers disagree, the model could propose competing explanations: perhaps the surface is closer than we thought, perhaps it reflects IR unusually well, or perhaps our measurement was simply noisy. Each explanation should predict something different about a future observation. We could then choose an experiment, such as inspecting the region again, changing the illumination or repeating an acoustic probe, that is likely to tell these explanations apart.</p>
-<p>The model would improve by making predictions, testing them, and keeping the changes that explain new measurements better. Over time, this loop could refine the room’s geometry, its material properties, and even our understanding of the camera itself. That is the path from a reconstructed room to a self-improving <strong>Room World Model: one that knows what it is unsure about and chooses what to measure next.</strong></p>
+<p>As it stands, this is a fun engineering exercise. To turn it into a self-improving Room World Model, what’s missing? A useful way to act on uncertainty. If we knew where our model was weakest, we could come up with hypotheses about how to improve it. Beyond the obvious “look at it, why is this wall bent?”, one clue is how well the different measurements agree. We already have visual, depth and acoustic layers attached to our surfels, small surface patches that are something between a pixel and a voxel. Their disagreement can point us towards places that need another look.</p>
+<p>The next step is to turn uncertainty into a to-do list. When different layers disagree, the model could propose competing explanations: perhaps the surface is closer than we thought, or perhaps our measurement was simply noisy. Each explanation should predict something different about a future observation. We could then choose an experiment, such as inspecting the region again or repeating an acoustic probe, that is likely to tell these explanations apart.</p>
+<p>The model would improve by making predictions, testing them, and keeping the changes that explain new measurements better. Over time, this loop could refine the room’s geometry, the observations attached to it, and even our understanding of the camera itself. That is the path from a reconstructed room to a self-improving <strong>Room World Model: one that knows what it is unsure about and chooses what to measure next.</strong></p>
 
 <footer class="story-end"><a class="btn primary" href="https://github.com/crimeacs/OpenPetCam" data-track="blog-star">Explore the code</a><p><a href="https://github.com/crimeacs/OpenPetCam/tree/main/sim/world">Reconstruction code</a> · <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/README.md">Build instructions</a> · <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/AUDIT.md">Checks and assumptions</a></p><p>The build runs locally. Your room images, layout and activity logs stay outside the public repository.</p></footer>
 </article>
