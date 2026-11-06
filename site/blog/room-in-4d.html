@@ -176,23 +176,23 @@
 <p>At night, the camera supplies its own light. Previously, we dismissed infrared as a ruler because our camera cannot measure how quickly the light returns, but we can measure how much light comes back. The idea is simple: take one frame with the LEDs off and another with them on, then subtract: <span aria-label="I IR equals I on minus I off"><var>I</var><sub>IR</sub> = <var>I</var><sub>on</sub> − <var>I</var><sub>off</sub></span>. This approximately isolates the illumination supplied by our LEDs, provided nothing moves and the ambient light stays unchanged.</p>
 <p>For that subtraction to mean anything, exposure, gain, image processing and the IR-cut filter also need to stay fixed. We need pixel values proportional to light, or a calibrated camera response to undo their encoding.</p>
 <p>There is a catch: a surface can look bright because it reflects infrared well, because it is close, or because it faces the light directly. Fortunately, we already have an approximate 3D model!</p>
-<p>Using its distances and surface orientations, we can compensate for some of these effects. With the lamp and camera response calibrated too, this could give us an estimate of <strong>relative infrared reflectivity</strong>. For now, the layer is an approximate response map; I have not established reflectivity from these captures.</p>
+<p>Using its distances and surface orientations, we can compensate for some of these effects. With the lamp and camera response calibrated too, this could give us an estimate of <strong>relative infrared reflectivity</strong>. For now, these saved JPEG observations give us a qualitative response map, not a corrected response or reflectivity measurement. A wider layer needs the same off/on/off sequence repeated across overlapping camera directions.</p>
 <p>This will not reliably tell us whether something is wood or fabric, and shiny surfaces need more complicated treatment. But it gives us another useful property to work towards: how each surface responds to light we control. And unlike a thermal camera, we are measuring <a href="https://whitepapers.axis.com/en-us/ir-in-surveillance">reflected light</a>, not my pet’s body temperature.</p>
 
-<figure class="room-film film-model" id="infrared-film" data-film aria-label="Comparing infrared views">
+<figure class="room-film film-model" id="infrared-film" data-film aria-label="Updated qualitative infrared views from the Room Model">
 <div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
-<button type="button" data-film-src="../media/blog/film/nir-contrast.mp4" data-film-poster="../media/blog/film/nir-contrast.jpg" data-film-title="The original exploratory filter-response layer on the reconstructed room" aria-pressed="true">Filter response</button>
-<button type="button" data-film-src="../media/blog/film/infrared-response.mp4" data-film-poster="../media/blog/film/infrared-response.jpg" data-film-title="The original exploratory infrared-response layer on the reconstructed room" aria-pressed="false">The lamp’s response</button>
+<button type="button" data-film-src="../media/blog/film/room-led-difference.mp4" data-film-poster="../media/blog/film/room-led-difference.jpg" data-film-title="Updated LED brightness change in qualitative JPEG levels on the reconstructed room" aria-pressed="true">LED brightness change</button>
+<button type="button" data-film-src="../media/blog/film/room-filter-response.mp4" data-film-poster="../media/blog/film/room-filter-response.jpg" data-film-title="Updated qualitative filter response on the reconstructed room" aria-pressed="false">Filter response</button>
 </div>
-<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/nir-contrast.jpg" width="720" height="640" aria-label="The original exploratory filter-response layer on the reconstructed room"></video></div>
+<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/room-led-difference.jpg" width="720" height="640" aria-label="Updated LED brightness change in qualitative JPEG levels on the reconstructed room"></video></div>
 <div class="film-controls" hidden>
 <button type="button" data-film-play>Play</button>
 <label for="infrared-film-scrub">Scrub<input id="infrared-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="infrared-film-caption"></label>
 <output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
 </div>
 <p class="film-status" role="status"></p>
-<noscript><p><a href="../media/blog/film/nir-contrast.mp4">Watch this sequence</a></p></noscript>
-<figcaption id="infrared-film-caption">Near-infrared contrast, then the response to the camera’s own lamp. These earlier captures did not verify fixed exposure and processing, so the colours are qualitative.</figcaption>
+<noscript><p><a href="../media/blog/film/room-led-difference.mp4">Watch this sequence</a></p></noscript>
+<figcaption id="infrared-film-caption">The updated Room Model: LED brightness change, with filter response in the second view. Colours show qualitative JPEG differences from one stationary capture; grey surfaces have no paired IR measurement. The LED scale runs from −16 to +16 pixel levels, not reflectivity.</figcaption>
 </figure>
 
 <h2 id="next">Uncertainty and self-improvement</h2>
