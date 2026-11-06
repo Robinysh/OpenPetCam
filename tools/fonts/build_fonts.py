@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Draw OpenPetCam's two typefaces from one set of letter skeletons.
+"""Draw OpenPetCam's three typefaces from one set of letter skeletons.
 
-    python3 tools/fonts/build_fonts.py        writes site/fonts/{snout,snout-mono}.{ttf,woff2} + a specimen PNG
+    python3 tools/fonts/build_fonts.py        writes site/fonts/{snout,snout-text,snout-mono}.{ttf,woff2} + a specimen PNG
 
-Every letter is a centreline (lines and elliptical arcs) on a 1000-unit grid. The same skeletons are stroked twice:
-  Snout       heavy rounded strokes drawn with an oval pen (verticals 1.6x the horizontals), proportional;
+Every letter is a centreline (lines and elliptical arcs) on a 1000-unit grid. The same skeletons are drawn at three weights:
+  Snout       heavy rounded strokes drawn with an oval pen (verticals 1.5x the horizontals), proportional;
               the dots of i and j are paw prints.
-  Snout Mono  thin strokes, every glyph the same width; the camera-readout face (labels, timestamps, scores).
+  Snout Text  open counters and plain dots for smaller headings and controls.
+  Snout Mono  sturdy strokes, every glyph the same width; the camera-readout face (labels, timestamps, scores).
 Round caps and joins come from buffering the centreline (shapely); round letters get tighter sidebearings.
 Needs: fonttools, shapely, brotli, pillow.
 """
@@ -18,7 +19,7 @@ from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from shapely.affinity import scale as sscale
 from shapely.affinity import rotate, translate
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 
@@ -198,6 +199,41 @@ def glyphs(k, paw):
     return g
 
 
+def paw_shape(px, py, size):
+    """Four separate, splayed toes above a soft canine pad.
+
+    Keep the spaces open: the old circular outer toes merged into the pad at
+    display size. The lower pad has three small lobes rather than an oval blob.
+    Coordinates are in font space, with positive y pointing upward.
+    """
+    curves = [
+        ((0, .32), (-.16, .50), (-.28, .50), (-.41, .32)),
+        ((-.41, .32), (-.56, .14), (-.75, -.10), (-.64, -.30)),
+        ((-.64, -.30), (-.58, -.49), (-.31, -.50), (-.18, -.39)),
+        ((-.18, -.39), (-.11, -.55), (.11, -.55), (.18, -.39)),
+        ((.18, -.39), (.31, -.50), (.58, -.49), (.64, -.30)),
+        ((.64, -.30), (.75, -.10), (.56, .14), (.41, .32)),
+        ((.41, .32), (.28, .50), (.16, .50), (0, .32)),
+    ]
+    outline = []
+    for points in curves:
+        for step in range(16):
+            t = step / 16
+            weights = ((1-t)**3, 3*(1-t)**2*t, 3*(1-t)*t*t, t**3)
+            outline.append(tuple(sum(w*p[axis] for w, p in zip(weights, points))
+                                 for axis in (0, 1)))
+    pad = Polygon(outline)
+    toes = []
+    for x, y, angle, rx, ry in [(-.87, .81, 28, .21, .29),
+                               (-.31, 1.14, 8, .22, .31),
+                               (.31, 1.14, -8, .22, .31),
+                               (.87, .81, -28, .21, .29)]:
+        toe = sscale(Point(0, 0).buffer(1, quad_segs=20), rx, ry, origin=(0, 0))
+        toes.append(translate(rotate(toe, angle, origin=(0, 0)), x, y))
+    mark = unary_union([pad, *toes])
+    return translate(sscale(mark, size, size, origin=(0, 0)), px, py)
+
+
 def shape(k, item, paw):
     s = k.s
     if isinstance(item, tuple):
@@ -213,11 +249,8 @@ def shape(k, item, paw):
             return Point(px, py).buffer(s * 0.75, quad_segs=16)
         if kind == "rec":
             return Point(px, py).buffer(230, quad_segs=24)
-        if kind == "paw":                             # a pad and four toes
-            pad = sscale(Point(px, py).buffer(1, quad_segs=16), s * 0.74, s * 0.6)
-            toes = [Point(px + s * 0.9 * math.cos(math.radians(t)), py + s * 0.12 + s * 0.8 * math.sin(math.radians(t)))
-                    .buffer(s * 0.24, quad_segs=12) for t in (158, 113, 67, 22)]
-            return unary_union([pad] + toes)
+        if kind == "paw":
+            return paw_shape(px, py, s)
     kp = k.pen
     line = LineString([(px / kp, py) for px, py in item])
     return sscale(line.buffer(s / 2, cap_style="round", join_style="round", quad_segs=16), kp, 1, origin=(0, 0))
@@ -227,6 +260,11 @@ def shape(k, item, paw):
 def build(name, s, paw, mono, sp, wobble=0.0, pen=1.0):
     k = K(s, pen)
     defs = glyphs(k, paw)
+    if mono:
+        # Similar silhouettes are especially costly in a small camera readout.
+        defs["I"] += [[(-145, k.c), (145, k.c)], [(-145, k.b), (145, k.b)]]
+        defs["1"] += [[(0, k.b), (300, k.b)]]
+        defs["0"] += [("dot", 225, k.cm)]
     order = [".notdef", "space"] + [f"u{ord(ch):04X}" for ch in defs]
     fb = FontBuilder(1000, isTTF=True)
     fb.setupGlyphOrder(order)
@@ -282,8 +320,8 @@ def build(name, s, paw, mono, sp, wobble=0.0, pen=1.0):
     fb.setupHorizontalMetrics(metrics)
     fb.setupHorizontalHeader(ascent=930, descent=-280)
     fam = name
-    fb.setupNameTable({"familyName": fam, "styleName": "Regular", "uniqueFontIdentifier": f"OpenPetCam:{fam}:0.1",
-                       "fullName": fam, "psName": fam.replace(" ", ""), "version": "Version 0.100",
+    fb.setupNameTable({"familyName": fam, "styleName": "Regular", "uniqueFontIdentifier": f"OpenPetCam:{fam}:0.2",
+                       "fullName": fam, "psName": fam.replace(" ", ""), "version": "Version 0.200",
                        "copyright": "OpenPetCam contributors, Apache-2.0",
                        "licenseDescription": "Apache License 2.0", "designer": "OpenPetCam"})
     fb.setupOS2(sTypoAscender=930, sTypoDescender=-280, sTypoLineGap=0, usWinAscent=1000, usWinDescent=320,
@@ -335,8 +373,8 @@ def specimen(ttf_display, ttf_mono):
 
 
 if __name__ == "__main__":
-    a = build("Snout", 128, paw=True, mono=False, sp=24, pen=1.62)
-    build("Snout Text", 118, paw=False, mono=False, sp=30, pen=1.5)   # for sizes under ~48px: plain dots
-    b = build("Snout Mono", 64, paw=False, mono=True, sp=0)
+    a = build("Snout", 118, paw=True, mono=False, sp=36, pen=1.5)
+    build("Snout Text", 98, paw=False, mono=False, sp=40, pen=1.42)
+    b = build("Snout Mono", 84, paw=False, mono=True, sp=0)
     if "--no-specimen" not in sys.argv:
         specimen(a, b)
