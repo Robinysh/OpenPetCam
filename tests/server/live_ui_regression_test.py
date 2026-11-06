@@ -66,12 +66,19 @@ class RTCPeerConnection {
   close() { this.connectionState = "closed"; this.onconnectionstatechange?.(); }
 }
 ''' + section + r'''
+privacyBlocksLive = false; // the initial server privacy check has completed
 const tick = (ms) => { now += ms; intervals.forEach(fn => fn()); };
 const flush = async () => { for(let i=0;i<8;i++) await Promise.resolve(); };
 (async () => {
 ''' + scenario + r'''
 })().catch(e => { console.error(e.stack); process.exit(1); });
 ''')
+
+    def test_no_peer_opens_before_initial_privacy_is_known(self):
+        r = self.player("""privacyBlocksLive=true;await startLive();await flush();
+console.log(JSON.stringify({peers:peers.length,wanted:liveWanted}));""")
+        self.assertEqual(r['peers'], 0)
+        self.assertFalse(r['wanted'])
 
     def test_connected_startup_gets_fifteen_seconds_for_first_picture(self):
         result = self.player('''await startLive(); tick(2000); tick(9000);
@@ -114,7 +121,7 @@ const document = {activeElement:null};
 const petText = () => ["Resting", "here"];
 const drawBox = box => {draws.push(box); order.push("draw");};
 const frameOn = () => order.push("frame");
-const doingSub = () => "", renderModes = () => {}, showPrivacy = () => {},
+const doingSub = () => "", renderModes = () => {}, showPrivacy = () => {}, renderPrivacy = () => {},
       renderFind = () => {}, showFollow = () => {}, showTalkVol = () => {};
 ''' + definitions + "\nconst input = " + json.dumps(record) + ";\n" +
                     "const resize = " + resize + ";\n" + action +

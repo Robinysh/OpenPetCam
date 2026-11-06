@@ -38,6 +38,8 @@ AUTOPILOT_STALE = 36 * 3600   # nightly job: alert after a day and a half withou
 REPORT_UNANSWERED = 6 * 3600  # a report the report agent hasn't answered in this long = agent not running
 REPORTS = f"{STATE}/reports"
 RECORDING_STALE = 180         # newest recording segment older than this = video relay stuck
+PRIVACY = f"{STATE}/privacy"
+PRIVACY_RESUME_GRACE = 90     # the capture process deliberately restarts on resume
 
 
 def log(*a):
@@ -155,19 +157,62 @@ def incident(st, key, bad, down_msg, up_msg):
         send(up_msg[0], f"{up_msg[1]} (down about {mins} min)", kind="camera", tag=key)
 
 
-def check():
-    st = load_state()
-    # 1. Watcher alive? (also covers "camera unreachable": the watcher only heartbeats on a good frame)
+def privacy_requested():
+    try:
+        with open(PRIVACY) as f:
+            return f.read().strip() != "0"
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+
+
+def check_capture_health(st):
+    """Stopped recording is expected during privacy; its watcher must still be alive."""
+    paused = privacy_requested()
+    incidents = st.setdefault("incidents", {})
     hb = age(HEARTBEAT)
+    if paused:
+        # An intentional stop is not recovery from a previous capture incident.
+        # Remove those incidents quietly instead of announcing that pictures are back.
+        incidents.pop("video", None)
+        incidents.pop("watch", None)
+        st["privacy_paused"] = True
+        st.pop("privacy_resume_until", None)
+        incident(st, "privacy_watch", hb is None or hb > WATCH_STALE,
+                 (f"{APP}: privacy monitor stopped responding", "The watcher heartbeat is missing while the camera is paused. Privacy remains requested."),
+                 (f"{APP}: privacy monitor is running", "The watcher heartbeat is current; the camera remains paused"))
+        return True
+
+    incidents.pop("privacy_watch", None)
+    if st.pop("privacy_paused", False):
+        st["privacy_resume_until"] = time.time() + PRIVACY_RESUME_GRACE
+    # A short pause can begin and end between timer runs. The flag's own write
+    # time still gives that explicit resume its small startup grace.
+    try:
+        resumed_age = time.time() - os.path.getmtime(PRIVACY)
+    except OSError:
+        resumed_age = None
+    grace = (time.time() < st.get("privacy_resume_until", 0)
+             or resumed_age is not None and 0 <= resumed_age < PRIVACY_RESUME_GRACE)
     incident(st, "watch", hb is None or hb > WATCH_STALE,
              (f"{APP}: not getting pictures", "The camera or the watcher stopped responding. It will retry automatically."),
              (f"{APP} is back", "Pictures are coming in again"))
-    # 2. Video relay alive and recording?
-    relay = subprocess.run(["systemctl", "is-active", "--quiet", "mediamtx"]).returncode == 0
-    rec = newest_recording_age()
-    incident(st, "video", not relay or rec is None or rec > RECORDING_STALE,
-             (f"{APP}: video stopped", "Live video and recording are not running."),
-             (f"{APP} video is back", "Live video and recording are running again"))
+    if grace:
+        incidents.pop("video", None)
+    else:
+        st.pop("privacy_resume_until", None)
+        relay = subprocess.run(["systemctl", "is-active", "--quiet", "mediamtx"]).returncode == 0
+        rec = newest_recording_age()
+        incident(st, "video", not relay or rec is None or rec > RECORDING_STALE,
+                 (f"{APP}: video stopped", "Live video and recording are not running."),
+                 (f"{APP} video is back", "Live video and recording are running again"))
+    return False
+
+
+def check():
+    st = load_state()
+    paused = check_capture_health(st)
     # 3. The nightly self-improvement loop (runs on the owner's computer). Only once it has ever run.
     ap = age(AUTOPILOT_HEARTBEAT)
     if ap is not None:
@@ -236,7 +281,7 @@ def check():
         if key in seen:
             continue
         seen.add(key)
-        if first_run:                                  # first run: don't replay history
+        if first_run or paused:                        # consume quietly; don't replay a privacy gap later
             continue
         d = json.loads(e["detail"] or "{}")
         when = time.strftime("%-I:%M %p", time.localtime(e["ts"]))

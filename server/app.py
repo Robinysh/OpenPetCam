@@ -9,13 +9,17 @@ GET /auth before serving any video. Secrets come from /etc/petcam/app.env:
 Non-secret settings (pet name, addresses) come from /etc/petcam/site.env via petconf.py.
 """
 import base64
+import contextlib
+import fcntl
 import hashlib
 import hmac
 import http.client
 import json
 import os
+import socket
 import sys
 import threading
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -588,6 +592,8 @@ QUIET_SPEED = 250   # steps/s for automatic moves (follow, search). Measured wit
 
 def motor_cmd(d, x=0, y=0, speed=None):
     """A `motors` move: over the fast channel, or the CGI if that is down (the CGI can't set a speed)."""
+    if d != "s":
+        require_camera_active()
     try:
         sp = f" -s {int(speed)}" if speed else ""
         _camsh.run(f"motors -d {d}{sp} -x {int(x)} -y {int(y)} >/dev/null; true")
@@ -634,6 +640,7 @@ def wait_idle(timeout=20.0):   # slow (quiet) automatic moves take up to ~15 s
 def goto(x, y, speed=None):
     """Move to reported position (x, y), clamped inside the motor range so no axis can run past
     its end stop. Sent as a relative step from the settled position (see the note above)."""
+    require_camera_active()
     if _joystick is not None:
         _joystick.forget()
     with _move_lock:
@@ -673,6 +680,7 @@ def _goto_locked(x, y, current, speed=None):
 def aim(fx, fy, speed=None):
     """Bring the point at (fx, fy) of the frame to the centre. fx/fy are offsets from the
     centre as a fraction of the frame: +fx is right of centre, +fy is below centre."""
+    require_camera_active()
     fx, fy = max(-0.75, min(0.75, float(fx))), max(-0.75, min(0.75, float(fy)))
     if _joystick is not None:
         _joystick.forget()
@@ -685,6 +693,7 @@ def aim(fx, fy, speed=None):
 def recalibrate():
     """Homing sweeps both axes to their end stops and back to the start pose. The CGI answers
     only when it is done; moves are refused until then so they can't overlap the sweep."""
+    require_camera_active()
     if time.time() < _homing["until"]:
         return
     if not _cam["cookie"]:
@@ -941,6 +950,7 @@ _joystick = None
 def nudge(vx, vy):
     """Joystick tick (~6/s while held). vx/vy in [-1, 1]; +vx = view right, +vy = view up."""
     global _joystick
+    require_camera_active()
     vx, vy = max(-1.0, min(1.0, float(vx))), max(-1.0, min(1.0, float(vy)))
     # Squared deflection: gentle near the centre, faster at the edge.
     sx = int(round(-vx * abs(vx) * 0.16 * PAN_STEPS_PER_FRAME))     # view right = x down
@@ -968,6 +978,7 @@ IMAGING = {
 
 
 def set_imaging(action):
+    require_camera_active()
     if action not in IMAGING:
         raise ValueError("unknown mode")
     body = json.dumps(IMAGING[action], separators=(",", ":")).encode()  # compact: see cam_login
@@ -1022,38 +1033,281 @@ def prudynt(body):
             raise
 
 
-def set_privacy(on):
-    """Pause: black out the picture AND switch the camera's microphone off, so nothing of the home leaves
-    the camera (owner, 2026-11-02: "in privacy the mic is working, it shouldn't"). The watcher reads the
-    flag file, stops detecting and listening, and re-applies the pause if the camera forgets it (reboot).
-    Measured 2026-11-02: mic off silences the stream at once with video unaffected; mic back on only
-    returns audio after a streamer restart (~15 s of video), so resume restarts it."""
-    on = bool(on)
-    r = prudynt({"privacy": {"enabled": on}, "audio": {"mic_enabled": not on}})
-    state = bool((r.get("privacy") or {}).get("enabled", on))
-    mic = bool((r.get("audio") or {}).get("mic_enabled", not on))
-    with open(f"{STATE_DIR}/privacy", "w") as f:
-        f.write("1" if state else "0")
-    if not state:
-        # Before answering, not in a background thread: a thread died with a short-lived caller on 2026-11-02
-        # and the mic stayed silent. The CGI answers with non-JSON after it has restarted the streamer.
+_privacy_lock = threading.Lock()
+PRIVACY_RESUME_WAIT = 30
+PRIVACY_CONFIRM_FRESH = 60
+
+
+class PrivacyError(RuntimeError):
+    """Requested privacy stays latched when the camera cannot confirm a transition."""
+
+
+def _privacy_intent():
+    try:
+        with open(f"{STATE_DIR}/privacy") as f:
+            requested = f.read().strip() != "0"
+            # Read the value and version from the same inode across an atomic replacement.
+            return requested, os.fstat(f.fileno()).st_mtime_ns / 1_000_000_000
+    except FileNotFoundError:
+        return False, None
+    except OSError:
+        return True, None
+
+
+def privacy_requested():
+    return _privacy_intent()[0]
+
+
+def _privacy_intent_changed_at():
+    return _privacy_intent()[1]
+
+
+def require_camera_active():
+    if privacy_requested():
+        raise Busy("The camera is paused. Resume it first.")
+
+
+def _privacy_owner(fd):
+    # CLI maintenance may run as root; keep new files readable by the app and watcher.
+    if os.geteuid() == 0:
+        owner = os.stat(STATE_DIR)
+        os.fchown(fd, owner.st_uid, owner.st_gid)
+
+
+def _privacy_atomic(name, text):
+    path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", dir=STATE_DIR, prefix=".privacy-", delete=False) as f:
+            path = f.name
+            os.fchmod(f.fileno(), 0o640)
+            _privacy_owner(f.fileno())
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(path, f"{STATE_DIR}/{name}")
+        path = None
+        directory = os.open(STATE_DIR, os.O_RDONLY)
         try:
-            cam_get("/x/restart-prudynt.cgi")
-        except ValueError:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if path is not None:
+            os.unlink(path)
+
+
+@contextlib.contextmanager
+def _privacy_operation():
+    # The HTTP app and watcher are separate processes. Both must serialize with resume.
+    with _privacy_lock:
+        fd = os.open(f"{STATE_DIR}/privacy-operation.lock", os.O_RDWR | os.O_CREAT, 0o640)
+        try:
+            _privacy_owner(fd)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+
+def privacy_status():
+    requested, intent_changed_at = _privacy_intent()
+    try:
+        with open(f"{STATE_DIR}/privacy-state.json") as f:
+            state = json.load(f)
+        if not isinstance(state, dict):
+            state = {}
+    except (OSError, ValueError):
+        state = {}
+    phase = "checking" if requested else "active"
+    result = {"requested": requested, "confirmed": False, "mode": "unknown", "phase": phase,
+              "target": requested, "boot_persistent": False, "last_verified_at": None,
+              "intent_changed_at": intent_changed_at,
+              "message": "Privacy requested; checking the camera." if requested else "Camera privacy is off."}
+    if state.get("requested") is requested:
+        result.update({k: state[k] for k in result if k in state and k not in ("requested", "intent_changed_at")})
+        result["confirmed"] = state.get("confirmed") is True
+    verified = result["last_verified_at"]
+    fresh = isinstance(verified, (float, int)) and 0 <= time.time() - verified <= PRIVACY_CONFIRM_FRESH
+    if requested and result["confirmed"] and not fresh:
+        result.update(confirmed=False, phase="checking", message="Privacy requested; checking the camera.")
+    return result
+
+
+def _privacy_save(target, confirmed, mode, phase, message, boot_persistent=False):
+    state = {"requested": privacy_requested(), "target": target, "confirmed": confirmed,
+             "mode": mode, "phase": phase, "message": message, "boot_persistent": boot_persistent,
+             "last_verified_at": time.time() if confirmed else None}
+    _privacy_atomic("privacy-state.json", json.dumps(state, separators=(",", ":")) + "\n")
+    return state | {"intent_changed_at": _privacy_intent_changed_at()}
+
+
+def _privacy_guard(action, retry_cached=False):
+    assert action in ("status", "pause", "resume")
+    # An existing broken package is not absence and must never silently downgrade.
+    command = ("if test -x /etc/opc-privacy/control; then /etc/opc-privacy/control " + action +
+               "; elif test -e /etc/opc-privacy || test -L /etc/opc-privacy; then "
+               "printf '%s\\n' '{\"installed\":true,\"verified\":false}'; "
+               "else printf '%s\\n' '{\"installed\":false}'; fi")
+    cached_unavailable = time.time() < _camsh.down_until
+    try:
+        output = _camsh.run(command, timeout=12 if action == "status" else 35)
+    except OSError as error:
+        # A camera reboot can finish before this channel's old 30-second cooldown.
+        # Only an explicit transition may replace that cached failure, and only
+        # for a read-only status probe after the camera's web port is reachable.
+        if not (retry_cached and action == "status" and cached_unavailable
+                and str(error) == "camera ssh unavailable" and os.path.isfile(CAM_SSH_KEY)):
+            raise
+        with socket.create_connection((CAM_HOST, 80), timeout=2):
             pass
-        except Exception as e:  # noqa: BLE001 - the watcher's audio self-heal retries within 2 min
-            print("privacy resume: streamer restart failed:", type(e).__name__, e, flush=True)
-    return {"privacy": state, "mic": mic}
+        with _camsh.lock:
+            if time.time() < _camsh.down_until:
+                if _camsh.p is not None:
+                    try:
+                        _camsh.p.kill()
+                    except OSError:
+                        pass
+                    _camsh.p = None
+                _camsh.down_until = 0.0
+        output = _camsh.run(command, timeout=12)  # One fresh status attempt; never retry a mutation.
+    response = json.loads(output)
+    if not isinstance(response, dict):
+        raise PrivacyError("The camera privacy guard did not return a valid status.")
+    if response.get("installed") is False:
+        if os.path.exists(f"{STATE_DIR}/privacy-guard-required"):
+            raise PrivacyError("The installed camera privacy guard is unavailable.")
+        return None
+    if not os.path.exists(f"{STATE_DIR}/privacy-guard-required"):
+        _privacy_atomic("privacy-guard-required", "1\n")
+    return response
+
+
+def _privacy_verify_guard(response, paused):
+    mode = "capture_stopped" if paused else "capture_running"
+    if not isinstance(response, dict) or response.get("verified") is not True \
+            or response.get("paused") is not paused or response.get("privacy") is not paused \
+            or response.get("running") is not (not paused) or response.get("mode") != mode \
+            or response.get("boot_persistent") is not True:
+        raise PrivacyError("The camera has not confirmed the requested capture state.")
+
+
+def _privacy_verify_config(response, paused):
+    if not isinstance(response, dict):
+        raise PrivacyError("The camera did not return its picture and microphone settings.")
+    picture = response.get("privacy")
+    audio = response.get("audio")
+    if not isinstance(picture, dict) or not isinstance(audio, dict) \
+            or type(picture.get("enabled")) not in (bool, int) \
+            or type(audio.get("mic_enabled")) not in (bool, int) \
+            or picture["enabled"] not in (0, 1) or audio["mic_enabled"] not in (0, 1) \
+            or bool(picture["enabled"]) is not paused or bool(audio["mic_enabled"]) is paused:
+        raise PrivacyError("The camera has not confirmed its picture and microphone settings.")
+
+
+def _privacy_wait_active():
+    deadline = time.monotonic() + PRIVACY_RESUME_WAIT
+    while True:
+        try:
+            response = prudynt({"privacy": {"enabled": None}, "audio": {"mic_enabled": None}})
+            _privacy_verify_config(response, False)
+            return
+        except Exception:  # noqa: BLE001 - startup often precedes API readiness
+            if time.monotonic() >= deadline:
+                raise PrivacyError("The camera has not confirmed that picture and microphone are enabled.") from None
+            time.sleep(min(1, max(0, deadline - time.monotonic())))
+
+
+def _privacy_transition(on, refresh=False):
+    if not refresh:
+        # Suspend server acquisition before any camera I/O. Resume keeps the latch until verified.
+        _privacy_atomic("privacy", "1\n")
+        _privacy_save(on, False, "unknown", "pausing" if on else "resuming",
+                      "Stopping camera capture." if on else "Starting camera capture; privacy remains requested.")
+    guard = None
+    attempted_resume = False
+    try:
+        guard = _privacy_guard("status", retry_cached=not refresh)
+        if guard is not None:
+            if on:
+                response = guard
+                if refresh:
+                    try:
+                        _privacy_verify_guard(response, True)
+                    except PrivacyError:
+                        response = _privacy_guard("pause")
+                else:
+                    response = _privacy_guard("pause")
+                _privacy_verify_guard(response, True)
+                state = _privacy_save(True, True, "capture_stopped", "paused",
+                                      "Camera capture is stopped. The camera remains powered.", True)
+            else:
+                attempted_resume = True
+                response = guard
+                try:
+                    _privacy_verify_guard(response, False)
+                except PrivacyError:
+                    response = _privacy_guard("resume")
+                _privacy_verify_guard(response, False)
+                _privacy_wait_active()
+                _privacy_atomic("privacy", "0\n")
+                state = _privacy_save(False, True, "capture_running", "active",
+                                      "Camera capture is enabled. Reconnecting to the stream.", True)
+        else:
+            attempted_resume = not on
+            response = prudynt({"privacy": {"enabled": on}, "audio": {"mic_enabled": not on}})
+            _privacy_verify_config(response, on)
+            if not on:
+                try:
+                    cam_get("/x/restart-prudynt.cgi")
+                except ValueError:
+                    pass  # This CGI can return non-JSON after the restart; readback is still mandatory.
+                _privacy_wait_active()
+                _privacy_atomic("privacy", "0\n")
+            state = _privacy_save(on, True, "blackout", "paused" if on else "active",
+                                  "Picture is blacked out and microphone is disabled. Capture remains running." if on
+                                  else "Camera capture is enabled. Reconnecting to the stream.")
+        return {"privacy": on, "mic": not on, "privacy_status": state}
+    except Exception:  # noqa: BLE001 - every failure retains the local acquisition gate
+        if not privacy_requested():
+            _privacy_atomic("privacy", "1\n")
+        restored = False
+        if attempted_resume:
+            try:
+                if guard is not None:
+                    _privacy_verify_guard(_privacy_guard("pause"), True)
+                else:
+                    _privacy_verify_config(prudynt({"privacy": {"enabled": True}, "audio": {"mic_enabled": False}}), True)
+                restored = True
+            except Exception:
+                pass
+        mode = "capture_stopped" if restored and guard is not None else "blackout" if restored else "unknown"
+        message = "The camera did not resume. Privacy is confirmed again." if restored else \
+                  "Privacy is requested, but the camera has not confirmed that capture is paused."
+        _privacy_save(on, restored, mode, "error", message, restored and guard is not None)
+        raise PrivacyError(message) from None
+
+
+def set_privacy(on):
+    """Persist intent first; confirm camera shutdown or conservative legacy suppression explicitly."""
+    if type(on) is not bool:
+        raise ValueError("on must be true or false")
+    with _privacy_operation():
+        return _privacy_transition(on)
+
+
+def ensure_privacy_paused():
+    """Idempotent watcher reconciliation; a worker queued before resume cannot re-pause afterward."""
+    with _privacy_operation():
+        if privacy_requested():
+            return _privacy_transition(True, refresh=True)["privacy_status"]
+        return privacy_status()
 
 
 def request_find():
     """'Find <pet>': ask the watcher to run its room search now (owner, 2026-11-02). The watcher answers in
     live.json ('find': {t, result, found}) and as a 'search' event."""
-    try:
-        if open(f"{STATE_DIR}/privacy").read().strip() == "1":
-            raise Busy("The camera is paused. Resume it first.")
-    except OSError:
-        pass
+    require_camera_active()
     t = time.time()
     with open(f"{STATE_DIR}/find_request", "w") as f:
         f.write(str(t))
@@ -1104,6 +1358,7 @@ def set_settings(body):
 TALK_DIR = f"{STATE_DIR}/talk"
 TALK_BIND = (petconf.SERVER_WG_IP, 8099)            # tunnel address only: the camera is the only client
 _talk_last = {}
+_talk_intents = {}
 
 
 def camera_run(cmd, timeout=25):
@@ -1141,8 +1396,9 @@ def talk(device_id, device_name, raw, content_type):
     import secrets
     import subprocess
 
-    if read_live().get("status") == "privacy":
-        raise Busy(f"The camera is paused. Resume it to talk to {petconf.PET}.")
+    talk_intent = _privacy_intent()
+    if talk_intent[0]:
+        raise Busy("The camera is paused. Resume it first.")
     if time.time() - _talk_last.get(device_id, 0) < 5:
         raise Busy("One message every 5 seconds")
     if len(raw) < 2000:
@@ -1163,6 +1419,9 @@ def talk(device_id, device_name, raw, content_type):
         dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", voice],
                                    capture_output=True, text=True).stdout.strip() or 0)
         vol = int(get_settings().get("talk_volume", 75))
+        if _privacy_intent() != talk_intent:
+            raise Busy("Camera privacy changed. Record the message again.")
+        _talk_intents[tok] = talk_intent
         reply = camera_run(f"curl -s -m 20 http://{TALK_BIND[0]}:{TALK_BIND[1]}/{tok}.wav | play -s -f wav -v {vol} 2>&1; echo rc=$?")
         if "Queued" not in reply:
             raise RuntimeError("the camera did not accept the audio")
@@ -1179,6 +1438,7 @@ def talk(device_id, device_name, raw, content_type):
     finally:
         def cleanup():
             time.sleep(90)                      # the camera fetches within seconds
+            _talk_intents.pop(tok, None)
             for f in (src, voice, out):
                 try:
                     os.remove(f)
@@ -1191,15 +1451,25 @@ class TalkFiles(BaseHTTPRequestHandler):
     """Serves /<token>.wav from TALK_DIR on the tunnel address, nothing else."""
 
     def do_GET(self):
+        if privacy_requested():
+            self.send_error(409, "The camera is paused.")
+            return
         name = self.path.lstrip("/")
         if "/" in name or not name.endswith(".wav") or name == "chime.wav" or len(name) < 20:
             self.send_error(404)
+            return
+        intent = _talk_intents.get(name[:-4])
+        if intent is None or _privacy_intent() != intent:
+            self.send_error(409, "Camera privacy changed. Record the message again.")
             return
         try:
             with open(f"{TALK_DIR}/{name}", "rb") as f:
                 data = f.read()
         except OSError:
             self.send_error(404)
+            return
+        if _privacy_intent() != intent:
+            self.send_error(409, "Camera privacy changed. Record the message again.")
             return
         self.send_response(200)
         self.send_header("Content-Type", "audio/wav")
@@ -1237,6 +1507,16 @@ def read_live():
         live["watch_age"] = None
     if live.get("watch_age") is not None and live["watch_age"] > 20:
         live["status"] = "watcher_down"
+    privacy = privacy_status()
+    live["privacy"] = privacy
+    if privacy["requested"]:
+        # The local latch wins immediately, even while the watcher still has an old frame.
+        live.update(status="privacy", present=False, score=0.0, box=None, det_t=None,
+                    frame_t=None, frame_arrived=None, frame_motion=0.0, motion=0.0,
+                    person=0.0, moving=False, moving_since=None, rest_since=None,
+                    audio_ok=False, last_bark=None, find=None, imaging={})
+    elif live.get("status") == "privacy" and privacy["phase"] == "active" and privacy["confirmed"]:
+        live.update(status="starting", present=False, box=None, det_t=None, audio_ok=False)
     return live
 
 
@@ -1426,6 +1706,7 @@ def delete_zone(zone_id):
 
 
 def live_frame():
+    require_camera_active()
     def call():
         req = urllib.request.Request(f"http://{CAM_HOST}/x/ch1.jpg", headers={"Cookie": _cam["cookie"] or ""})
         with urllib.request.urlopen(req, timeout=8) as r:
@@ -1434,13 +1715,15 @@ def live_frame():
         if not _cam["cookie"]:
             cam_login()
     try:
-        return with_deadline(call, 10)
+        picture = with_deadline(call, 10)
     except urllib.error.HTTPError as e:
         if e.code != 401:
             raise
         with _cam_lock:
             cam_login()
-        return with_deadline(call, 10)
+        picture = with_deadline(call, 10)
+    require_camera_active()  # Do not return an in-flight JPEG after pause was requested.
+    return picture
 
 
 # ---------- wellbeing: her day against her own normal ----------
@@ -1902,6 +2185,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/frame.jpg":
             try:
                 return self.send(200, live_frame(), "image/jpeg")
+            except Busy as e:
+                return self.send_json(409, {"error": str(e), "privacy": privacy_status()})
             except Exception as e:  # noqa: BLE001
                 return self.send_json(502, {"error": f"camera unreachable: {e}"})
         if path == "/api/push":
@@ -1939,6 +2224,8 @@ class Handler(BaseHTTPRequestHandler):
     def camera_call(self, fn, *args):
         try:
             return self.send_json(200, fn(*args))
+        except PrivacyError as e:
+            return self.send_json(503, {"error": str(e), "privacy": privacy_status()})
         except Busy as e:
             return self.send_json(409, {"error": str(e)})
         except (ValueError, TypeError, KeyError) as e:

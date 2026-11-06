@@ -290,12 +290,29 @@ class FrameSource:
 
     def desired_mode(self):
         """main / push / sub while live frames are wanted; idle (slow push) or None (no frames) otherwise."""
+        if privacy_flag():
+            return None
         push_ok = PUSH_ENABLED and now() >= self.push_down_until
         if not self.wanted():
             return "idle" if push_ok and IDLE_FPS else None
         if self.fast():
             return "main"
         return "push" if push_ok else "sub"
+
+    def pause(self):
+        """Drop the last room image and stop even a decoder blocked waiting for data."""
+        with self.lock:
+            self.frame, self.jpeg, self.prev_small, self.motion_c = None, None, None, None
+            self.pending_jpeg, self.got_jpeg = None, None
+            self.want_until, self.fast_until = 0.0, 0.0
+            process = getattr(self, "process", None)
+        self.motion_track.drop()
+        self.wake_decoder.set()
+        if process is not None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
 
     def push_cmd(self, fps=PUSH_FPS):
         """ssh to the camera running the snapshot loop. One loop at a time (pid file), bounded in time, and it stops
@@ -356,9 +373,10 @@ class FrameSource:
         while True:
             mode = self.desired_mode()
             if mode is None:
-                with self.lock:
-                    self.frame, self.jpeg = None, None
-                self.wake_decoder.wait(5)
+                self.pause()
+                # Poll the durable privacy flag so resume works without needing a new frame.
+                self.wake_decoder.clear()
+                self.wake_decoder.wait(1)
                 self.wake_decoder.clear()
                 continue
             if mode == "main":       # 1080p25: every frame must be decoded; skipping the deblocking filter saves ~20%
@@ -380,12 +398,17 @@ class FrameSource:
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             started, got = now(), 0
             progress = {"t": now(), "done": False}
+            with self.lock:
+                self.process = p
 
             def stall_watch(p=p, progress=progress, mode=mode):
                 # A source can stay connected and send nothing (ssh keepalives answer, the producer is stuck): a
                 # blocked read would never return. Kill the session when no complete frame arrives for a while.
                 while not progress["done"]:
                     time.sleep(1)
+                    if privacy_flag():
+                        self.pause()
+                        return
                     if now() - progress["t"] > FRAME_PROGRESS_S + (10 if got == 0 else 0):
                         log(f"frames: no new {mode} frame for {FRAME_PROGRESS_S} s, restarting the source")
                         p.kill()
@@ -407,6 +430,9 @@ class FrameSource:
                         switched = not stopped  # another mode (idle push, live, fast): restart on it at once
                         break
                     arr = self.read_frame(p, mode, n)
+                    if privacy_flag():
+                        stopped = True
+                        break
                     if arr is None:
                         break
                     if arr.size == 0:
@@ -417,6 +443,9 @@ class FrameSource:
                     k += 1
                     if k % every:                       # newest frame for the detector; motion on every `every`-th
                         with self.lock:
+                            if privacy_flag():
+                                stopped = True
+                                break
                             self.frame, self.t, self.jpeg = arr, now(), None
                             self.mode, self.lag = mode, STREAM_LAG[mode]
                         continue
@@ -425,19 +454,24 @@ class FrameSource:
                     else:
                         s4 = arr[::4, ::4]                                      # 160x90 gray: integer sum, not float mean
                         small = (s4[..., 0].astype(np.int16) + s4[..., 1] + s4[..., 2]) // 3   # bit-identical, 18x less CPU
-                    if self.prev_small is not None and T.FAST_FOLLOW:
-                        self.motion_track.frame(now(), FastTrack.mask(small, self.prev_small), camera_moving=camera_moved_at_recently())
-                    if self.prev_small is not None:
-                        d = np.abs(small - self.prev_small)
+                    with self.lock:
+                        previous = self.prev_small
+                    if previous is not None and T.FAST_FOLLOW:
+                        self.motion_track.frame(now(), FastTrack.mask(small, previous), camera_moving=camera_moved_at_recently())
+                    if previous is not None:
+                        d = np.abs(small - previous)
                         d[:9, :] = 0                                         # the clock overlay
                         if float(d.mean()) > MOTION_DETECT and not camera_moved_at_recently():
                             ys, xs = np.nonzero(d > 25)
                             if len(xs) > 30:      # where it moved: lets follow chase a pet seen once or not at all
                                 self.motion_c = (now(), float(xs.mean()) / 160 - 0.5, float(ys.mean()) / 90 - 0.5)
                             self.wake.set()
-                    fm = float(d.mean()) if self.prev_small is not None else None
-                    self.prev_small = small
+                    fm = float(d.mean()) if previous is not None else None
                     with self.lock:
+                        if privacy_flag():
+                            stopped = True
+                            break
+                        self.prev_small = small
                         self.frame, self.t = arr, now()
                         self.jpeg = getattr(self, "pending_jpeg", None) if mode in ("idle", "push") else None
                         self.mode, self.lag = mode, STREAM_LAG[mode]
@@ -450,6 +484,10 @@ class FrameSource:
                 progress["done"] = True
                 p.kill()
                 p.wait()
+                with self.lock:
+                    self.process = None
+            if privacy_flag():
+                stopped = True
             if stopped or switched:
                 self.push_short = 0
                 continue
@@ -471,6 +509,8 @@ class FrameSource:
             backoff = min(backoff * 2, 60)
 
     def latest(self, max_age=2.0):
+        if privacy_flag():
+            return None
         with self.lock:
             if self.frame is None or now() - self.t > max_age:
                 return None
@@ -532,15 +572,21 @@ def camera_moved_at_recently(window=4.0):
         return False
 
 
+def automatic_camera_action(fn, *args):
+    if privacy_flag():
+        raise camapi.Busy("The camera is paused. Resume it first.")
+    return fn(*args)
+
+
 class CamAdapter:
     """What the tracker needs from the camera, backed by the app's camera code."""
     position = staticmethod(lambda: camapi.position())
-    goto = staticmethod(lambda x, y: camapi.goto(x, y, camapi.QUIET_SPEED))      # automatic moves: slow and quiet
+    goto = staticmethod(lambda x, y: automatic_camera_action(camapi.goto, x, y, camapi.QUIET_SPEED))
     wait_idle = staticmethod(lambda: camapi.wait_idle(timeout=30.0))            # a quiet full pan takes ~15 s
     busy = staticmethod(lambda: camapi.motor_status()[0] != "0")
     home = staticmethod(lambda: camapi.start_pose())
     stop = staticmethod(lambda: camapi.motor_cmd("s"))
-    aim = staticmethod(lambda fx, fy: camapi.aim(fx, fy, camapi.QUIET_SPEED))
+    aim = staticmethod(lambda fx, fy: automatic_camera_action(camapi.aim, fx, fy, camapi.QUIET_SPEED))
     limits = staticmethod(lambda: camapi.limits())
     frame_steps = staticmethod(lambda: (camapi.PAN_STEPS_PER_FRAME, camapi.TILT_STEPS_PER_FRAME))
     presets = staticmethod(lambda: camapi.load_presets())
@@ -549,6 +595,8 @@ class CamAdapter:
 
 def cam_action(path):
     """Fire-and-forget camera CGI (restart encoder, reboot)."""
+    if privacy_flag():
+        return False
     try:
         req = urllib.request.Request(f"http://{camapi.CAM_HOST}{path}",
                                      headers={"Cookie": camapi._cam["cookie"] or ""})
@@ -582,11 +630,16 @@ def imaging_state():
 # ---------------------------------------------------------------- audio
 
 def privacy_flag():
+    requested = getattr(camapi, "privacy_requested", None)
+    if requested is not None:
+        return requested()
     try:
         with open(PRIVACY) as f:
-            return f.read().strip() == "1"
-    except OSError:
+            return f.read().strip() != "0"
+    except FileNotFoundError:
         return False
+    except OSError:
+        return True
 
 
 class Verifier:
@@ -719,13 +772,27 @@ class Audio(threading.Thread):
     def run(self):
         while True:
             if privacy_flag():
-                time.sleep(5)              # paused: not even subscribed to the (now silent) audio
+                self.pause()
+                time.sleep(1)              # paused: no subscription, including a silent blocked reader
                 continue
             try:
                 self.listen()
             except Exception as e:  # noqa: BLE001
                 log("audio:", e)
             time.sleep(10)
+
+    def pause(self):
+        """Discard buffered sound evidence and close the paused camera subscription."""
+        with self.lock:
+            self.ring.clear()
+            self.levels.clear()
+            self.minute_peak, self.minute_sounds = -120.0, 0
+            process = getattr(self, "process", None)
+        if process is not None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
 
     def get_model(self):
         if self.model is None and not self.model_failed:
@@ -737,33 +804,50 @@ class Audio(threading.Thread):
         return self.model
 
     def listen(self):
+        if privacy_flag():
+            return
         cmd = ["nice", "-n", "10", "ffmpeg", "-nostdin", "-loglevel", "error", "-rtsp_transport", "tcp",
                # Subscribe to the audio track only: receiving the video just to drop it cost
                # both this process and MediaMTX CPU on a box that lives at its 5% baseline.
                "-allowed_media_types", "audio", "-threads", "1",
                "-i", "rtsp://127.0.0.1:8554/cam", "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        with self.lock:
+            self.process = p
+        done = threading.Event()
+
+        def privacy_watch():
+            while not done.wait(0.5):
+                if privacy_flag():
+                    self.pause()
+                    return
+
+        threading.Thread(target=privacy_watch, daemon=True).start()
         burst, bursts, quiet, episode_blocks = 0, [], 0, 0
         try:
             while True:
+                if privacy_flag():
+                    return
                 raw = p.stdout.read(self.BLOCK * 2)
                 if len(raw) < self.BLOCK * 2 or privacy_flag():
                     return
-                self.last_ok = now()
                 pcm = np.frombuffer(raw, dtype=np.int16)
-                self.ring.append(pcm)
                 x = pcm.astype(np.float32)
                 db_ = 20 * math.log10(max(1e-9, float(np.sqrt(np.mean(x * x))) / 32768))
-                self.levels.append(db_)
-                if len(self.levels) > 1200:          # 5 minutes of blocks
-                    self.levels = self.levels[-1200:]
-                self.n_blocks += 1
-                if self.n_blocks % 8 == 1:   # every 2 s: a 1200-value percentile per 0.25 s block
-                    self.floor = float(np.percentile(self.levels, 20)) if len(self.levels) > 40 else -60.0   # was ~1% of a core
-                floor = self.floor
-                loud = db_ > max(floor + 18, -45)
                 with self.lock:
+                    if privacy_flag():
+                        return
+                    self.last_ok = now()
+                    self.ring.append(pcm)
+                    self.levels.append(db_)
+                    if len(self.levels) > 1200:          # 5 minutes of blocks
+                        self.levels = self.levels[-1200:]
+                    self.n_blocks += 1
+                    if self.n_blocks % 8 == 1:   # every 2 s: a 1200-value percentile per 0.25 s block
+                        self.floor = float(np.percentile(self.levels, 20)) if len(self.levels) > 40 else -60.0
+                    floor = self.floor
                     self.minute_peak = max(self.minute_peak, db_)
+                loud = db_ > max(floor + 18, -45)
                 if bursts or burst:
                     episode_blocks += 1
                 if loud:
@@ -780,9 +864,15 @@ class Audio(threading.Thread):
                     self.close_episode(bursts, episode_blocks, floor, db_)
                     bursts, episode_blocks = [], 0
         finally:
+            done.set()
             p.kill()
+            p.wait()
+            with self.lock:
+                self.process = None
 
     def close_episode(self, bursts, episode_blocks, floor, db_):
+        if privacy_flag():
+            return
         t0 = bursts[0][0] - 0.25 * bursts[0][1]
         longest = max(b[1] for b in bursts)
         if len(bursts) == 1 and longest <= 2:
@@ -794,8 +884,11 @@ class Audio(threading.Thread):
         model = self.get_model()
         if model is not None:
             # The episode plus 0.5 s before it, without the 3 s of trailing quiet.
-            n = min(len(self.ring), episode_blocks + 2)
-            blocks = list(self.ring)[-n:]
+            with self.lock:
+                if privacy_flag() or not self.ring:
+                    return
+                n = min(len(self.ring), episode_blocks + 2)
+                blocks = list(self.ring)[-n:]
             audio = np.concatenate(blocks[:max(1, len(blocks) - 10)])
             try:
                 t = time.time()
@@ -822,6 +915,8 @@ class Audio(threading.Thread):
         self.emit(kind, detail, t0)
 
     def emit(self, kind, detail, t0):
+        if privacy_flag():
+            return
         with self.lock:
             self.minute_sounds += 1
         self.events.put(("sound", {"kind": kind, **detail}, t0))
@@ -1258,6 +1353,8 @@ class Watch:
         """Video stopped but snapshots still work: after a stream-settings change (2026-11-02 10:28) the
         encoder stopped sending RTSP while ch1.jpg kept updating, which the freeze watchdog (identical
         snapshots) cannot see. Restart the streamer after STREAM_STALL s; at most once per 10 min."""
+        if self.privacy_on():
+            return
         t = now()
         down = t - (getattr(self, "stream_down_since", None) or t)
         if down < STREAM_STALL or t - self.last_fix < 600:
@@ -1273,6 +1370,8 @@ class Watch:
         """Sound gone while video works and the camera says its mic is on: the streamer only brings the mic
         back after a restart (2026-11-02: after pause/resume the stream carried an empty audio track for
         20 min until restarted by hand). Restart after AUDIO_LOST s; at most once per 10 min."""
+        if privacy or self.privacy_on():
+            return
         t = now()
         lost = t - max(self.audio.last_ok, self.audio_watch_from)   # no reading yet after a start is not silence
         if privacy or imaging.get("mic_enabled") == 0 or lost < AUDIO_LOST or t - self.last_audio_fix < 600:
@@ -1284,6 +1383,9 @@ class Watch:
         cam_action("/x/restart-prudynt.cgi")
 
     def on_failure(self):
+        if self.privacy_on():
+            self.privacy_cycle()
+            return
         self.heal_streamer()
         if not self.offline and now() - self.last_ok > OFFLINE_AFTER:
             self.offline = True
@@ -1297,6 +1399,8 @@ class Watch:
         (2026-11-02 06:15, after a restart: RTSP and its API port closed, web UI fine, nothing came
         back on its own). Restart it after 2 min; if two restarts don't help, reboot the camera.
         Rate-limited like the freeze watchdog."""
+        if self.privacy_on():
+            return
         t = now()
         down = t - self.last_ok
         if down < 120 or t - self.last_fix < 300:
@@ -1319,8 +1423,78 @@ class Watch:
             cam_action("/x/reboot.cgi")
         con.close()
 
+    def privacy_cycle(self):
+        """An intentional capture stop is healthy and needs no image to prove it."""
+        t = now()
+        self.privacy_active = True
+        for reader in (self.frames, getattr(self, "audio", None)):
+            pause = getattr(reader, "pause", None)
+            if pause:
+                pause()
+        self.prev_small, self.prev_box, self.last_found = None, None, []
+        self.last_detect, self.last_detect_capture = 0.0, None
+        self.dog_sound_pending, self.activity_sound_pending = False, 0.0
+        self.minute, self.acc = None, None
+        events = getattr(self, "events", None)
+        if events is not None:
+            while True:
+                try:
+                    events.get_nowait()
+                except queue.Empty:
+                    break
+        self.offline = False
+        with open(HEARTBEAT, "w") as f:
+            f.write(str(t))
+        self.publish(status="privacy", score=0.0, moving=False, box=None, det_t=None,
+                     motion=0.0, person=0.0, audio_ok=False, frame_t=None, frame_motion=None)
+        # Camera state can be lost at reboot. Reconcile through the same serialized,
+        # fail-closed controller as the app, without holding up the healthy heartbeat.
+        worker = getattr(self, "privacy_check_thread", None)
+        if t - getattr(self, "last_privacy_check", 0.0) >= IMAGING_EVERY and not (worker and worker.is_alive()):
+            self.last_privacy_check = t
+
+            def enforce():
+                try:
+                    camapi.ensure_privacy_paused()
+                except Exception as e:  # noqa: BLE001 - requested privacy remains in force on failure
+                    log("privacy enforcement:", type(e).__name__)
+
+            self.privacy_check_thread = threading.Thread(target=enforce, daemon=True)
+            self.privacy_check_thread.start()
+
+    def resume_after_privacy(self):
+        """Do not turn an intentional gap into a failure, sighting, or motion estimate."""
+        t = now()
+        self.privacy_active = False
+        self.last_ok, self.audio_watch_from = t, t
+        self.offline, self.heal_tries, self.fixes = False, 0, 0
+        self.same_since, self.stream_down_since = None, None
+        self.prev_small, self.prev_box, self.prev_source = None, None, None
+        self.last_found, self.last_detect = [], 0.0
+        self.sharp_samples, self.view_blocked = [], False
+        self.present, self.last_seen = False, 0.0
+        self.present_since, self.rest_since, self.moving_since = None, None, None
+        self.gone_since, self.last_find_req = t, t
+        self.last_bark, self.find_result = None, None
+        self.source = None
+        self.tracker = Tracker(CamAdapter(), self.find_pet, now, log=lambda m: log("follow:", m), sleep=time.sleep,
+                               find_now=self.find_pet_now, can_scan=lambda: self.source != "snapshot",
+                               tick=self.search_tick, cancelled=self.find_cancelled, memory=SEARCH_MEMORY_FILE)
+        self.tracker.fast = self.frames.motion_track
+        if getattr(self, "ppo", None) is not None:
+            self.ppo.reset()
+        self.frames.wake_decoder.set()
+
     def cycle(self):
+        if self.privacy_on():
+            self.privacy_cycle()
+            return
+        if getattr(self, "privacy_active", False):
+            self.resume_after_privacy()
         img = self.frames.latest()
+        if self.privacy_on():
+            self.privacy_cycle()
+            return
         if img is not None:
             jpg = getattr(self.frames, "got_jpeg", None)
             if not jpg:                                     # decoded H.264 frame: encode it once for snaps/candidates
@@ -1350,6 +1524,10 @@ class Watch:
                     self.stream_down_since = now()
                 self.source = "snapshot"
                 self.check_stream_stall()
+        # Pause may have been requested during a bounded image read.
+        if self.privacy_on():
+            self.privacy_cycle()
+            return
         t = now()
         con = db()
         self.heal_tries = 0
@@ -1376,15 +1554,7 @@ class Watch:
             motion = float(diff.mean())
         self.prev_small = gray
 
-        privacy = self.privacy_on()
-        if privacy:
-            # Paused: the picture is black. Keep the freeze watchdog and heartbeat, but don't
-            # detect or log comings/goings (they would all be false "left" events).
-            con.close()
-            with open(HEARTBEAT, "w") as f:
-                f.write(str(t))
-            self.publish(status="privacy", score=0.0, moving=False, box=None, det_t=None, motion=motion, person=0.0)
-            return
+        privacy = False
         # The detector only runs when the picture changed or every DETECT_EVERY seconds: a still
         # room doesn't need a fresh answer every cycle, and this box lives near its CPU baseline.
         lively = (self.moving_since is not None or t - (self.last_motion_t or 0) < 60 or self.tracker.searching
@@ -1413,6 +1583,10 @@ class Watch:
                 for f in sorted((f for f in self.last_found if f["label"] != "person"), key=lambda f: -f["score"])[:3]:
                     f["verified"] = round(self.verifier.prob(img, f["box"]), 3)
             self.recover_still_pet(img, t, motion, moved_recently)
+            if self.privacy_on():
+                con.close()
+                self.privacy_cycle()
+                return
             if any(f["label"] != "person" for f in self.last_found):
                 self.save_candidate(jpg, t)
         found = self.last_found
@@ -1472,6 +1646,10 @@ class Watch:
                                             # on the substream's clock (the constants were tuned on it): a fresher
                                             # main-stream frame is judged by when it was actually taken
                                             box_t=getattr(self, "last_detect_capture", self.last_detect) + STREAM_LAG["sub"])
+                if self.privacy_on():
+                    con.close()
+                    self.privacy_cycle()
+                    return
                 try:   # per cycle: where the camera pointed and what Follow did, to fit and replay its simulator
                     pose = self.current_pose(t) or (None, None)
                     n_motor = getattr(self.tracker, "n_motor", 0)
@@ -1488,6 +1666,10 @@ class Watch:
                         self.save_search_evidence(act, asked=False)
             except Exception as e:  # noqa: BLE001 - following must never stop the watcher
                 log("follow failed:", e)
+        if self.privacy_on():
+            con.close()
+            self.privacy_cycle()
+            return
         self.dog_sound_pending = False
         self.activity_sound_pending = 0.0
         try:
@@ -1504,11 +1686,7 @@ class Watch:
             try:
                 self.imaging = imaging_state()
                 self.check_flapping(con, t)
-                # Paused, but the camera forgot (privacy is not saved across a camera reboot): pause it again.
                 self.check_audio_lost(privacy, self.imaging)
-                if privacy and (self.imaging.get("privacy_enabled") == 0 or self.imaging.get("mic_enabled") == 1):
-                    log("privacy: camera is not paused (reboot?), re-applying picture and mic off")
-                    camapi.prudynt({"privacy": {"enabled": True}, "audio": {"mic_enabled": False}})
             except Exception as e:  # noqa: BLE001
                 log("imaging:", e)
             self.last_imaging = t
@@ -1554,6 +1732,8 @@ class Watch:
         motor cache measured this capture. Only an unchanged pose measured after the latest
         known movement, before capture and at most30s old is marked settled.
         """
+        if self.privacy_on():
+            return
         pose, pose_t = getattr(self, "pose", None), getattr(self, "pose_t", None)
         capture_t = getattr(self, "frame_capture_t", None)
         moved_t = self.tracker.last_move
@@ -1580,6 +1760,8 @@ class Watch:
         daylight, so auto mode flips every ~30 s (2026-11-02 00:47). Each flip clicks the IR-cut
         filter and swaps the picture. On FLAP_SWITCHES flips in FLAP_WINDOW while on auto, lock
         to night for FLAP_LOCK, then hand back to auto. A mode set by hand is never overridden."""
+        if self.privacy_on():
+            return
         im = self.imaging or {}
         mode = im.get("daynight_mode")
         if self.flap_lock_until and t > self.flap_lock_until:
@@ -1618,7 +1800,7 @@ class Watch:
     def save_candidate(self, jpg, t):
         """Frames where the detector saw something dog-like (the pet or not), max one per 30 s:
         the raw material for the next tools/bootstrap_pet.py run. Kept 30 days."""
-        if t - self.last_candidate_save < 30:
+        if self.privacy_on() or t - self.last_candidate_save < 30:
             return
         self.last_candidate_save = t
         day = time.strftime("%Y-%m-%d", time.localtime(t))
@@ -1714,10 +1896,14 @@ class Watch:
     def find_pet(self, after_t, wait=2.5):
         """For the tracker's search: the verified pet box in a frame that arrived after after_t
         (the camera has settled), or None."""
+        if self.privacy_on():
+            return None
         self.frames.want()
         deadline = now() + wait
         img = None
         while now() < deadline:
+            if self.privacy_on():
+                return None
             with self.frames.lock:
                 t = self.frames.t
                 # taken after the boundary, and a frame this search has not judged yet (looks share one boundary)
@@ -1728,6 +1914,8 @@ class Watch:
                 break
             time.sleep(0.05)
         if img is None:
+            if self.privacy_on():
+                return None
             try:
                 img = Image.open(io.BytesIO(snapshot("ch1"))).convert("RGB")
             except Exception:  # noqa: BLE001
@@ -1735,6 +1923,8 @@ class Watch:
         return self.verified_box(img, settled=True)
 
     def verified_box(self, img, settled=False):
+        if self.privacy_on():
+            return None
         found = [f for f in self.det.detect(img, min_score=0.10) if f["label"] != "person"]
         best, judged = None, []
         thr = self.verifier.threshold if self.verifier else PRESENT_SCORE
@@ -1879,6 +2069,8 @@ class Watch:
 
     def find_pet_now(self, since):
         """For the tracker's scan while panning: the newest frame if it arrived after `since`, no waiting."""
+        if self.privacy_on():
+            return None
         self.frames.want()
         with self.frames.lock:
             fresh = self.frames.frame is not None and self.frames.t > since
@@ -1892,11 +2084,7 @@ class Watch:
         return box
 
     def privacy_on(self):
-        try:
-            with open(PRIVACY) as f:
-                return f.read().strip() == "1"
-        except OSError:
-            return False
+        return privacy_flag()
 
     def camera_moved_recently(self):
         try:
@@ -1908,6 +2096,8 @@ class Watch:
         """The camera burns a ticking clock into the picture, so a live picture is never
         bit-identical a few seconds apart. 90 s of identical frames means the encoder hung
         (it did at 22:12 on 2026-11-01). Restart it; if restarts keep failing, reboot."""
+        if self.privacy_on():
+            return False
         same = self.prev_small is not None and np.array_equal(gray, self.prev_small)
         if not same:
             self.same_since = None
@@ -2002,6 +2192,8 @@ class Watch:
 
     def drain_events(self, con, jpg):
         while True:
+            if self.privacy_on():
+                return
             try:
                 kind, detail, ts = self.events.get_nowait()
             except queue.Empty:
@@ -2059,6 +2251,8 @@ class Watch:
         return start - 1 <= ts <= until
 
     def save_thumb(self, jpg, t, kind):
+        if self.privacy_on():
+            return None
         day = time.strftime("%Y-%m-%d", time.localtime(t))
         os.makedirs(f"{CLIPS}/{day}", exist_ok=True)
         name = f"{day}/{time.strftime('%H%M%S', time.localtime(t))}-{kind}.jpg"
@@ -2067,6 +2261,8 @@ class Watch:
         return name
 
     def accumulate(self, con, t, jpg, motion, moving, person, visible):
+        if self.privacy_on():
+            return
         minute = int(t // 60 * 60)
         if self.minute is not None and minute != self.minute:
             a = self.acc
@@ -2105,6 +2301,8 @@ class Watch:
 
     def find_cancelled(self, since):
         """'Stop looking' in the app (find_cancel holds its time): true if pressed after the search started."""
+        if self.privacy_on():
+            return True
         try:
             return float(open(f"{STATE}/find_cancel").read().strip() or 0) > since
         except (OSError, ValueError):
@@ -2121,6 +2319,8 @@ class Watch:
             act = "search (you asked): she is already in view" if seen else self.tracker.search(reason="you asked")
         except Exception as e:  # noqa: BLE001 - must never stop the watcher
             act = f"search (you asked): failed, {type(e).__name__}"
+        if self.privacy_on():
+            return
         log("find:", act)
         add_event(con, "search", {"result": act, "asked": True})
         self.save_search_evidence(act, asked=True)
@@ -2128,6 +2328,9 @@ class Watch:
 
     def search_tick(self):
         """While a search holds the loop: keep the heartbeat and the app's status fresh, at most every 3 s."""
+        if self.privacy_on():
+            self.privacy_cycle()
+            return
         t = now()
         if t - self.last_tick < 3:
             return
@@ -2143,6 +2346,8 @@ class Watch:
         """A new frame arrived (FrameSource.on_frame): the status is now current as of this frame. Rewrite it when
         motion crosses the detection threshold, or at most every STATUS_EVERY. The fields the detector sets keep their
         own time (det_t); 'frame_t' and 'frame_motion' say what this frame showed."""
+        if self.privacy_on():
+            return
         last = getattr(self, "live_last", None)
         if last is None:
             return

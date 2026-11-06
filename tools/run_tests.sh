@@ -12,7 +12,7 @@ for t in tracker events presence stall disconnect pill search_here_first search_
          follow search_cancel spot_highlight talk_button policy fast_mode search_glimpse install_retire \
          clip_player coverage zones search_overshoot js_syntax flap agent_loop fasttrack chase_wall remount moving scheduled_sweep fast_lost search_memory watch_evidence framing_sound pose_observation \
          agent_backlog agent_validation viewstats view_insights_api view_insights_ui activity_history follow_metrics report_api requestboard requests_history_frontend live_ui_regression build_reload_ui \
-         clip_media clip_acquisition clip_player_ui clip_warning_ui video_clock prudynt_timestamp; do
+         clip_media clip_acquisition clip_player_ui clip_warning_ui video_clock prudynt_timestamp privacy privacy_camera privacy_watch privacy_alert privacy_ui; do
   echo "== $t"
   timeout 300 python3 "tests/server/${t}_test.py"
 done

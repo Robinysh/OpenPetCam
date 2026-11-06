@@ -434,7 +434,7 @@
     <div class="reticle" id="reticle"></div>
     <div class="shade top" aria-hidden="true"></div><div class="shade bot" aria-hidden="true"></div>
     <header class="ov-head">
-      <div><h1>{{PET}}</h1><div class="badge"><i></i><span>LIVE</span></div></div>
+      <div><h1>{{PET}}</h1><div class="badge" id="live-badge"><i></i><span>LIVE</span></div></div>
       <div class="hbtns">
         <button class="iconbtn glass" id="privacy-btn" aria-label="Pause the camera (privacy)" aria-pressed="false" title="Pause camera">
           <svg viewBox="0 0 24 24" id="eye-open"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -474,6 +474,7 @@
     </div>
     <div class="panbar" id="panbar" aria-label="Where the camera points in the room"><i id="pan-view"></i></div>
   </div>
+  <div class="note center hidden" id="privacy-note" role="status" aria-live="polite"></div>
   <div class="note center" id="move-note"></div>
 
   <div class="controls">
@@ -794,6 +795,7 @@ const $ = (id) => document.getElementById(id);
 // ---- live player: WebRTC (WHEP) straight into our own <video>, so the sound button works on iPhone
 // (a tap inside our page may unmute; an embedded player's video can't be unmuted from outside).
 let pc = null, whepUrl = null, liveWanted = false, retryTimer = null, lastT = 0, stallSince = 0;
+let privacyBlocksLive = true;
 function waitIce(conn, ms) {
   return new Promise((res) => {
     if (conn.iceGatheringState === "complete") return res();
@@ -808,6 +810,7 @@ function stopLive() {
 }
 let liveT0 = 0, liveFirst = false, liveOpenPending = true;   // the first video since the page opened
 async function startLive() {
+  if (privacyBlocksLive) { pauseLive(); $("conn").textContent = "Checking camera privacy…"; $("conn").classList.remove("hidden"); return; }
   liveWanted = true; clearTimeout(retryTimer); stopLive();
   liveT0 = Date.now(); liveFirst = false; lastT = 0; stallSince = 0;
   $("conn").textContent = "Connecting…"; $("conn").classList.remove("hidden");
@@ -882,7 +885,7 @@ async function api(path, body) {
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (r.status === 401) { location.href = "/login"; throw new Error("login"); }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || `error ${r.status}`);
+  if (!r.ok) { const error = new Error(j.error || `error ${r.status}`); error.privacy = j.privacy; throw error; }
   return j;
 }
 const fmtTime = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -940,6 +943,7 @@ const KIND = {
   you_spoke: [`You spoke to ${PET.name}`, "🗣"], visit: ["Zone visit", "📍"], search: [`Looked for ${PET.name}`, "🔎"], daynight_auto: ["Back to automatic day/night", "🌗"],
 };
 function petText(l) {
+  if (l && l.privacy && l.privacy.requested) return [privacyHeadline(l.privacy), ""];
   if (!l || l.status === "starting") return [`Looking for ${PET.name}…`, ""];
   if (l.status === "privacy") return ["Camera paused", ""];
   // Watcher silent >20 s: whatever it last said is stale, so don't claim she's away (report 2026-11-02 20:04).
@@ -1006,10 +1010,10 @@ function renderLive(l) {
   renderLiveBox();
   $("doing-sub").textContent = doingSub(live);
   renderModes(live && live.imaging);
-  if (Date.now() - privacyPending > 5000) showPrivacy(live && live.status === "privacy");
   renderFind(live);
   if (live && live.settings && Date.now() - followPending > 4000) showFollow(live.settings.follow);
   if (live && live.settings && document.activeElement !== $("talk-vol")) showTalkVol(live.settings.talk_volume);
+  renderPrivacy(live);
 }
 function visibleBox(l) {
   if (!l || l.status !== "ok" || !l.present || !Array.isArray(l.box) || l.box.length !== 4 ||
@@ -1056,6 +1060,7 @@ async function refreshTrace() {
 }
 setInterval(refreshTrace, 15000);
 let privacyPending = 0, followPending = 0;
+let privacyBusy = false, privacyView = null, privacyIntentFloor = null, privacyUncertain = false;
 // "Find <pet>" (owner, 2026-11-02): runs the room search now. Shown whenever she isn't in view.
 let findPending = 0;
 function renderFind(l) {
@@ -1111,11 +1116,80 @@ function showPrivacy(on) {
   $("eye-open").classList.toggle("hidden", on); $("eye-closed").classList.toggle("hidden", !on);
   $("privacy-btn").setAttribute("aria-label", on ? "Resume the camera" : "Pause the camera (privacy)");
 }
+function privacyHeadline(p) {
+  if (p.phase === "error") return p.target === false ? "Camera has not resumed" : "Privacy needs attention";
+  if (p.phase === "resuming") return "Resuming camera…";
+  if (!p.confirmed) return p.phase === "checking" ? "Checking camera privacy…" : "Pausing camera…";
+  return "Camera paused";
+}
+function privacyNotice(p) {
+  if (!p.requested) return "";
+  if (!p.confirmed) {
+    if (p.phase === "error") return p.target === false ? "The camera has not resumed. Privacy remains requested." : "Privacy could not be confirmed. Live access remains paused; check the camera.";
+    return p.phase === "resuming" ? "Waiting for video and microphone to return…" : "Checking that video and microphone capture have stopped…";
+  }
+  return p.mode === "capture_stopped" ? "Video and microphone capture stopped. The camera stays powered so you can resume it."
+    : "Video hidden and microphone muted. The camera stays powered.";
+}
+function renderPrivacy(l) {
+  let p = privacyBusy ? privacyView : l && l.privacy && typeof l.privacy === "object" ? l.privacy
+    : l && l.status === "privacy" ? { requested: true, confirmed: false, phase: "checking" }
+    : l ? { requested: false, confirmed: true } : privacyView;
+  if (!p) return;
+  if (!privacyBusy && p !== privacyView) {
+    if (privacyIntentFloor !== null && (!Number.isFinite(p.intent_changed_at) || p.intent_changed_at < privacyIntentFloor)) return;
+    // A failed request may still have reached the camera. An old active payload cannot release that local latch.
+    if (privacyUncertain && !p.requested) return;
+  }
+  if (Number.isFinite(p.intent_changed_at)) privacyIntentFloor = Math.max(privacyIntentFloor || 0, p.intent_changed_at);
+  if (p.requested && p.confirmed) privacyUncertain = false;
+  privacyView = p;
+  const wasBlocked = privacyBlocksLive;
+  privacyBlocksLive = !!p.requested;
+  showPrivacy(privacyBlocksLive);
+  $("privacy-btn").disabled = privacyBusy;
+  $("privacy-btn").setAttribute("aria-busy", privacyBusy);
+  $("live-badge").classList.toggle("hidden", privacyBlocksLive);
+  const note = privacyNotice(p);
+  $("privacy-note").textContent = note;
+  $("privacy-note").classList.toggle("hidden", !note);
+  for (const id of ["sound-btn", "light-btn", "frame-btn", "talk-btn", "talk-rail", "follow-toggle"]) $(id).disabled = privacyBlocksLive;
+  if (privacyBlocksLive) {
+    pauseLive();
+    cancelTalkForPrivacy();
+    const v = $("live");
+    if (!wasBlocked || v.srcObject || v.getAttribute("src")) {
+      if (v.srcObject) v.srcObject.getTracks().forEach((track) => track.stop());
+      v.pause(); v.srcObject = null; v.removeAttribute("src"); v.load();
+    }
+    $("conn").textContent = privacyHeadline(p); $("conn").classList.remove("hidden");
+    $("pet-box").style.display = "none";
+  } else if (wasBlocked && curTab === "live" && !document.hidden) {
+    startLive();
+  }
+}
 $("privacy-btn").onclick = async () => {
-  const on = $("privacy-btn").getAttribute("aria-pressed") !== "true";
-  privacyPending = Date.now(); showPrivacy(on);
-  try { await api("/api/privacy", { on }); $("move-note").textContent = on ? "Camera paused. Tap the eye again to resume." : ""; }
-  catch (e) { privacyPending = 0; showPrivacy(!on); $("move-note").textContent = e.message; }
+  if (privacyBusy) return;
+  const on = !privacyBlocksLive;
+  privacyPending = Date.now(); privacyBusy = true;
+  privacyView = { requested: true, confirmed: false, phase: on ? "pausing" : "resuming", target: on };
+  renderPrivacy(live);
+  try {
+    const result = await api("/api/privacy", { on });
+    const state = result.privacy_status;
+    if (!state || state.confirmed !== true || state.requested !== on) throw new Error("The camera did not confirm the requested privacy state.");
+    privacyView = state; privacyUncertain = false;
+    if (Number.isFinite(state.intent_changed_at)) privacyIntentFloor = state.intent_changed_at;
+  } catch (e) {
+    privacyView = e.privacy && e.privacy.requested ? e.privacy : { requested: true, confirmed: false, phase: "error", target: on };
+    privacyUncertain = !e.privacy;
+    if (Number.isFinite(privacyView.intent_changed_at)) privacyIntentFloor = privacyView.intent_changed_at;
+    $("move-note").textContent = e.message;
+  } finally {
+    privacyBusy = false; privacyPending = 0;
+    renderPrivacy({ privacy: privacyView });
+    await pollLive();
+  }
 };
 // Where the 16:9 picture sits inside the stage. "Room" shows all of it (contain); "Pet" fills the stage (cover)
 // and slides sideways to keep her in frame (--fx = CSS object-position), so taps and her box map through this.
@@ -1197,6 +1271,7 @@ function stickMove(e) {
   if (gest) gest.peak = Math.max(gest.peak, Math.hypot(v.x, v.y));
 }
 async function tick() {
+  if (privacyBlocksLive) return;
   if (!vec || inflight) return;          // never queue: a late request is worse than a skipped one
   inflight = true;
   if (gest) { gest.ticks++; gest.sx += vec.x; gest.sy += vec.y; }
@@ -1227,6 +1302,7 @@ function stickEnd() {
 stick.addEventListener("pointerup", stickEnd);
 stick.addEventListener("pointercancel", stickEnd);
 document.addEventListener("keydown", (e) => {
+  if (privacyBlocksLive) return;
   if (curTab !== "live" || document.querySelector(".sheet-bg:not(.hidden)") || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
   const map = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
   if (map[e.key]) { e.preventDefault(); api("/api/nudge", { vx: map[e.key][0] * 0.8, vy: map[e.key][1] * 0.8 }).catch(() => {}); }
@@ -1234,46 +1310,78 @@ document.addEventListener("keydown", (e) => {
 
 // ======================= push-to-talk =======================
 // Hold to record (max 15 s), release to send; the server adds a soft chime and the camera plays it.
-let rec = null, recChunks = [], recStream = null, recStart = 0, recTimer = null, holding = false, wasMuted = true;
+let rec = null, recChunks = [], recStream = null, recStart = 0, recTimer = null, holding = false, wasMuted = true, talkUpload = null, talkGeneration = 0;
 const talkBtns = [...document.querySelectorAll(".talk-hold")];
 let talkBtn = null;
 function talkLabel(t) { document.querySelectorAll(".talk-label").forEach((el) => { el.textContent = t; }); }
+function cancelTalkForPrivacy() {
+  talkGeneration++;
+  holding = false; clearInterval(recTimer);
+  const recording = rec; rec = null; recChunks.length = 0; recChunks = [];
+  if (recording && recording.state !== "inactive") {
+    recording.ondataavailable = null; recording.onstop = null;
+    try { recording.stop(); } catch (e) {}
+  }
+  if (recStream) recStream.getTracks().forEach((track) => track.stop());
+  recStream = null;
+  if (talkUpload) talkUpload.abort();
+  talkBtns.forEach((button) => button.classList.remove("rec"));
+  talkLabel("Hold to talk");
+}
 async function talkDown(e) {
+  if (privacyBlocksLive) { e.preventDefault(); return; }
   e.preventDefault(); if (holding || rec) return;
   holding = true; talkBtn = e.currentTarget;
+  const generation = talkGeneration;
+  let stream;
   try {
-    recStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-  } catch (err) { holding = false; $("move-note").textContent = "Microphone blocked: allow it in Settings → Safari → Microphone."; return; }
-  if (!holding) {   // the permission prompt ate the press
-    recStream.getTracks().forEach((t) => t.stop()); recStream = null;
-    $("move-note").textContent = "Microphone allowed. Now hold the button while you speak."; return;
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch (err) { if (generation === talkGeneration) { holding = false; $("move-note").textContent = "Microphone blocked: allow it in Settings → Safari → Microphone."; } return; }
+  if (!holding || privacyBlocksLive || generation !== talkGeneration) {
+    stream.getTracks().forEach((t) => t.stop());
+    if (generation === talkGeneration) {
+      holding = false;
+      if (!privacyBlocksLive) $("move-note").textContent = "Microphone allowed. Now hold the button while you speak.";
+    }
+    return;
   }
+  recStream = stream;
   const mime = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
   rec = new MediaRecorder(recStream, mime ? { mimeType: mime } : {});
-  recChunks = []; rec.ondataavailable = (ev) => { if (ev.data.size) recChunks.push(ev.data); };
+  const chunks = []; recChunks = chunks;
+  rec.ondataavailable = (ev) => { if (generation === talkGeneration && !privacyBlocksLive && ev.data.size) chunks.push(ev.data); };
   wasMuted = $("live").muted; $("live").muted = true;            // no echo of the live sound into the recording
   rec.start(); recStart = Date.now(); talkBtn.classList.add("rec");
   recTimer = setInterval(() => { const s = (Date.now() - recStart) / 1000; talkLabel(`Recording… ${s.toFixed(0)}s`); if (s >= 15) talkUp(); }, 250);
 }
 async function talkUp() {
+  if (privacyBlocksLive) { cancelTalkForPrivacy(); return; }
   holding = false;
   if (!rec) return;
   clearInterval(recTimer); talkBtns.forEach((b) => b.classList.remove("rec"));
   const r = rec; rec = null;
+  const generation = talkGeneration, stream = recStream, chunks = recChunks;
   const secs = (Date.now() - recStart) / 1000;
   await new Promise((res) => { r.onstop = res; r.stop(); });
-  recStream.getTracks().forEach((t) => t.stop()); recStream = null;
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  if (recStream === stream) recStream = null;
+  if (generation !== talkGeneration) return;
+  if (privacyBlocksLive) { recChunks = []; talkLabel("Hold to talk"); return; }
   $("live").muted = wasMuted;
   if (secs < 0.7) { talkLabel("Hold to talk"); $("move-note").textContent = "Hold the button while you speak."; return; }
-  const blob = new Blob(recChunks, { type: r.mimeType || "audio/mp4" });
+  const blob = new Blob(chunks, { type: r.mimeType || "audio/mp4" });
   talkLabel("Sending…");
+  const upload = new AbortController(); talkUpload = upload;
   try {
-    const resp = await fetch("/api/talk", { method: "POST", headers: { "Content-Type": blob.type.split(";")[0] || "audio/mp4" }, body: blob });
+    const resp = await fetch("/api/talk", { method: "POST", headers: { "Content-Type": blob.type.split(";")[0] || "audio/mp4" }, body: blob, signal: upload.signal });
     const j = await resp.json().catch(() => ({}));
+    if (generation !== talkGeneration) return;
+    if (privacyBlocksLive) { talkLabel("Hold to talk"); return; }
     if (resp.status === 401) { location.href = "/login"; return; }
     if (!resp.ok) throw new Error(j.error || `error ${resp.status}`);
     talkLabel(`${PET.name} heard you ✓`); $("move-note").textContent = "";
-  } catch (err) { talkLabel("Hold to talk"); $("move-note").textContent = err.message; return; }
+  } catch (err) { if (generation === talkGeneration) { talkLabel("Hold to talk"); if (!privacyBlocksLive) $("move-note").textContent = err.message; } return; }
+  finally { if (talkUpload === upload) talkUpload = null; }
   setTimeout(() => talkLabel("Hold to talk"), 2500);
 }
 talkBtns.forEach((b) => {

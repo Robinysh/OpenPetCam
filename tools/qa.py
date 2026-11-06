@@ -66,6 +66,8 @@ def sh(c, t=30):
     except Exception as e:
         return "ERR " + str(e)
 S = "/var/lib/petcam"
+try: out["privacy_requested"] = open(f"{S}/privacy").read().strip() == "1"
+except OSError: out["privacy_requested"] = False
 units = "caddy mediamtx petcam-app petcam-watch wg-quick@wg0 petcam-alert.timer"
 out["units"] = dict(zip(units.split(), sh("systemctl is-active " + units).split()))
 out["failed_units"] = sh("systemctl --failed --no-legend --plain | awk '{print $1}'")
@@ -100,7 +102,7 @@ out["tracebacks"] = {u: sh(f"journalctl -u {u} --since -24h --no-pager | grep -c
 out["errors"] = sh("journalctl -u petcam-watch -u petcam-app --since -24h --no-pager | grep -iE 'error|failed' | grep -v 'no subscribed' | tail -8")
 out["verifier"] = sh("journalctl -u petcam-watch --since -48h --no-pager | grep 'verifier:' | tail -1")
 out["journal_mb"] = sh("journalctl --disk-usage | grep -oE '[0-9.]+[MG]'")
-out["ffprobe"] = sh("timeout 15 ffprobe -v error -rtsp_transport tcp -show_entries stream=codec_type,codec_name,width,height,avg_frame_rate,sample_rate -of json rtsp://127.0.0.1:8554/cam", 25)
+out["ffprobe"] = "" if out["privacy_requested"] else sh("timeout 15 ffprobe -v error -rtsp_transport tcp -show_entries stream=codec_type,codec_name,width,height,avg_frame_rate,sample_rate -of json rtsp://127.0.0.1:8554/cam", 25)
 out["push_subs"] = c.execute("select count(*) from push_subs").fetchone()[0] if "push_subs" in out["tables"] else None
 import sys; sys.path.insert(0, "/opt/petcam")
 try:
@@ -115,6 +117,7 @@ try:
                   "df": camsh("df -k / /overlay 2>/dev/null | tail -2"), "load": camsh("cat /proc/loadavg"),
                   "temp": camsh("cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null"),
                   "procs": camsh("pidof prudynt | wc -w"),
+                  "capture_guard": camsh("if test -x /etc/opc-privacy/control; then /etc/opc-privacy/control status; else echo absent; fi"),
                   "privacy": camsh("jct /etc/prudynt.json get privacy 2>/dev/null || grep -o '\"privacy\"[^}]*}' /etc/prudynt.json | head -1"),
                   "audio_in": camsh("jct /etc/prudynt.json get audio 2>/dev/null | head -c 400")}
 except Exception as e:
@@ -253,13 +256,17 @@ def _():
     up = round(float(c["uptime"].split()[0]) / 3600, 1) if c["uptime"][:1].isdigit() else None
     mem = c["mem"].split()
     free_pct = round(int(mem[1]) / int(mem[0]), 2) if len(mem) == 2 and mem[0].isdigit() else None
-    st = "PASS" if up and c["procs"] not in ("", "0") and (free_pct is None or free_pct > 0.08) else "WARN"
+    capture_expected = not remote().get("privacy_requested", False)
+    process_ok = c["procs"] not in ("", "0") if capture_expected else c["procs"] == "0"
+    st = "PASS" if up is not None and process_ok and (free_pct is None or free_pct > 0.08) else "WARN"
     return st, f"uptime {up} h; RAM free {free_pct}; load {c['load']}; temp {c['temp']}; streamer procs {c['procs']}; fw {c['fw']}; disk {c['df']}"
 
 
 @check("camera", "video stream", "the relay serves H.264 1920x1080 video plus an audio track; recording is current")
 def _():
     r = remote()
+    if r.get("privacy_requested"):
+        return "PASS", "Privacy is requested: live capture and recording are intentionally suspended; checked separately below."
     try:
         st = json.loads(r["ffprobe"])["streams"]
     except Exception:  # noqa: BLE001
@@ -272,20 +279,25 @@ def _():
         f"audio {[(s.get('codec_name'), s.get('sample_rate')) for s in a]}; newest recording {newest} s old"
 
 
-@check("camera", "privacy really private", "with privacy on, nothing of the home leaves the camera: no picture AND no sound")
+@check("camera", "privacy capture state", "verify requested software capture stop; this is not electrical power isolation")
 def _():
     r = remote()
-    paused = r["live"].get("status") == "privacy"
-    im = r["live"].get("imaging") or {}
-    code = open(os.path.join(ROOT, "server", "app.py")).read()
-    wired = '"audio": {"mic_enabled": not on}' in code
-    if not wired:
-        return "FAIL", "set_privacy() no longer switches the microphone off"
-    if not paused:
-        return "PASS", ("not paused now; pause turns the picture and the mic off (set_privacy), the watcher re-applies it "
-                        "if the camera forgets; measured 2 Nov: paused = luma 0.6/255 and 0 audio samples")
-    ok = im.get("privacy_enabled") == 1 and im.get("mic_enabled") == 0
-    return ("PASS" if ok else "FAIL"), f"paused now; camera reports privacy_enabled={im.get('privacy_enabled')}, mic_enabled={im.get('mic_enabled')}"
+    try:
+        guard = json.loads((r.get("cam") or {}).get("capture_guard", ""))
+    except (ValueError, TypeError):
+        guard = {}
+    if not r.get("privacy_requested"):
+        if guard.get("paused"):
+            return "WARN", "Camera-side privacy remains paused while the server requests capture; reconcile before claiming live video."
+        return "PASS", "Privacy is not requested. Capture-stop guard installed." if guard.get("boot_persistent") else "Privacy is not requested; capture-stop guard is unavailable on this camera."
+    ok = (guard.get("paused") is True and guard.get("running") is False
+          and guard.get("verified") is True and guard.get("mode") == "capture_stopped"
+          and (r.get("cam") or {}).get("procs") == "0")
+    if ok:
+        return "PASS", "Persistent camera gate is paused; no capture process is running. Camera power and management network remain on."
+    if not guard:
+        return "WARN", "Capture-stop guard is unavailable. Legacy black/mute privacy needs a fresh functional media check."
+    return "FAIL", "Privacy is requested but stopped capture is not verified: " + json.dumps(guard)
 
 
 # ------------------------------------------------------------------ pipeline
