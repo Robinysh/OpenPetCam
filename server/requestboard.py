@@ -6,10 +6,12 @@ reply-only updates until its resolution changes. Moving a card cannot invent
 verification. The revision includes the last move, providing optimistic locking.
 """
 import hashlib
+import errno
 import json
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 import threading
 import time
@@ -22,6 +24,7 @@ LABELS = {'not_started': 'Backlog', 'in_progress': 'In progress',
           'monitoring': 'Monitoring', 'needs_review': 'Needs review', 'blocked': 'Blocked', 'done': 'Done'}
 _LOCK = threading.RLock()
 _ID = re.compile(r'\d{8}-\d{6}', re.ASCII)
+FRAME_MAX_BYTES = 8 * 1024 * 1024
 
 
 class Conflict(ValueError):
@@ -103,6 +106,48 @@ def _read(directory, name, required=False):
         return None
 
 
+def _frame_bytes(directory, full=False):
+    """Open only a regular saved JPEG in this exact report directory.
+
+    Descriptor-relative, no-follow opens keep a symlink replacement from
+    escaping the evidence directory. Checking availability reads only its
+    header; the HTTP read has the same size bound.
+    """
+    directory_fd = frame_fd = None
+    try:
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        frame_fd = os.open('frame.jpg', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                           dir_fd=directory_fd)
+        info = os.fstat(frame_fd)
+        if not stat.S_ISREG(info.st_mode) or not 3 <= info.st_size <= FRAME_MAX_BYTES:
+            raise FileNotFoundError('The saved report image is unavailable.')
+        with os.fdopen(frame_fd, 'rb') as handle:
+            frame_fd = None
+            data = handle.read(FRAME_MAX_BYTES + 1 if full else 3)
+        if not data.startswith(b'\xff\xd8\xff') or len(data) > FRAME_MAX_BYTES:
+            raise FileNotFoundError('The saved report image is unavailable.')
+        return data
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise ValueError('Invalid request image path.') from None
+        raise FileNotFoundError('The saved report image is unavailable.') from None
+    finally:
+        if frame_fd is not None:
+            os.close(frame_fd)
+        if directory_fd is not None:
+            os.close(directory_fd)
+
+
+def frame(root, report_id):
+    """Read retained evidence, never a new camera snapshot."""
+    with _LOCK:
+        directory = _directory(root, report_id)
+        report = _read(directory, 'report', required=True)
+        if not isinstance(report, dict):
+            raise FileNotFoundError('Request metadata is unavailable.')
+        return _frame_bytes(directory, full=True)
+
+
 def _load(root, report_id):
     directory = _directory(root, report_id)
     report = _read(directory, 'report', required=True)
@@ -116,6 +161,12 @@ def _load(root, report_id):
            'note': report.get('note'),
            'shown': client.get('shown_status') if isinstance(client, dict) else None,
            'reply': reply, 'resolution': resolution, **decoration}
+    try:
+        _frame_bytes(directory)
+    except (OSError, ValueError):
+        pass
+    else:
+        row['evidence'] = {'frame': '/api/reports/frame?id=' + report_id}
     return directory, report, reply, resolution, workflow, row
 
 

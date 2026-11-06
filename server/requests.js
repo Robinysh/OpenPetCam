@@ -99,6 +99,30 @@
     const part = components(row).find(p => componentState(p) === 'needs_review');
     return part?.review.question || readyReplyReview(row)?.question || null;
   };
+  const nonempty = value => typeof value === 'string' && !!value.trim();
+  const actionPlans = row => {
+    if (isGoal(row) || laneOf(row) === 'done') return [];
+    return components(row).filter(part => componentState(part) !== 'done').flatMap(part => {
+      const action = part.next_action;
+      if (!action || !['owner', 'agent'].includes(action.assignee)
+          || !['task', 'measure', 'done_when'].every(key => nonempty(action[key]))) return [];
+      const steps = Array.isArray(action.steps) ? action.steps.filter(nonempty).map(step => step.trim()) : [];
+      if (action.assignee === 'owner' && (!steps.length || !nonempty(action.on_failure))) return [];
+      return [{ ...action, task: action.task.trim(), measure: action.measure.trim(), done_when: action.done_when.trim(),
+        steps, record_template: nonempty(action.record_template) && action.record_template.length <= 2000 ? action.record_template.trim() : null,
+        component: part.title || part.id }];
+    });
+  };
+  const actionSummary = row => {
+    const plans = actionPlans(row), owner = plans.find(action => action.assignee === 'owner');
+    if (owner) return owner.task;
+    const question = reviewQuestion(row);
+    if (question) return question;
+    const agent = plans.find(action => action.assignee === 'agent');
+    return agent ? 'Agent: ' + agent.task : null;
+  };
+  const reportFrame = row => typeof row.id === 'string' && /^\d{8}-\d{6}$/.test(row.id)
+    && row.evidence?.frame === '/api/reports/frame?id=' + row.id ? row.evidence.frame : null;
   const progress = row => {
     const parts = components(row);
     return { done: parts.filter(p => p.state === 'done' && hasEvidence(p.evidence)).length, total: parts.length };
@@ -220,8 +244,8 @@
       }
       if (laneOf(row) === 'monitoring') button.append(make('span', 'request-card-kind', 'Owner observation'));
       button.append(make('span', 'request-card-title', row.note || 'Request without a note'));
-      const p = progress(row), remaining = components(row).find(c => componentState(c) !== 'done'), question = reviewQuestion(row);
-      if (question) button.append(make('span', 'request-card-next', question));
+      const p = progress(row), remaining = components(row).find(c => componentState(c) !== 'done'), next = actionSummary(row);
+      if (next) button.append(make('span', 'request-card-next', next));
       else if (remaining) button.append(make('span', 'request-card-next', remaining.title || remaining.id));
       else if (row.status?.reason && laneOf(row) !== 'done') button.append(make('span', 'request-card-next', row.status.reason));
       const meta = make('span', 'request-card-meta');
@@ -282,6 +306,55 @@
       values.forEach(v => list.append(make('li', '', typeof v === 'string' ? v : JSON.stringify(v))));
       fold.append(summary, list); parent.append(fold);
     }
+    function renderActionPlan(parent, action) {
+      parent.append(make('p', 'request-action-task', action.task));
+      if (action.steps.length) {
+        parent.append(make('h6', '', action.assignee === 'owner' ? 'How to check' : 'Next steps'));
+        const list = make('ol'); action.steps.forEach(step => list.append(make('li', '', step))); parent.append(list);
+      }
+      const facts = make('dl', 'request-action-facts');
+      facts.append(make('dt', '', 'Measure'), make('dd', '', action.measure),
+        make('dt', '', action.assignee === 'owner' ? 'Check complete when' : 'Ready for review when'), make('dd', '', action.done_when));
+      if (nonempty(action.on_failure)) facts.append(make('dt', '', action.assignee === 'owner' ? 'Report when' : 'If the test fails'), make('dd', '', action.on_failure));
+      parent.append(facts);
+      if (action.assignee === 'owner' && action.record_template) {
+        const record = make('button', 'btn request-record-result', 'Record result'); record.type = 'button';
+        record.onclick = () => {
+          $('report-new').onclick();
+          const field = $('report-note');
+          if (!field.value.trim()) field.value = action.record_template;
+          else say('Your existing draft is preserved. Add the check result before sending.');
+          field.focus();
+        };
+        parent.append(record);
+      }
+    }
+    function renderNextActions(row) {
+      const plans = actionPlans(row), owner = plans.filter(action => action.assignee === 'owner'), agents = plans.filter(action => action.assignee === 'agent');
+      const section = make('section', 'request-next-action');
+      section.append(make('h5', '', 'Your next step'));
+      if (owner.length) owner.forEach(action => renderActionPlan(section, action));
+      else if (reviewQuestion(row)) section.append(make('p', 'request-action-task', reviewQuestion(row)), make('p', '', 'Use the review evidence below to answer this question.'));
+      else {
+        section.append(make('p', 'request-action-task', 'No action needed from you now.'));
+        if (laneOf(row) === 'monitoring') section.append(make('p', '', 'The agent still needs to define a concrete check.'));
+      }
+      detail.append(section);
+      if (agents.length) {
+        const work = make('section', 'request-agent-action'); work.append(make('h5', '', "Agent’s next step"));
+        agents.forEach(action => renderActionPlan(work, action)); detail.append(work);
+      }
+    }
+    function renderSavedFrame(row) {
+      const source = reportFrame(row); if (!source) return;
+      const figure = make('figure', 'request-saved-frame'), image = make('img');
+      const caption = make('figcaption', '', 'Saved report frame. The phone status and this frame may be from different moments.');
+      image.src = source; image.alt = 'Saved camera frame from this report'; image.loading = 'lazy'; image.decoding = 'async';
+      image.onerror = () => { image.hidden = true; caption.textContent = 'The saved frame is unavailable. The request and its recorded status remain below.'; };
+      figure.append(image, caption);
+      if (nonempty(row.shown)) figure.append(make('p', '', 'Status recorded on the phone: ' + row.shown));
+      detail.append(figure);
+    }
     function renderDetail(row) {
       const same = detail.dataset.id === row.id, oldScroll = same ? detail.scrollTop : 0;
       const openFolds = new Set(same ? [...detail.querySelectorAll('details[open]')].map(el => el.dataset.fold) : []);
@@ -298,6 +371,8 @@
         return;
       }
       detail.append(back, title, make('p', 'request-detail-meta', `${when(row.ts)}${row.by ? ' · ' + row.by : ''}`));
+      renderNextActions(row);
+      renderSavedFrame(row);
       detail.append(make('p', 'request-status-reason', row.status?.reason || 'No verified resolution is recorded yet.'));
       if (laneOf(row) === 'needs_review' && row.workflow?.reason) {
         const review = make('section', 'request-review');
@@ -504,7 +579,7 @@
       }
     } };
   }
-  const exported = { LANES, laneDescriptions, Store, laneOf, progress, matches, components, hasEvidence, reviewReady, componentState, componentLabel, readyReplyReview, reviewQuestion, needsReason, isGoal, compareRows, normalizeGoals, goalTitle, goalHealth, goalValue, measurementAge, trendSegments, mount };
+  const exported = { LANES, laneDescriptions, Store, laneOf, progress, matches, components, hasEvidence, reviewReady, componentState, componentLabel, readyReplyReview, reviewQuestion, nonempty, actionPlans, actionSummary, reportFrame, needsReason, isGoal, compareRows, normalizeGoals, goalTitle, goalHealth, goalValue, measurementAge, trendSegments, mount };
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   global.OpenPetRequests = exported;
 })(typeof window === 'undefined' ? globalThis : window);

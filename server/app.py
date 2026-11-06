@@ -170,7 +170,7 @@ def init_auth_db():
 # ---------- usage telemetry: how the app is really used, so agents can improve it (tools/usage.py) ----------
 # Local only (the 512 MB box can't host an OpenTelemetry + Grafana stack, and this data stays at home).
 # kind "api": every /api call, timed, by device. kind "ui": events the server can't see, sent by the page.
-USAGE_SKIP = {"/api/live", "/api/live/stream", "/api/monitoring", "/api/usage", "/api/clientlog"}
+USAGE_SKIP = {"/api/live", "/api/live/stream", "/api/monitoring", "/api/reports/frame", "/api/usage", "/api/clientlog"}
 USAGE_DAYS = 90
 _usage_q = None
 
@@ -2180,6 +2180,13 @@ class Handler(BaseHTTPRequestHandler):
             if q.get("page") == "1":
                 return self.camera_call(report_page, q.get("limit", 20), q.get("before"))
             return self.send_json(200, list_reports())
+        if path == "/api/reports/frame":
+            try:
+                return self.send(200, requestboard.frame(REPORTS_DIR, q.get("id")), "image/jpeg")
+            except ValueError as error:
+                return self.send_json(400, {"error": str(error)})
+            except OSError:
+                return self.send_json(404, {"error": "The saved report image is unavailable."})
         if path == "/api/monitoring":
             return self.send_json(200, monitoring_goals())
         if path in ("/requests.js", "/requests.css"):

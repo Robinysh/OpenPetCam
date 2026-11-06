@@ -58,6 +58,22 @@ retain their detector-proxy limitations. The authenticated `/api/monitoring` end
 state; it never creates a database or migrates it. Report history, workflow revisions and counts remain
 separate from goal monitors.
 
+Each unresolved component can supply `next_action` with `assignee` (`owner` or `agent`), `task`,
+`steps`, `measure` and `done_when`. An owner check also needs `on_failure`: the observable event
+that should be reported, without asking the owner to diagnose the cause. Use `record_template`
+to offer an editable report draft. Opening that draft never submits it.
+
+For example, an observation can cover the next three ordinary uses, count successful, failed and
+inconclusive outcomes, and stop at the first confirmed failure. It should not require extra camera
+movement, staged pet behavior or an open-ended watch. Completing that small check does not complete
+the underlying request or continuous goal. If a fix or comparison is still missing, the card should
+say no owner action is needed and give the agent's next test and acceptance criteria instead.
+
+Retained report photos are available through authenticated `/api/reports/frame?id=…` and shown with
+the phone's reported status. The photo and phone state can have different capture times; they do not
+prove a synchronized sequence. A missing photo has an explicit unavailable state. Opening evidence
+never takes a new camera snapshot.
+
 ## Design, after "Exploring Super-agent Design" (DeepSeek Harness, 2026-11-01)
 
 | Idea in the article | Here |

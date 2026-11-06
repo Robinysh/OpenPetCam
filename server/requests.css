@@ -37,6 +37,14 @@
 .request-detail h4{font-size:22px;line-height:1.4;font-weight:700;margin:14px 0 8px;white-space:pre-wrap;overflow-wrap:anywhere}
 .request-detail-meta{font-size:13px;color:var(--muted);margin:0 0 20px}
 .request-status-reason{font-size:15px;line-height:1.6;color:var(--muted)}
+.request-next-action{border-left:3px solid var(--accent);padding:2px 0 2px 14px;margin:8px 0 22px;font-size:15px;line-height:1.6}
+.request-next-action h5{margin:0 0 9px}.request-action-task{font-weight:650;margin:0 0 10px}
+.request-next-action p,.request-agent-action p{margin:8px 0}.request-next-action h6,.request-agent-action h6{font-size:13px;margin:15px 0 6px;color:var(--muted)}
+.request-next-action ol,.request-agent-action ol{padding-left:22px;margin:6px 0 14px}.request-next-action li+li,.request-agent-action li+li{margin-top:7px}
+.request-agent-action{font-size:15px;line-height:1.6;padding-bottom:10px}.request-agent-action h5{margin:18px 0 12px}
+.request-action-facts{margin:16px 0 4px}.request-action-facts dt{font-size:13px;color:var(--muted);margin-top:12px}.request-action-facts dd{margin:3px 0 0;overflow-wrap:anywhere}
+.request-record-result{min-height:44px;margin-top:18px}
+.request-saved-frame{margin:22px 0;font-size:13px;line-height:1.6;color:var(--muted)}.request-saved-frame img{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:10px}.request-saved-frame figcaption{margin-top:8px}.request-saved-frame p{margin:6px 0}
 .request-move{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:end;margin:20px 0 12px}
 .request-move label{grid-column:1/-1;font-size:13px;color:var(--muted)}
 .request-move select{width:100%;min-height:44px;font-size:16px;color:var(--text)}
