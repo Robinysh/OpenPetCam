@@ -23,6 +23,9 @@
 .room-story .model-motion{max-width:600px}
 .model-motion .motion-stage{background:#0b101c;aspect-ratio:9/8}
 .model-motion video{width:100%;height:100%;object-fit:contain}
+.room-story .hero-motion{max-width:600px}
+.hero-motion .motion-stage{aspect-ratio:9/8;background:#0b101c}
+.hero-motion video{display:block;width:100%;height:100%;object-fit:contain}
 .echo-note{padding:24px 28px 24px 8px;font-size:17px;line-height:1.5}
 .echo-note p{margin:0 0 14px}
 .echo-note .echo-premise{font-size:19px}
