@@ -32,7 +32,7 @@ class ReportStateTests(unittest.TestCase):
                        'rolled_back', 'error', 'planned', 'redo', 'unrecognized'):
             with self.subTest(status=status):
                 row = record(status=status)
-                self.assertEqual(classify(row['report'], row['reply'])['state'], 'needs_review')
+                self.assertEqual(classify(row['report'], row['reply'])['state'], 'not_started')
 
     def test_one_completed_component_does_not_close_remaining_requests(self):
         resolution = {'components': [
@@ -40,7 +40,7 @@ class ReportStateTests(unittest.TestCase):
             {'id': 'hardware', 'state': 'needs_hardware'}]}
         self.assertEqual(classify({}, None, resolution)['state'], 'needs_hardware')
         resolution['components'][1]['state'] = 'done'
-        self.assertEqual(classify({}, None, resolution)['state'], 'needs_review')
+        self.assertEqual(classify({}, None, resolution)['state'], 'not_started')
         resolution['components'][1]['evidence'] = {'inspection': 'physical capability verified'}
         self.assertEqual(classify({}, None, resolution)['state'], 'done')
 
@@ -49,16 +49,84 @@ class ReportStateTests(unittest.TestCase):
                            {'components': [{'id': 'a', 'state': 'done', 'evidence': [False, ' ']}]},
                            {'components': [{'id': 'a', 'state': 'done', 'evidence': ['test']}] * 2}):
             with self.subTest(resolution=resolution):
-                self.assertEqual(classify({}, None, resolution)['state'], 'needs_review')
+                self.assertEqual(classify({}, None, resolution)['state'], 'not_started')
 
     def test_acknowledgement_timeout_and_pending_draft(self):
         self.assertEqual(classify({}, None)['state'], 'not_started')
         self.assertEqual(classify({}, {'status': 'looking', 'ts': 100}, now=200)['state'], 'in_progress')
-        self.assertEqual(classify({}, {'status': 'looking', 'ts': 100}, now=5000)['state'], 'needs_review')
-        self.assertEqual(classify({}, {'status': 'looking', 'ts': float('nan')}, now=200)['state'], 'needs_review')
+        self.assertEqual(classify({}, {'status': 'looking', 'ts': 100}, now=5000)['state'], 'not_started')
+        self.assertEqual(classify({}, {'status': 'looking', 'ts': float('nan')}, now=200)['state'], 'not_started')
         self.assertEqual(classify({}, record(status='queued')['reply'])['state'], 'in_progress')
         for reply in ([], {}, 'bad'):
-            self.assertEqual(classify({}, reply)['state'], 'needs_review')
+            self.assertEqual(classify({}, reply)['state'], 'not_started')
+
+    def test_monitoring_keeps_verified_changes_open_for_observation(self):
+        resolution = {'components': [
+            {'id': 'fix', 'state': 'done', 'evidence': ['Deployed and checked']},
+            {'id': 'follow', 'state': 'monitoring', 'evidence': ['Watch ordinary follow behavior over time']} ]}
+        state = classify({}, None, resolution)
+        self.assertEqual(state['state'], 'monitoring')
+        self.assertEqual(state['label'], 'Monitoring')
+        self.assertIn('no immediate review', state['reason'])
+
+    def test_needs_review_requires_a_question_and_material_to_inspect(self):
+        component = {'id': 'choice', 'state': 'needs_review', 'evidence': ['An implementation exists']}
+        for review in (None, {}, {'question': 'Approve this?'},
+                       {'question': ' ', 'evidence': ['clip.mp4']},
+                       {'question': 'Approve this?', 'evidence': []},
+                       {'question': 'Approve this?', 'evidence': {'path': 'clip.mp4'}}):
+            with self.subTest(review=review):
+                component['review'] = review
+                self.assertEqual(classify({}, None, {'components': [component]})['state'], 'not_started')
+        component['review'] = {'question': 'Use this proposed framing?', 'evidence': ['before-after.mp4']}
+        state = classify({}, None, {'components': [component]})
+        self.assertEqual(state['state'], 'needs_review')
+        self.assertEqual(state['reason'], 'Use this proposed framing?')
+
+    def test_pending_work_does_not_disappear_into_monitoring(self):
+        resolution = {'components': [
+            {'id': 'behavior', 'state': 'monitoring'},
+            {'id': 'implementation', 'state': 'not_started'}]}
+        self.assertEqual(classify({}, None, resolution)['state'], 'not_started')
+        resolution['components'][1]['state'] = 'in_progress'
+        self.assertEqual(classify({}, None, resolution)['state'], 'in_progress')
+        resolution['components'][1]['state'] = 'needs_hardware'
+        self.assertEqual(classify({}, None, resolution)['state'], 'needs_hardware')
+
+    def test_malformed_states_and_fix_outcomes_stay_backlog(self):
+        for bad in ([], {}, None, 3):
+            with self.subTest(value=bad):
+                self.assertEqual(classify({}, None, {'components': [{'id': 'a', 'state': bad}]})['state'], 'not_started')
+                self.assertEqual(classify({}, {'fix': {'status': bad}})['state'], 'not_started')
+
+    def test_typed_reply_review_is_actionable_without_a_full_resolution(self):
+        review = {'question': 'Use the proposed wider follow framing?', 'evidence': ['before-after.mp4']}
+        for status in ('live', 'no_change', 'planned'):
+            with self.subTest(status=status):
+                reply = {'status': 'answered', 'fix': {'status': status, 'review': review}}
+                result = classify({}, reply)
+                self.assertEqual(result['state'], 'needs_review')
+                self.assertEqual(result['reason'], review['question'])
+
+    def test_freeform_owner_prompt_or_unready_reply_does_not_create_a_review(self):
+        review = {'question': 'Use this?', 'evidence': ['before-after.mp4']}
+        for status in ('failed_checks', 'replay_worse', 'rolled_back', 'error', 'duplicate', 'unknown'):
+            with self.subTest(status=status):
+                reply = {'status': 'answered', 'fix': {'status': status, 'review': review}}
+                self.assertEqual(classify({}, reply)['state'], 'not_started')
+        for status in ('live', 'no_change', 'planned'):
+            with self.subTest(prompt_status=status):
+                reply = {'status': 'answered', 'fix': {'status': status, 'needs_owner': 'Should we try this?'}}
+                self.assertEqual(classify({}, reply)['state'], 'not_started')
+        for status in (None, 'error', 'unknown'):
+            with self.subTest(reply_status=status):
+                reply = {'status': status, 'fix': {'status': 'planned', 'review': review}}
+                self.assertEqual(classify({}, reply)['state'], 'not_started')
+        for reply in ({'status': 'looking', 'ts': 100, 'fix': {'status': 'planned', 'review': review}},
+                      {'status': 'answered', 'fix': {'status': 'queued', 'review': review}}):
+            self.assertEqual(classify({}, reply, now=200)['state'], 'in_progress')
+        self.assertEqual(classify({}, {'status': 'looking', 'ts': 100,
+                                      'fix': {'status': 'planned', 'review': review}}, now=5000)['state'], 'not_started')
 
 
 class RecoveryTests(unittest.TestCase):

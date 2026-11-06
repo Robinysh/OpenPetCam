@@ -26,6 +26,23 @@ computer that treats what goes wrong as feedback and fixes it:
 
 Design and the research it draws on: [docs/superagent.md](superagent.md).
 
+## Request board states
+
+Backlog is work or investigation the agent still needs to do. Monitoring is behavior the owner wants to
+keep an eye on during normal use, with no decision requested now. Needs review is reserved for a concrete
+question and supporting material the owner can inspect now. Missing validation, an expired investigation,
+or a failed attempt belongs in Backlog. A legacy freeform `needs_owner` prompt does not make a review ready.
+
+For a resolution component, use `state: "monitoring"` for observation. Use `state: "needs_review"` only with
+`review: {"question": "...", "evidence": ["..."]}`. The evidence should be inspectable within the card,
+such as a concise comparison or complete policy tradeoff; a private filesystem path alone is not useful
+to an owner on a phone. A policy decision can be ready without an implementation prototype.
+
+Without a component resolution, an answered reply may supply the same bundle in `fix.review` for a
+`live`, `no_change`, or `planned` outcome. Failed or still-running attempts do not enter the review queue.
+Manual moves to Needs review ask what can be reviewed or decided. Moving a card never creates completion
+evidence, and Done still requires every requested component to be verified.
+
 ## Design, after "Exploring Super-agent Design" (DeepSeek Harness, 2026-11-01)
 
 | Idea in the article | Here |

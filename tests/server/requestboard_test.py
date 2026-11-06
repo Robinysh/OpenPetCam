@@ -49,13 +49,13 @@ class RequestBoardTest(unittest.TestCase):
         with patch.object(app, 'REPORTS_DIR', str(self.root)):
             row = app.report_page()['reports'][0]
         self.assertRegex(row.get('revision', ''), r'^[0-9a-f]{64}$')
-        self.assertEqual(row['verified_status']['state'], 'needs_review')
+        self.assertEqual(row['verified_status']['state'], 'not_started')
 
     def test_move_survives_reload_and_keeps_verification_separate(self):
         row = self.move('in_progress')
         self.assertEqual(row['status']['state'], 'in_progress')
         self.assertEqual(self.row()['status']['state'], 'in_progress')
-        self.assertEqual(row['verified_status']['state'], 'needs_review')
+        self.assertEqual(row['verified_status']['state'], 'not_started')
         self.assertEqual(row['workflow']['actor'], 'Test device')
         self.assertTrue(row['workflow']['updated_at'] > 0)
 
@@ -87,15 +87,15 @@ class RequestBoardTest(unittest.TestCase):
     def test_verified_request_can_be_reopened_without_erasing_its_evidence(self):
         self.resolution['components'] = self.resolution['components'][:1]
         self.write('resolution', self.resolution)
-        row = self.move('needs_review', 'The same symptom appeared again')
-        self.assertEqual(row['status']['state'], 'needs_review')
+        row = self.move('monitoring', 'Watch for the same symptom in normal use')
+        self.assertEqual(row['status']['state'], 'monitoring')
         self.assertEqual(row['verified_status']['state'], 'done')
         self.assertEqual(row['resolution'], self.resolution)
 
     def test_reopened_done_stays_open_when_only_the_reply_changes(self):
         self.resolution['components'] = self.resolution['components'][:1]
         self.write('resolution', self.resolution)
-        for index, state in enumerate(('needs_review', 'in_progress')):
+        for index, state in enumerate(('monitoring', 'in_progress')):
             with self.subTest(state=state):
                 reopened = self.move(state, 'The symptom returned')
                 self.reply = {'status': 'looking', 'ts': 9999999999 + index}
@@ -113,10 +113,10 @@ class RequestBoardTest(unittest.TestCase):
     def test_new_resolution_supersedes_reopened_done(self):
         self.resolution['components'] = self.resolution['components'][:1]
         self.write('resolution', self.resolution)
-        self.move('needs_review', 'The symptom returned')
+        self.move('monitoring', 'Watch the deployed behavior in normal use')
         self.reply = {'status': 'looking', 'ts': 9999999999}
         self.write('reply', self.reply)
-        self.assertEqual(self.row()['status']['state'], 'needs_review')
+        self.assertEqual(self.row()['status']['state'], 'monitoring')
         self.resolution['components'][0]['evidence'].append('The repeated symptom was independently checked again')
         self.write('resolution', self.resolution)
         row = self.row()
@@ -128,7 +128,7 @@ class RequestBoardTest(unittest.TestCase):
         self.reply = {'status': 'looking', 'ts': 9999999999}
         self.write('reply', self.reply)
         row = self.row()
-        self.assertEqual(row['status']['state'], 'needs_review')
+        self.assertEqual(row['status']['state'], 'not_started')
         self.assertIsNone(row['workflow'])
 
     def test_resolution_update_still_supersedes_normal_in_progress_move(self):
@@ -137,6 +137,32 @@ class RequestBoardTest(unittest.TestCase):
         self.write('resolution', self.resolution)
         row = self.row()
         self.assertEqual(row['status']['state'], 'done')
+        self.assertIsNone(row['workflow'])
+
+    def test_monitoring_is_persistent_without_claiming_completion(self):
+        row = self.move('monitoring', 'Keep an eye on follow during ordinary use')
+        self.assertEqual(row['status']['state'], 'monitoring')
+        self.assertEqual(self.row()['status']['state'], 'monitoring')
+        self.assertEqual(row['verified_status']['state'], 'not_started')
+        self.assertEqual(row['resolution'], self.resolution)
+        with self.assertRaisesRegex(ValueError, 'verification evidence'):
+            self.move('done')
+
+    def test_manual_review_needs_a_concrete_decision_prompt(self):
+        with self.assertRaisesRegex(ValueError, 'review or decide'):
+            self.move('needs_review')
+        row = self.move('needs_review', 'Does the retained before/after clip show acceptable follow?')
+        self.assertEqual(row['status']['state'], 'needs_review')
+        self.assertEqual(row['status']['reason'], 'Does the retained before/after clip show acceptable follow?')
+        self.assertEqual(row['verified_status']['state'], 'not_started')
+
+    def test_legacy_review_move_without_a_decision_does_not_fill_review_queue(self):
+        self.move('in_progress')
+        workflow = json.loads((self.directory / 'workflow.json').read_text())
+        workflow.update(state='needs_review', reason='')
+        self.write('workflow', workflow)
+        row = self.row()
+        self.assertEqual(row['status']['state'], 'not_started')
         self.assertIsNone(row['workflow'])
 
     def test_two_owners_cannot_overwrite_one_another(self):
@@ -179,7 +205,7 @@ class RequestBoardTest(unittest.TestCase):
         self.write('reply', self.reply)
         row = self.row()
         self.assertIsNone(row['workflow'])
-        self.assertEqual(row['status']['state'], 'needs_review')
+        self.assertEqual(row['status']['state'], 'not_started')
         self.assertNotEqual(row['revision'], old['revision'])
         with self.assertRaises(requestboard.Conflict):
             self.move('in_progress', revision=old['revision'])
@@ -203,10 +229,10 @@ class RequestBoardTest(unittest.TestCase):
         workflow = json.loads((self.directory / 'workflow.json').read_text())
         workflow['state'] = 'done'
         self.write('workflow', workflow)
-        self.assertEqual(self.row()['status']['state'], 'needs_review')
+        self.assertEqual(self.row()['status']['state'], 'not_started')
         self.assertIsNone(self.row()['workflow'])
         self.write('workflow', ['invalid shape'])
-        self.assertEqual(self.row()['status']['state'], 'needs_review')
+        self.assertEqual(self.row()['status']['state'], 'not_started')
 
     def test_unhashable_workflow_state_does_not_hide_request_history(self):
         self.move('in_progress')
@@ -219,7 +245,7 @@ class RequestBoardTest(unittest.TestCase):
                     row = self.row()
                 except TypeError:
                     self.fail('A malformed workflow state must not crash the request history.')
-                self.assertEqual(row['status']['state'], 'needs_review')
+                self.assertEqual(row['status']['state'], 'not_started')
                 self.assertIsNone(row['workflow'])
 
     def test_unhashable_component_state_keeps_request_visible_and_unverified(self):
@@ -228,7 +254,7 @@ class RequestBoardTest(unittest.TestCase):
                 self.resolution['components'][1]['state'] = invalid
                 self.write('resolution', self.resolution)
                 row = self.row()
-                self.assertEqual(row['status']['state'], 'needs_review')
+                self.assertEqual(row['status']['state'], 'not_started')
                 self.assertIn('malformed', row['status']['reason'])
                 with self.assertRaisesRegex(ValueError, 'verification evidence'):
                     self.move('done')

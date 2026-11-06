@@ -75,6 +75,9 @@ Prefer to do each step yourself? [Install by hand](docs/install.md).
   (night picture, materials, surface direction, what sound measured). It stays on your server.
 - **Something wrong?** Tap it and say what happened (for example "she's in view but it says she isn't"). It saves
   the picture and the video around it, so the problem can be found and fixed.
+  The request board separates **Backlog** (work still needed), **Monitoring** (keep an eye on behavior), and
+  **Needs review** (a specific question and supporting material are ready for your decision). Monitoring does
+  not ask you to approve a fix. **Done** requires verification for every requested part.
 
 <br clear="right">
 

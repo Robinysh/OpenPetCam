@@ -13,12 +13,14 @@
 .request-tabs{display:flex;gap:6px;overflow-x:auto;flex:none;padding:2px 0 5px;scrollbar-width:thin}
 .request-tab{border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--muted);padding:10px 13px;min-height:44px;font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}
 .request-tab[aria-pressed=true]{background:var(--accent-subtle);border-color:var(--accent);color:var(--accent-fg);font-weight:700}
-.request-board{display:grid;grid-template-columns:repeat(5,minmax(215px,1fr));gap:12px;overflow-x:auto;min-height:0;flex:1;padding-bottom:4px}
+.request-board{display:grid;grid-template-columns:repeat(6,minmax(215px,1fr));gap:12px;overflow-x:auto;min-height:0;flex:1;padding-bottom:4px}
 .request-lane{display:flex;flex-direction:column;min-height:0;min-width:0;border-top:3px solid var(--line);padding-top:10px;border-radius:3px}
 .request-lane[data-lane=in_progress]{border-color:var(--accent)}
+.request-lane[data-lane=monitoring]{border-color:var(--muted)}
 .request-lane[data-lane=done]{border-color:var(--ok)}
 .request-lane[data-lane=blocked]{border-color:var(--opc-on-warning)}
 .request-lane h4{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:750;margin:0 4px 12px;flex:none}
+.request-lane-description{font-size:12px;line-height:1.5;color:var(--muted);margin:0 4px 12px;min-height:3em;flex:none}
 .request-count{font-variant-numeric:tabular-nums;font-size:12px;font-weight:500;color:var(--muted);margin-left:auto}
 .request-cards{list-style:none;margin:0;padding:0 2px 8px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:0;flex:1;scrollbar-width:thin}
 .request-card{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--card2);color:var(--text);padding:14px 13px 12px;border-radius:13px;cursor:pointer;font:inherit;line-height:1.45;overflow-wrap:anywhere}
@@ -47,6 +49,9 @@
 .request-checklist strong{display:block;font-weight:650}
 .request-part-state{display:block;font-size:13px;color:var(--accent-fg);margin-top:3px}
 .request-checklist p{margin:8px 0;color:var(--muted)}
+.request-review{border-left:3px solid var(--accent);padding:2px 0 2px 12px;margin:14px 0}
+.request-review h5{font-size:14px;margin:0 0 6px}
+.request-review p{font-size:15px;line-height:1.6;margin:0}
 .request-evidence{margin-top:8px;font-size:14px;color:var(--muted)}
 .request-evidence summary,.request-discussion summary{cursor:pointer;padding:10px 0;min-height:44px}
 .request-evidence ul{padding-left:20px;overflow-wrap:anywhere}

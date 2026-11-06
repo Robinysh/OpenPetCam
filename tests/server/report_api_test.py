@@ -29,7 +29,7 @@ class ReportHistoryTest(unittest.TestCase):
 
     def test_answered_failed_fix_is_not_done(self):
         row = app.list_reports(1)[0]
-        self.assertEqual(row.get("status", {}).get("state"), "needs_review")
+        self.assertEqual(row.get("status", {}).get("state"), "not_started")
 
     def test_all_older_requests_are_reachable_once(self):
         seen, before = [], None

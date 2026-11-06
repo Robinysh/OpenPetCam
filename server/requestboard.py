@@ -17,9 +17,9 @@ import time
 import reportstate
 
 
-STATES = {'not_started', 'in_progress', 'needs_review', 'blocked', 'done'}
+STATES = {'not_started', 'in_progress', 'monitoring', 'needs_review', 'blocked', 'done'}
 LABELS = {'not_started': 'Backlog', 'in_progress': 'In progress',
-          'needs_review': 'Needs review', 'blocked': 'Blocked', 'done': 'Done'}
+          'monitoring': 'Monitoring', 'needs_review': 'Needs review', 'blocked': 'Blocked', 'done': 'Done'}
 _LOCK = threading.RLock()
 _ID = re.compile(r'\d{8}-\d{6}', re.ASCII)
 
@@ -49,14 +49,18 @@ def decorate(report, reply, resolution, workflow=None):
     except TypeError:
         # Historical JSON can contain an array/object where a component state
         # should be a string. Keep that request visible and fail completion shut.
-        verified = {'state': 'needs_review', 'label': 'Needs review',
-                    'reason': 'The saved verification evidence is malformed and needs review.'}
+        verified = {'state': 'not_started', 'label': 'Backlog',
+                    'reason': 'The saved verification evidence is malformed and needs investigation.'}
     basis = _basis(report, reply, resolution)
     revision = _hash({'basis': basis, 'workflow': workflow})
     effective = dict(verified)
     active = None
     valid_workflow = (isinstance(workflow, dict) and isinstance(workflow.get('state'), str)
                       and workflow['state'] in STATES)
+    if valid_workflow and workflow['state'] == 'needs_review':
+        # A legacy review lane without a decision prompt is unfinished work,
+        # not an actionable request for the owner's attention.
+        valid_workflow = isinstance(workflow.get('reason'), str) and bool(workflow['reason'].strip())
     # A new "looking" reply is not fresh verification of a reopened regression.
     # Keep that reopening attached to its old resolution until evidence changes.
     reopened = (valid_workflow and workflow['state'] != 'done'
@@ -136,6 +140,8 @@ def move(root, report_id, state, revision, actor, reason=''):
     reason = reason.strip()
     if state == 'blocked' and not reason:
         raise ValueError('Add what is blocking this request.')
+    if state == 'needs_review' and not reason:
+        raise ValueError('Add what you can review or decide now.')
     if not isinstance(actor, str) or not actor.strip() or len(actor) > 200:
         raise ValueError('A signed-in device is required to move requests.')
     with _LOCK:

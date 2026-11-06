@@ -3,24 +3,50 @@
   'use strict';
   const LANES = [
     ['not_started', 'Backlog'], ['in_progress', 'In progress'],
-    ['needs_review', 'Needs review'], ['blocked', 'Blocked'], ['done', 'Done'],
+    ['monitoring', 'Monitoring'], ['needs_review', 'Needs review'], ['blocked', 'Blocked'], ['done', 'Done'],
   ];
   const labels = Object.fromEntries(LANES);
+  const laneDescriptions = {
+    not_started: 'Work or investigation still needed.', in_progress: 'Being worked on now.',
+    monitoring: 'Keep an eye on behavior over time. No decision needed now.',
+    needs_review: 'Evidence is ready for your review or decision.',
+    blocked: 'Waiting on hardware or another dependency.', done: 'Every requested part is verified.',
+  };
+  const needsReason = state => state === 'blocked' || state === 'needs_review';
   const laneOf = row => {
     const state = row.status?.state;
     if (state === 'needs_hardware') return 'blocked';
-    return Object.prototype.hasOwnProperty.call(labels, state) ? state : row.reply ? 'needs_review' : 'not_started';
+    return typeof state === 'string' && Object.prototype.hasOwnProperty.call(labels, state) ? state : 'not_started';
   };
   const hasEvidence = value => typeof value === 'string' ? !!value.trim()
     : value && typeof value === 'object' ? Object.values(value).some(hasEvidence) : false;
   const components = row => Array.isArray(row.resolution?.components)
     ? row.resolution.components.filter(p => p && typeof p === 'object' && !Array.isArray(p)) : [];
+  const reviewReady = part => !!part?.review && typeof part.review.question === 'string' && !!part.review.question.trim()
+    && (typeof part.review.evidence === 'string' || Array.isArray(part.review.evidence)) && hasEvidence(part.review.evidence);
+  const componentState = part => {
+    if (!part || typeof part !== 'object' || Array.isArray(part) || typeof part.state !== 'string') return 'not_started';
+    const state = part.state;
+    if (state !== 'needs_hardware' && !Object.prototype.hasOwnProperty.call(labels, state)) return 'not_started';
+    if (state === 'done' && !hasEvidence(part.evidence) || state === 'needs_review' && !reviewReady(part)) return 'not_started';
+    return state;
+  };
+  const componentLabel = part => componentState(part) === 'needs_hardware' ? 'Needs hardware' : labels[componentState(part)];
+  const readyReplyReview = row => row.resolution == null && row.reply?.status === 'answered'
+    && ['live', 'no_change', 'planned'].includes(row.reply.fix?.status)
+    && reviewReady({ review: row.reply.fix?.review }) ? row.reply.fix.review : null;
+  const reviewQuestion = row => {
+    if (laneOf(row) !== 'needs_review') return null;
+    if (row.workflow?.state === 'needs_review' && typeof row.workflow.reason === 'string' && row.workflow.reason.trim()) return row.workflow.reason;
+    const part = components(row).find(p => componentState(p) === 'needs_review');
+    return part?.review.question || readyReplyReview(row)?.question || null;
+  };
   const progress = row => {
     const parts = components(row);
     return { done: parts.filter(p => p.state === 'done' && hasEvidence(p.evidence)).length, total: parts.length };
   };
   const matches = (row, query) => !query.trim() ||
-    [row.note, row.by, row.reply?.text, row.status?.reason, JSON.stringify(row.resolution || {})]
+    [row.note, row.by, row.reply?.text, row.status?.reason, JSON.stringify(row.resolution || {}), JSON.stringify(readyReplyReview(row) || {})]
       .join(' ').toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
 
   class Store {
@@ -56,6 +82,8 @@
     async move(id, state, reason = '', displayedRevision) {
       const row = this.items.find(r => r.id === id);
       if (!row) throw new Error('This request is no longer on the board. Refresh and try again.');
+      if (needsReason(state) && !reason.trim()) throw new Error(state === 'needs_review'
+        ? 'Add what you can review or decide now.' : 'Add what is blocking this request.');
       const updated = await this.api('/api/reports/move', { id, state, revision: displayedRevision ?? row.revision, reason });
       this.epoch++;
       this.items = this.items.map(r => r.id === id ? updated : r);
@@ -91,19 +119,21 @@
     const rows = () => store.items.filter(row => matches(row, query))
       .sort((a, b) => Number(b.ts) - Number(a.ts) || b.id.localeCompare(a.id));
 
-    function chooseLane(state) {
+    function chooseLane(state, reveal = false) {
       selectedLane = state;
       try { localStorage.setItem('openpetcam.requests.lane', state); } catch (_) { /* Optional preference. */ }
       tabs.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lane === state)));
       board.querySelectorAll('.request-lane').forEach(lane => { lane.dataset.selected = String(lane.dataset.lane === state); });
       if (!tabs.classList.contains('hidden')) tabs.querySelector(`[data-lane="${state}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      if (reveal && !board.classList.contains('hidden')) board.querySelector(`.request-lane[data-lane="${state}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
     function card(row) {
       const item = make('li'), button = make('button', 'request-card');
       button.type = 'button'; button.dataset.id = row.id; button.draggable = true;
       button.append(make('span', 'request-card-title', row.note || 'Request without a note'));
-      const p = progress(row), remaining = components(row).find(c => c.state !== 'done');
-      if (remaining) button.append(make('span', 'request-card-next', remaining.title || remaining.id));
+      const p = progress(row), remaining = components(row).find(c => componentState(c) !== 'done'), question = reviewQuestion(row);
+      if (question) button.append(make('span', 'request-card-next', question));
+      else if (remaining) button.append(make('span', 'request-card-next', remaining.title || remaining.id));
       else if (row.status?.reason && laneOf(row) !== 'done') button.append(make('span', 'request-card-next', row.status.reason));
       const meta = make('span', 'request-card-meta');
       meta.append(make('span', '', when(row.ts)));
@@ -132,20 +162,20 @@
         board.replaceChildren(); tabs.replaceChildren();
         for (const [state, label] of LANES) {
           const tab = make('button', 'request-tab', `${label} ${counts[state]}`);
-          tab.type = 'button'; tab.dataset.lane = state; tab.onclick = () => chooseLane(state); tabs.append(tab);
+          tab.type = 'button'; tab.dataset.lane = state; tab.title = laneDescriptions[state]; tab.onclick = () => chooseLane(state, true); tabs.append(tab);
           const lane = make('section', 'request-lane'); lane.dataset.lane = state;
           const heading = make('h4', '', label); heading.append(make('span', 'request-count', counts[state]));
           const list = make('ul', 'request-cards'); list.dataset.lane = state;
           visible.filter(row => laneOf(row) === state).forEach(row => list.append(card(row)));
           if (!list.children.length) list.append(make('li', 'request-empty', store.loading ? 'Loading…' : query ? 'No matching requests' : 'No requests'));
-          lane.append(heading, list); board.append(lane); list.scrollTop = positions[state] || 0;
+          lane.append(heading, make('p', 'request-lane-description', laneDescriptions[state]), list); board.append(lane); list.scrollTop = positions[state] || 0;
           lane.addEventListener('dragover', event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; lane.classList.add('drop-target'); });
           lane.addEventListener('dragleave', () => lane.classList.remove('drop-target'));
           lane.addEventListener('drop', event => {
             event.preventDefault(); lane.classList.remove('drop-target');
             const id = event.dataTransfer.getData('text/plain');
             if (!store.items.some(row => row.id === id)) return;
-            if (state === 'blocked') { openCard(id); $('request-state').value = state; showBlockReason(); $('request-reason').focus(); }
+            if (needsReason(state)) { openCard(id); $('request-state').value = state; showMoveReason(); $('request-reason').focus(); }
             else move(id, state);
           });
         }
@@ -154,9 +184,9 @@
       const row = store.items.find(r => r.id === selectedId);
       if (row && row.revision !== detailRevision && !saving && !detailDirty) renderDetail(row);
     }
-    function evidence(parent, value, key) {
+    function evidence(parent, value, key, label = 'Evidence and limitations') {
       if (!hasEvidence(value)) return;
-      const fold = make('details', 'request-evidence'), summary = make('summary', '', 'Evidence and limitations');
+      const fold = make('details', 'request-evidence'), summary = make('summary', '', label);
       fold.dataset.fold = key;
       const list = make('ul');
       const values = Array.isArray(value) ? value : [value];
@@ -174,29 +204,43 @@
       const title = make('h4', '', row.note || 'Request without a note'); title.tabIndex = -1; title.id = 'request-detail-title';
       detail.append(back, title, make('p', 'request-detail-meta', `${when(row.ts)}${row.by ? ' · ' + row.by : ''}`));
       detail.append(make('p', 'request-status-reason', row.status?.reason || 'No verified resolution is recorded yet.'));
+      if (laneOf(row) === 'needs_review' && row.workflow?.reason) {
+        const review = make('section', 'request-review');
+        review.append(make('h5', '', 'Ready for your review'), make('p', '', row.workflow.reason)); detail.append(review);
+      }
+      const replyReview = readyReplyReview(row);
+      if (replyReview) {
+        const review = make('section', 'request-review');
+        review.append(make('h5', '', 'Ready for your review'), make('p', '', replyReview.question));
+        evidence(review, replyReview.evidence, 'reply-review', 'Review evidence'); detail.append(review);
+      }
       const controls = make('div', 'request-move');
       const label = make('label', '', 'Move to'); label.htmlFor = 'request-state';
       const select = make('select', 'field'); select.id = 'request-state';
       LANES.forEach(([state, text]) => { const option = make('option', '', text); option.value = state; select.append(option); });
-      select.value = laneOf(row); select.onchange = () => { detailDirty = true; showBlockReason(); };
+      select.value = laneOf(row); select.onchange = () => { detailDirty = true; showMoveReason(); };
       const save = make('button', 'btn', 'Move'); save.type = 'button'; save.id = 'request-move-save';
       save.onclick = () => move(row.id, select.value, $('request-reason').value);
       controls.append(label, select, save); detail.append(controls);
       const reason = make('div', 'request-block-reason hidden'); reason.id = 'request-block-reason';
-      const reasonLabel = make('label', '', 'What is blocking this?'); reasonLabel.htmlFor = 'request-reason';
+      const reasonLabel = make('label'); reasonLabel.id = 'request-reason-label'; reasonLabel.htmlFor = 'request-reason';
       const reasonInput = make('textarea', 'field'); reasonInput.id = 'request-reason'; reasonInput.maxLength = 1000; reasonInput.rows = 2;
       reasonInput.value = row.workflow?.reason || ''; reason.append(reasonLabel, reasonInput); detail.append(reason);
-      reasonInput.oninput = () => { detailDirty = true; };
-      showBlockReason();
+      reasonInput.oninput = () => { detailDirty = true; showMoveReason(); };
+      showMoveReason();
       const parts = components(row);
       if (parts.length) {
         detail.append(make('h5', '', 'Requested work'));
         const list = make('ul', 'request-checklist');
         parts.forEach(part => {
           const item = make('li');
-          item.append(make('strong', '', part.title || part.id), make('span', 'request-part-state',
-            part.state === 'needs_hardware' ? 'Needs hardware' : labels[part.state] || 'Needs review'));
+          item.append(make('strong', '', part.title || part.id), make('span', 'request-part-state', componentLabel(part)));
           if (part.reason) item.append(make('p', '', part.reason));
+          if (part.state === 'needs_review' && reviewReady(part)) {
+            const review = make('section', 'request-review');
+            review.append(make('h5', '', 'Ready for your review'), make('p', '', part.review.question));
+            evidence(review, part.review.evidence, 'review-' + String(part.id || part.title), 'Review evidence'); item.append(review);
+          }
           evidence(item, part.evidence, String(part.id || part.title)); list.append(item);
         });
         detail.append(list);
@@ -211,8 +255,14 @@
       else if (focusFold) [...detail.querySelectorAll('details')].find(el => el.dataset.fold === focusFold)?.querySelector('summary')?.focus({ preventScroll: true });
       detail.scrollTop = oldScroll;
     }
-    function showBlockReason() {
-      $('request-block-reason')?.classList.toggle('hidden', $('request-state')?.value !== 'blocked');
+    function showMoveReason() {
+      const state = $('request-state')?.value, required = needsReason(state);
+      $('request-block-reason')?.classList.toggle('hidden', !required && state !== 'monitoring');
+      const label = $('request-reason-label'), input = $('request-reason');
+      if (label) label.textContent = state === 'needs_review' ? 'What should I review or decide?'
+        : state === 'monitoring' ? 'What should I keep an eye on? (optional)' : 'What is blocking this?';
+      if (input) input.required = required;
+      if ($('request-move-save')) $('request-move-save').disabled = saving || (required && !input?.value.trim());
     }
     function openCard(id) {
       const row = store.items.find(r => r.id === id); if (!row) return;
@@ -223,7 +273,7 @@
     function backToBoard() {
       const id = selectedId; selectedId = null; detailRevision = ''; detailDirty = false;
       detail.classList.add('hidden'); board.classList.remove('hidden'); tabs.classList.remove('hidden');
-      $('report-search-label').classList.remove('hidden'); chooseLane(selectedLane);
+      $('report-search-label').classList.remove('hidden'); chooseLane(selectedLane, true);
       board.querySelector(`[data-id="${id}"]`)?.focus();
     }
     async function move(id, state, reason = '') {
@@ -244,7 +294,7 @@
       finally {
         saving = false; detailRevision = ''; detailDirty = false; render();
         if (failed && selectedId === id && $('request-state')) {
-          $('request-state').value = state; $('request-reason').value = reason; detailDirty = true; showBlockReason();
+          $('request-state').value = state; $('request-reason').value = reason; detailDirty = true; showMoveReason();
         }
         if (selectedId === id && !detail.classList.contains('hidden')) $('request-state')?.focus({ preventScroll: true });
         detail.setAttribute('aria-busy', 'false'); say(outcome);
@@ -312,7 +362,7 @@
       $('report-dialog').focus(); refresh();
     } };
   }
-  const exported = { LANES, Store, laneOf, progress, matches, components, mount };
+  const exported = { LANES, laneDescriptions, Store, laneOf, progress, matches, components, reviewReady, componentState, componentLabel, readyReplyReview, reviewQuestion, needsReason, mount };
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   global.OpenPetRequests = exported;
 })(typeof window === 'undefined' ? globalThis : window);
