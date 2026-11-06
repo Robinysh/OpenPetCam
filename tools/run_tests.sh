@@ -28,4 +28,11 @@ timeout 120 python3 tests/sim/search_prior_test.py
 timeout 120 python3 tests/sim/search_scene_test.py
 timeout 120 python3 tests/sim/search_bench_test.py
 timeout 120 python3 tests/sim/search_report_test.py
+timeout 120 python3 tests/sim/view_obstructions_test.py
+timeout 120 python3 tests/sim/obstruction_scene_test.py
+timeout 120 python3 tests/sim/obstruction_model_test.py
+timeout 120 python3 tests/sim/obstruction_forest_test.py
+timeout 120 python3 tests/sim/obstruction_reference_test.py
+timeout 120 python3 tests/sim/obstruction_bench_test.py
+timeout 120 python3 tests/sim/obstruction_report_test.py
 echo "all offline tests passed"
