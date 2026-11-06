@@ -13,8 +13,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../site.css?v=type-2">
 <link rel="stylesheet" href="room-story.css?v=1">
+<link rel="stylesheet" href="room-day.css?v=1">
 <script src="room-story.js?v=1" defer></script>
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "Teaching a $12 pet camera where to look", "description": "An attempt to stop a pet camera staring at the counter led to a room model, a useful search result and a few measurements that still need checking.", "datePublished": "2026-11-05", "dateModified": "2026-11-05", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html", "image": "https://crimeacs.github.io/OpenPetCam/media/blog/room-orbit.jpg"}</script>
+<script src="room-day.js?v=1" defer></script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "Teaching a $12 pet camera where to look", "description": "An attempt to stop a pet camera staring at the counter led to a room model, a useful search result and a few measurements that still need checking.", "datePublished": "2026-11-05", "dateModified": "2026-11-06", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html", "image": "https://crimeacs.github.io/OpenPetCam/media/blog/room-orbit.jpg"}</script>
 <script src="../analytics.js" defer></script></head>
 <body>
 <nav class="nav"><a class="word" href="../" aria-label="OpenPetCam home"><img src="../media/openpetcam-mark-color.svg" width="34" height="34" alt="">OpenPetCam</a>
@@ -108,15 +110,27 @@
 <p>One of those problems is timing. Four shots within one capture can repeat extremely well, while separate captures at the same pose shift by as much as about 1.8 milliseconds. The inversion needs a constrained account of the source, microphone and timing alongside the room. Otherwise it can move a wall to explain a late shot. Freely sliding every trace into a better fit would also remove travel-time differences I want the geometry to explain.</p>
 <p>I want to begin with one independently measured surface, deliberately put it in the wrong place in the input model, and ask the waveform fit to recover it. Whole poses and separate capture sessions would stay out of the fit until I test its predictions. A model that only adjusts the instrument response belongs alongside it as a comparison. That would give me a first test of whether moving the surface explains something the instrument alone cannot.</p>
 
-<h2 id="time">Keeping the observations</h2>
+<h2 id="time">A room also has a daily routine</h2>
 <p>Once there is a place to store an observation, the map can accumulate a day. Each small surface patch holds its colour and the way its light changes over time. Logged dog detections leave a history on the floor. In the viewer, a time slider lets me move through those records.</p>
-<p>The heatmap has the camera's habits mixed into it. A corner that is rarely watched tells me little about how often the dog uses it. Even so, the places where she has repeatedly been seen are worth visiting when she disappears again.</p>
+<p>Move through a day in the sketch below. Watch the light cross the floor and the sightings change from one hour to the next. Select the hallway, then switch on camera coverage. A blank patch looks rather different when you know how little the camera has seen of it.</p>
 
+<figure class="room-day" data-room-day aria-label="Explore light, sightings and camera coverage through an illustrative day">
+<div data-day-scene></div>
+<div data-day-controls></div>
+<noscript><p>This illustration needs JavaScript for its time slider. In the example, light changes through the day and the floor shows sightings from the preceding hour. A patch with few observations remains uncertain, even when no dog was detected.</p></noscript>
+<figcaption>An illustration of the layers, with an invented room and sample sightings. For the actual reconstruction, open the recorded view below.</figcaption>
+</figure>
+
+<p>The real heatmap has the camera's habits mixed into it too. A corner that is rarely watched tells me little about how often the dog uses it. Even so, the places where she has repeatedly been seen are worth visiting when she disappears again.</p>
+
+<details class="story-film">
+<summary>See the recorded room</summary>
 <figure class="motion-figure model-motion" data-motion="The observation layer">
 <div class="motion-stage"><video muted loop playsinline preload="none" poster="../media/blog/time-layer.jpg" width="720" height="640" data-src="../media/blog/time-layer.mp4" aria-label="The room viewer with warm patches marking its observation layer across the floor."></video></div>
 <div class="motion-toolbar"><span>Observations on the floor</span><button class="motion-toggle" type="button" hidden>Play animation</button></div>
 <figcaption>The viewer's observation layer, laid over the reconstructed floor.</figcaption>
 </figure>
+</details>
 <figure class="half"><img src="../media/blog/infrared.jpg" width="720" height="826" alt="The room shell with an exploratory near-infrared appearance layer, highlighting some surfaces in magenta." loading="lazy"><figcaption>The infrared appearance layer. I have not calibrated these colours against known materials.</figcaption></figure>
 <p>The infrared LEDs add another layer. Comparing frames with the light on and off helps isolate the camera's illumination; comparing that with visible light makes some plants, fabrics and fur stand out. Exposure and surface angle still complicate the comparison. I kept it in the viewer as something to inspect, without assigning material identities to the colours.</p>
 
