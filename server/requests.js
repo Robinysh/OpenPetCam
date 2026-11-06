@@ -8,12 +8,70 @@
   const labels = Object.fromEntries(LANES);
   const laneDescriptions = {
     not_started: 'Work or investigation still needed.', in_progress: 'Being worked on now.',
-    monitoring: 'Keep an eye on behavior over time. No decision needed now.',
+    monitoring: 'Measured goals and behavior to watch. No decision needed now.',
     needs_review: 'Evidence is ready for your review or decision.',
     blocked: 'Waiting on hardware or another dependency.', done: 'Every requested part is verified.',
   };
   const needsReason = state => state === 'blocked' || state === 'needs_review';
+  const goalTitles = new Map([['search_success', 'Find locates your pet'], ['find_time', 'Find locates your pet quickly']]);
+  const goalTitle = row => goalTitles.get(row.goal_id) || row.title || row.goal_id;
+  const isGoal = row => row?.kind === 'goal' && typeof row.goal_id === 'string' && row.id === 'goal:' + row.goal_id;
+  const compareRows = (a, b) => Number(isGoal(a)) - Number(isGoal(b)) || Number(b.ts) - Number(a.ts) || b.id.localeCompare(a.id);
+  const normalizeGoals = goals => {
+    const found = new Map();
+    if (!Array.isArray(goals)) throw new Error('The goal monitor response is incomplete.');
+    for (const row of goals) {
+      if (!row || row.kind !== 'goal' || typeof row.goal_id !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(row.goal_id)) throw new Error('A goal monitor has an invalid identity.');
+      const id = 'goal:' + row.goal_id;
+      if (found.has(id)) throw new Error('A goal monitor was returned more than once.');
+      found.set(id, { ...row, id, kind: 'goal', movable: false, ts: row.sample?.ts || null, status: { state: 'monitoring' } });
+    }
+    return [...found.values()];
+  };
+  const goalHealth = (row, now = Date.now() / 1000) => {
+    if (row.transport_error) return { state: 'unavailable', label: 'Refresh unavailable', reason: 'The last saved measurement is shown; current goal health could not be checked.' };
+    const health = row.health;
+    if (!health || !['on_target', 'off_target', 'stale', 'unmeasured', 'invalid'].includes(health.state))
+      return { state: 'invalid', label: 'Unknown', reason: 'No trustworthy goal status is available.' };
+    if (['on_target', 'off_target'].includes(health.state)) {
+      if (typeof row.sample?.value !== 'number' || !Number.isFinite(row.sample.value) || !Number.isFinite(health.expires_at))
+        return { state: 'invalid', label: 'Unknown', reason: 'The measurement is missing or invalid.' };
+      if (Number.isFinite(health.expires_at) && now > health.expires_at)
+        return { state: 'stale', label: 'Stale', reason: 'This measurement is too old to describe current health.' };
+    }
+    return health;
+  };
+  const goalValue = row => typeof row.sample?.value === 'number' && Number.isFinite(row.sample.value) ? String(row.sample.value) : '—';
+  const measurementAge = (row, now = Date.now() / 1000) => {
+    const sourceKnown = typeof row.sample?.observed_at === 'number' && Number.isFinite(row.sample.observed_at);
+    const measured = sourceKnown ? row.sample.observed_at : row.sample?.ts;
+    const label = sourceKnown ? goalValue(row) === '—' ? 'Checked' : 'Measured' : 'Collected';
+    if (typeof measured !== 'number' || !Number.isFinite(measured)) return 'Measurement time unavailable';
+    const age = now - measured;
+    if (age < -60) return 'Measurement time is ahead of this device';
+    if (age < 60) return `${label} just now`;
+    if (age < 3600) return `${label} ${Math.floor(age / 60)}m ago`;
+    if (age < 86400) return `${label} ${Math.floor(age / 3600)}h ago`;
+    return `${label} ${Math.floor(age / 86400)}d ago`;
+  };
+  const trendSegments = (points, maxGap = 90 * 60) => {
+    const data = Array.isArray(points) ? points.slice(-200) : [];
+    const valid = data.filter(p => Array.isArray(p) && Number.isFinite(p[0]) && typeof p[1] === 'number' && Number.isFinite(p[1]));
+    if (valid.length < 2) return [];
+    const xs = valid.map(p => p[0]), ys = valid.map(p => p[1]), xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(...ys), ymax = Math.max(...ys);
+    const segments = []; let path = '', previous = null;
+    for (const p of data) {
+      if (!Array.isArray(p) || !Number.isFinite(p[0]) || typeof p[1] !== 'number' || !Number.isFinite(p[1])) { if (path) segments.push(path); path = ''; previous = null; continue; }
+      if (previous != null && (p[0] < previous || p[0] - previous > maxGap)) { if (path) segments.push(path); path = ''; }
+      const x = 2 + (p[0] - xmin) / (xmax - xmin || 1) * 296, y = 38 - (p[1] - ymin) / (ymax - ymin || 1) * 34;
+      path += `${path ? ' L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
+      previous = p[0];
+    }
+    if (path) segments.push(path);
+    return segments;
+  };
   const laneOf = row => {
+    if (isGoal(row)) return 'monitoring';
     const state = row.status?.state;
     if (state === 'needs_hardware') return 'blocked';
     return typeof state === 'string' && Object.prototype.hasOwnProperty.call(labels, state) ? state : 'not_started';
@@ -46,18 +104,36 @@
     return { done: parts.filter(p => p.state === 'done' && hasEvidence(p.evidence)).length, total: parts.length };
   };
   const matches = (row, query) => !query.trim() ||
-    [row.note, row.by, row.reply?.text, row.status?.reason, JSON.stringify(row.resolution || {}), JSON.stringify(readyReplyReview(row) || {})]
+    [row.note, row.by, isGoal(row) ? goalTitle(row) : row.title, row.metric, row.target, row.source, row.reply?.text, row.status?.reason,
+      isGoal(row) ? JSON.stringify([row.health, row.sample?.detail, row.work]) : '', JSON.stringify(row.resolution || {}), JSON.stringify(readyReplyReview(row) || {})]
       .join(' ').toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
 
   class Store {
     constructor(api, changed = () => {}) {
       this.api = api; this.changed = changed; this.items = []; this.total = 0;
       this.loading = false; this.error = ''; this.epoch = 0; this.pending = null;
+      this.goals = []; this.goalError = ''; this.goalsLoading = false;
+      this.monitorTimeoutMs = 12000;
     }
     refresh() {
       if (this.pending) return this.pending;
-      this.pending = this.fetchAll().finally(() => { this.pending = null; });
+      this.pending = Promise.all([this.fetchAll(), this.fetchGoals()]).finally(() => { this.pending = null; });
       return this.pending;
+    }
+    allItems() {
+      return [...this.items.map(row => ({ ...row, kind: 'report' })), ...this.goals.map(row => ({ ...row, transport_error: this.goalError || null }))];
+    }
+    async fetchGoals() {
+      this.goalsLoading = true; this.changed();
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      let timer;
+      try {
+        const timeout = new Promise((_, reject) => { timer = setTimeout(() => { controller?.abort(); reject(new Error('The goal monitor request timed out.')); }, this.monitorTimeoutMs); });
+        const response = await Promise.race([this.api('/api/monitoring', undefined, { signal: controller?.signal }), timeout]);
+        if (!response || response.available === false) throw new Error(response?.error || 'The monitor data is unavailable.');
+        this.goals = normalizeGoals(response.goals); this.goalError = '';
+      } catch (error) { this.goalError = `Couldn't refresh goal monitors: ${error.message}`; }
+      finally { clearTimeout(timer); this.goalsLoading = false; this.changed(); }
     }
     async fetchAll() {
       this.loading = true; this.error = ''; this.changed();
@@ -80,6 +156,7 @@
       } finally { this.loading = false; this.changed(); }
     }
     async move(id, state, reason = '', displayedRevision) {
+      if (typeof id === 'string' && id.startsWith('goal:')) throw new Error('Automatic goals stay in Monitoring. Their linked work is shown separately.');
       const row = this.items.find(r => r.id === id);
       if (!row) throw new Error('This request is no longer on the board. Refresh and try again.');
       if (needsReason(state) && !reason.trim()) throw new Error(state === 'needs_review'
@@ -92,7 +169,7 @@
     }
     counts(query = '') {
       const counts = Object.fromEntries(LANES.map(([state]) => [state, 0]));
-      this.items.filter(row => matches(row, query)).forEach(row => counts[laneOf(row)]++);
+      this.allItems().filter(row => matches(row, query)).forEach(row => counts[laneOf(row)]++);
       return counts;
     }
   }
@@ -100,7 +177,7 @@
   function mount({ api, snapshot, onSent = () => {} }) {
     const $ = id => document.getElementById(id), root = $('report-sheet');
     const board = $('report-list'), detail = $('report-detail'), tabs = $('report-tabs');
-    let active = false, selectedLane = 'needs_review', selectedId = null, query = '', timer = null;
+    let active = false, selectedLane = 'needs_review', selectedId = null, query = '', timer = null, openEpoch = 0;
     try {
       const saved = localStorage.getItem('openpetcam.requests.lane');
       if (LANES.some(([state]) => state === saved)) selectedLane = saved;
@@ -116,8 +193,8 @@
       month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
     }) : 'Date unavailable';
     const say = text => { message = text; $('report-status').textContent = text; };
-    const rows = () => store.items.filter(row => matches(row, query))
-      .sort((a, b) => Number(b.ts) - Number(a.ts) || b.id.localeCompare(a.id));
+    const rows = () => store.allItems().filter(row => matches(row, query)).sort(compareRows);
+    const revisionOf = row => isGoal(row) ? JSON.stringify([row, goalHealth(row)]) : row.revision;
 
     function chooseLane(state, reveal = false) {
       selectedLane = state;
@@ -129,7 +206,19 @@
     }
     function card(row) {
       const item = make('li'), button = make('button', 'request-card');
-      button.type = 'button'; button.dataset.id = row.id; button.draggable = true;
+      button.type = 'button'; button.dataset.id = row.id; button.draggable = !isGoal(row);
+      if (isGoal(row)) {
+        button.classList.add('request-goal-card');
+        button.append(make('span', 'request-card-kind', 'Automatic goal'));
+        button.append(make('span', 'request-card-title', goalTitle(row)));
+        const health = goalHealth(row), reading = make('span', 'request-goal-reading');
+        reading.append(make('strong', '', goalValue(row)), make('span', 'request-goal-health', health.label));
+        reading.dataset.health = health.state; button.append(reading);
+        button.append(make('span', 'request-card-next', 'Target ' + (row.target || 'not configured')));
+        button.append(make('span', 'request-card-meta', measurementAge(row)));
+        button.onclick = () => openCard(row.id); item.append(button); return item;
+      }
+      if (laneOf(row) === 'monitoring') button.append(make('span', 'request-card-kind', 'Owner observation'));
       button.append(make('span', 'request-card-title', row.note || 'Request without a note'));
       const p = progress(row), remaining = components(row).find(c => componentState(c) !== 'done'), question = reviewQuestion(row);
       if (question) button.append(make('span', 'request-card-next', question));
@@ -146,16 +235,15 @@
     }
     function render() {
       const visible = rows(), counts = store.counts(query);
-      if (!store.loading && store.items.length && firstLoad) {
+      if (!store.loading && !store.goalsLoading && store.allItems().length && firstLoad) {
         firstLoad = false;
         if (!counts[selectedLane]) selectedLane = LANES.find(([state]) => counts[state])?.[0] || selectedLane;
       }
-      $('report-history').textContent = store.loading ? 'Loading requests…'
-        : `${store.items.length} of ${store.total} requests${query ? ` · ${visible.length} matching` : ''}`;
-      $('report-status').textContent = store.error || message;
-      $('report-retry').classList.toggle('hidden', !store.error);
-      board.setAttribute('aria-busy', String(store.loading));
-      const signature = JSON.stringify([visible, counts]);
+      $('report-history').textContent = `${store.loading ? 'Loading requests…' : `${store.items.length} of ${store.total} requests`} · ${store.goals.length} goal monitors${store.goalsLoading ? ' (checking…)' : ''}${query ? ` · ${visible.length} matching` : ''}`;
+      $('report-status').textContent = [store.error, store.goalError, message].filter(Boolean).join(' ');
+      $('report-retry').classList.toggle('hidden', !store.error && !store.goalError);
+      board.setAttribute('aria-busy', String(store.loading || store.goalsLoading));
+      const signature = JSON.stringify([visible, counts, visible.filter(isGoal).map(row => [goalHealth(row), measurementAge(row)]), store.goalError]);
       if (signature !== rendered) {
         rendered = signature;
         const positions = Object.fromEntries([...board.querySelectorAll('.request-cards')].map(el => [el.dataset.lane, el.scrollTop]));
@@ -167,6 +255,7 @@
           const heading = make('h4', '', label); heading.append(make('span', 'request-count', counts[state]));
           const list = make('ul', 'request-cards'); list.dataset.lane = state;
           visible.filter(row => laneOf(row) === state).forEach(row => list.append(card(row)));
+          if (state === 'monitoring' && store.goalError) list.append(make('li', 'request-empty', 'Automatic goal refresh is unavailable. Existing request observations remain visible.'));
           if (!list.children.length) list.append(make('li', 'request-empty', store.loading ? 'Loading…' : query ? 'No matching requests' : 'No requests'));
           lane.append(heading, make('p', 'request-lane-description', laneDescriptions[state]), list); board.append(lane); list.scrollTop = positions[state] || 0;
           lane.addEventListener('dragover', event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; lane.classList.add('drop-target'); });
@@ -181,8 +270,8 @@
         }
         chooseLane(selectedLane);
       }
-      const row = store.items.find(r => r.id === selectedId);
-      if (row && row.revision !== detailRevision && !saving && !detailDirty) renderDetail(row);
+      const row = store.allItems().find(r => r.id === selectedId);
+      if (row && revisionOf(row) !== detailRevision && !saving && !detailDirty) renderDetail(row);
     }
     function evidence(parent, value, key, label = 'Evidence and limitations') {
       if (!hasEvidence(value)) return;
@@ -198,10 +287,16 @@
       const openFolds = new Set(same ? [...detail.querySelectorAll('details[open]')].map(el => el.dataset.fold) : []);
       const oldFocus = same && detail.contains(document.activeElement) ? document.activeElement : null;
       const focusId = oldFocus?.id, focusFold = oldFocus?.closest('details')?.dataset.fold;
-      detailRevision = row.revision; detailDirty = false; detail.replaceChildren();
+      detailRevision = revisionOf(row); detailDirty = false; detail.replaceChildren();
       detail.dataset.id = row.id;
       const back = make('button', 'linkbtn request-back', '← Board'); back.type = 'button'; back.onclick = backToBoard;
-      const title = make('h4', '', row.note || 'Request without a note'); title.tabIndex = -1; title.id = 'request-detail-title';
+      const title = make('h4', '', isGoal(row) ? goalTitle(row) : row.note || 'Request without a note'); title.tabIndex = -1; title.id = 'request-detail-title';
+      if (isGoal(row)) {
+        detail.append(back, title, make('p', 'request-detail-meta', 'Automatic goal · Monitoring'));
+        renderGoalDetail(row);
+        restoreDetail(openFolds, focusId, focusFold, oldScroll);
+        return;
+      }
       detail.append(back, title, make('p', 'request-detail-meta', `${when(row.ts)}${row.by ? ' · ' + row.by : ''}`));
       detail.append(make('p', 'request-status-reason', row.status?.reason || 'No verified resolution is recorded yet.'));
       if (laneOf(row) === 'needs_review' && row.workflow?.reason) {
@@ -250,10 +345,49 @@
         discussion.dataset.fold = 'discussion';
         discussion.append(summary, make('div', '', row.reply.text)); detail.append(discussion);
       }
+      restoreDetail(openFolds, focusId, focusFold, oldScroll);
+    }
+    function restoreDetail(openFolds, focusId, focusFold, oldScroll) {
       detail.querySelectorAll('details').forEach(el => { if (openFolds.has(el.dataset.fold)) el.open = true; });
       if (focusId && $(focusId)) $(focusId).focus({ preventScroll: true });
       else if (focusFold) [...detail.querySelectorAll('details')].find(el => el.dataset.fold === focusFold)?.querySelector('summary')?.focus({ preventScroll: true });
       detail.scrollTop = oldScroll;
+    }
+    function renderGoalDetail(row) {
+      const health = goalHealth(row), status = make('p', 'request-goal-status', health.label);
+      status.dataset.health = health.state; detail.append(status);
+      if (health.reason) detail.append(make('p', 'request-status-reason', health.reason));
+      const readings = make('dl', 'request-goal-facts');
+      const fact = (label, value) => { readings.append(make('dt', '', label), make('dd', '', value)); };
+      fact('Latest value', goalValue(row)); fact('Target', row.target || 'Not configured');
+      fact('Measured at', row.sample?.observed_at != null ? when(row.sample.observed_at) : 'Source measurement time unavailable');
+      if (row.sample?.ts != null) fact('Collected at', when(row.sample.ts));
+      if (row.sample?.target != null && String(row.sample.target) !== String(row.target)) fact('Sample target', String(row.sample.target));
+      if (row.metric) fact('Metric', row.metric); if (row.source) fact('Source', row.source);
+      detail.append(readings);
+      if (row.note) detail.append(make('p', 'request-status-reason', row.note));
+      if (row.sample?.detail != null) evidence(detail, row.sample.detail, 'goal-detail', 'Measurement details and limitations');
+      const segments = trendSegments(row.series);
+      if (segments.length) {
+        detail.append(make('h5', '', 'Recorded values over time'));
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 300 42'); svg.setAttribute('class', 'request-goal-trend');
+        svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'Recorded values. Recorded missing values and gaps over 90 minutes break the line. Skipped collections are not shown.');
+        for (const d of segments) { const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', d); svg.append(path); }
+        detail.append(svg, make('p', 'request-detail-meta', 'Recorded values only; skipped collections are not shown. Gaps over 90 minutes break the line.'));
+      }
+      detail.append(make('h5', '', 'Linked work'));
+      const work = Array.isArray(row.work) ? row.work.filter(thread => thread && typeof thread === 'object' && !Array.isArray(thread)) : [];
+      if (!work.length) detail.append(make('p', 'request-status-reason', 'No linked work is recorded yet.'));
+      for (const thread of work) {
+        const section = make('section', 'request-goal-work');
+        section.append(make('strong', '', thread.title || thread.id || 'Agent work'), make('p', '', String(thread.status || 'Status unavailable')));
+        if (thread.summary) section.append(make('p', '', thread.summary));
+        if (thread.updated != null) section.append(make('p', 'request-detail-meta', 'Updated ' + when(thread.updated)));
+        if (typeof thread.id === 'string') { const link = make('a', 'linkbtn', 'View agent activity'); link.href = '/agent?thread=' + encodeURIComponent(thread.id); section.append(link); }
+        detail.append(section);
+      }
+      detail.append(make('p', 'request-goal-readonly', 'This goal is checked periodically. Linked work tracks any changes; the measurement and target stay here.'));
     }
     function showMoveReason() {
       const state = $('request-state')?.value, required = needsReason(state);
@@ -265,7 +399,7 @@
       if ($('request-move-save')) $('request-move-save').disabled = saving || (required && !input?.value.trim());
     }
     function openCard(id) {
-      const row = store.items.find(r => r.id === id); if (!row) return;
+      const row = store.allItems().find(r => r.id === id); if (!row) return;
       selectedId = id; selectedLane = laneOf(row); renderDetail(row);
       detail.classList.remove('hidden'); board.classList.add('hidden'); tabs.classList.add('hidden');
       $('report-search-label').classList.add('hidden'); $('request-detail-title').focus();
@@ -308,7 +442,7 @@
       $('report-compose').classList.add('hidden'); $('report-dialog').classList.remove('composing'); $('report-new').focus();
     }
     function close() {
-      active = false; clearTimeout(timer); root.classList.add('hidden'); $('report-open').focus();
+      active = false; openEpoch++; clearTimeout(timer); root.classList.add('hidden'); $('report-open').focus();
     }
     $('report-cancel').onclick = close;
     root.addEventListener('click', event => { if (event.target === root) close(); });
@@ -354,15 +488,23 @@
       } catch (error) { say(`Couldn't send: ${error.message}`); }
       finally { $('report-send').disabled = false; }
     };
-    return { store, close, open() {
+    return { store, close, async open(options = {}) {
+      const epoch = ++openEpoch;
       active = true; root.classList.remove('hidden');
       $('report-compose').classList.add('hidden');
       $('report-dialog').classList.remove('composing');
       if (selectedId) backToBoard();
-      $('report-dialog').focus(); refresh();
+      $('report-dialog').focus();
+      if (LANES.some(([state]) => state === options.lane)) { selectedLane = options.lane; firstLoad = false; chooseLane(selectedLane, true); }
+      await refresh();
+      if (!active || epoch !== openEpoch) return;
+      if (typeof options.goal === 'string') {
+        const id = options.goal.startsWith('goal:') ? options.goal : 'goal:' + options.goal;
+        if (store.goals.some(row => row.id === id)) openCard(id); else say('That goal monitor is unavailable.');
+      }
     } };
   }
-  const exported = { LANES, laneDescriptions, Store, laneOf, progress, matches, components, reviewReady, componentState, componentLabel, readyReplyReview, reviewQuestion, needsReason, mount };
+  const exported = { LANES, laneDescriptions, Store, laneOf, progress, matches, components, hasEvidence, reviewReady, componentState, componentLabel, readyReplyReview, reviewQuestion, needsReason, isGoal, compareRows, normalizeGoals, goalTitle, goalHealth, goalValue, measurementAge, trendSegments, mount };
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   global.OpenPetRequests = exported;
 })(typeof window === 'undefined' ? globalThis : window);

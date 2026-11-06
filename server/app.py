@@ -170,7 +170,7 @@ def init_auth_db():
 # ---------- usage telemetry: how the app is really used, so agents can improve it (tools/usage.py) ----------
 # Local only (the 512 MB box can't host an OpenTelemetry + Grafana stack, and this data stays at home).
 # kind "api": every /api call, timed, by device. kind "ui": events the server can't see, sent by the page.
-USAGE_SKIP = {"/api/live", "/api/live/stream", "/api/usage", "/api/clientlog"}
+USAGE_SKIP = {"/api/live", "/api/live/stream", "/api/monitoring", "/api/usage", "/api/clientlog"}
 USAGE_DAYS = 90
 _usage_q = None
 
@@ -1930,15 +1930,26 @@ def version_info():
     return {k: d.get(k) for k in ("current", "latest", "result", "checked", "updated_at", "url")}
 
 
-def agent_dashboard():
+def agent_dashboard(thread=None):
     """The super-agent's state for the owners' dashboard (/agent): goals, open threads, decisions, heartbeats,
     and the steering file the agent obeys (pushed here by tools/superagent.py on every tick)."""
     import agentdb
+    import re
     with agentdb.db() as c:
         d = agentdb.cmd_dashboard(c, {})
         st = c.execute("SELECT title, summary FROM threads WHERE id='steer'").fetchone()
+        if isinstance(thread, str) and re.fullmatch(r'goal:[a-zA-Z0-9_.-]{1,100}', thread):
+            selected = agentdb.cmd_recall(c, {"ref": thread})
+            d["selected_thread"] = selected if "id" in selected else None
     d["north"], d["steer"] = (st["title"], st["summary"]) if st else ("", "")
     return d
+
+
+def monitoring_goals():
+    """Existing agent goals as read-only monitors; viewing them never starts work."""
+    import agentdb
+    import goalmonitor
+    return goalmonitor.read(agentdb.DB)
 
 
 def log_client_error(body, ua):
@@ -2169,11 +2180,13 @@ class Handler(BaseHTTPRequestHandler):
             if q.get("page") == "1":
                 return self.camera_call(report_page, q.get("limit", 20), q.get("before"))
             return self.send_json(200, list_reports())
+        if path == "/api/monitoring":
+            return self.send_json(200, monitoring_goals())
         if path in ("/requests.js", "/requests.css"):
             ctype = "text/css; charset=utf-8" if path.endswith(".css") else "text/javascript; charset=utf-8"
             return self.send(200, read_file(path[1:]), ctype)
         if path == "/api/agent":
-            return self.send_json(200, agent_dashboard())
+            return self.send_json(200, agent_dashboard(q.get("thread")))
         if path == "/api/version":
             return self.send_json(200, version_info())
         if path == "/api/build":

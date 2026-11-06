@@ -78,6 +78,9 @@ Prefer to do each step yourself? [Install by hand](docs/install.md).
   The request board separates **Backlog** (work still needed), **Monitoring** (keep an eye on behavior), and
   **Needs review** (a specific question and supporting material are ready for your decision). Monitoring does
   not ask you to approve a fix. **Done** requires verification for every requested part.
+- **Monitoring** brings the behavior you are watching and the agent's measured goals into the same board.
+  Open a goal to see its target, last reading, source, trend and linked work. Goals remain in Monitoring;
+  meeting a target does not finish them. **Agent activity** keeps the work history and recent decisions.
 
 <br clear="right">
 

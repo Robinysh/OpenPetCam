@@ -503,7 +503,7 @@
     <div class="chips strip" id="zones" style="margin-top:8px"></div>
     <div class="note">Zones count {{PET_POSS}} water, food and bed visits when the camera is at the view they were drawn on.</div>
   </div>
-  <p class="hint">Tap the picture to look there · hold the stick to move · <button class="linkbtn" id="report-open" type="button">Something wrong?</button></p>
+  <p class="hint">Tap the picture to look there · hold the stick to move · <button class="linkbtn" id="report-open" type="button">Something wrong?</button> · <button class="linkbtn" id="monitoring-open" type="button">Monitoring</button></p>
 </main>
 
 <!-- ======================= TODAY ======================= -->
@@ -627,7 +627,7 @@
   <div class="sheet" role="dialog" aria-label="Settings">
     <div class="grab"></div>
     <h3>Settings</h3>
-    <a class="btn" href="/agent" id="open-agent" style="display:block;text-align:center;text-decoration:none;margin:0 0 10px">Agent dashboard: goals and what it is doing</a>
+    <a class="btn" href="/agent" id="open-agent" style="display:block;text-align:center;text-decoration:none;margin:0 0 10px">Agent activity: work and recent decisions</a>
     <div class="section" style="margin-top:4px">
       <h2>Your pet</h2>
       <div class="namebox" style="margin-top:0">
@@ -720,14 +720,14 @@
 <div class="sheet-bg hidden" id="report-sheet">
   <div class="sheet requests-sheet" id="report-dialog" role="dialog" aria-modal="true" aria-labelledby="requests-title" tabindex="-1">
     <div class="requests-head">
-      <h3 id="requests-title">Your requests</h3>
+      <h3 id="requests-title">Work &amp; monitoring</h3>
       <div class="requests-head-actions">
       <button class="btn primary" id="report-new" type="button">New request</button>
       <button class="iconbtn" id="report-cancel" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div>
     </div>
-    <label class="request-search-label" id="report-search-label" for="report-search">Search requests
-      <input class="field" id="report-search" type="search" placeholder="Find a request or requested change…">
+    <label class="request-search-label" id="report-search-label" for="report-search">Search work and monitoring
+      <input class="field" id="report-search" type="search" placeholder="Find a request, goal or measurement…">
     </label>
     <div class="requests-summary">
       <span id="report-history" role="status"></span>
@@ -880,9 +880,9 @@ let cam = null, live = null, today = null, dayOffset = 0, curTab = "live";
 
 function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function recall(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
-async function api(path, body) {
-  const r = await fetch(path, body === undefined ? { cache: "no-store" } :
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+async function api(path, body, options = {}) {
+  const r = await fetch(path, body === undefined ? { cache: "no-store", signal: options.signal } :
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: options.signal });
   if (r.status === 401) { location.href = "/login"; throw new Error("login"); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { const error = new Error(j.error || `error ${r.status}`); error.privacy = j.privacy; throw error; }
@@ -981,6 +981,17 @@ function clientState() {
 }
 const requestBoard = OpenPetRequests.mount({ api, snapshot: clientState, onSent: () => track("report_sent") });
 $("report-open").onclick = () => { track("sheet", { name: "requests" }); requestBoard.open(); };
+function openMonitoring(goal) {
+  return requestBoard.open({ lane: "monitoring", goal });
+}
+$("monitoring-open").onclick = () => { track("sheet", { name: "monitoring" }); openMonitoring(); };
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin || event.source !== $("agent-frame").contentWindow || event.data?.type !== "openpetcam-monitoring") return;
+  const goal = typeof event.data.goal === "string" && /^[a-zA-Z0-9_.-]{1,100}$/.test(event.data.goal) ? event.data.goal : undefined;
+  openMonitoring(goal);
+});
+const monitoringQuery = new URLSearchParams(location.search);
+if (monitoringQuery.get("monitoring") === "goals") openMonitoring(monitoringQuery.get("goal") || undefined);
 
 // Live status is pushed (server-sent events); polling every 2 s is only the fallback.
 let liveES = null, esFails = 0, esLastMsg = 0;

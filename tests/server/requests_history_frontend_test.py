@@ -20,6 +20,7 @@ const records=Array.from({length:50},(_,i)=>({id:'20260101-'+String(50-i).padSta
  ...(i===1?{review:{question:'Accept the framing shown in this example?',evidence:['Two annotated frames are ready']}}:{})}]}}));
 const requests=[];
 const api=async(path,body)=>{
+ if(path==='/api/monitoring')return {goals:[],available:true};
  requests.push({path,body});if(body) throw Error('Done requires verification evidence for every requested component.');
  const q=new URL(path,'https://camera.invalid').searchParams,before=q.get('before');
  const start=before?records.findIndex(r=>r.id===before)+1:0,page=records.slice(start,start+20);
@@ -204,7 +205,7 @@ console.log(JSON.stringify({sent,lane:laneOf(store.items[0])}));''')
 
     def test_late_refresh_cannot_undo_a_confirmed_move(self):
         result = self.run_board('''store.items=[records[0]];let finish;
-store.api=async(path,body)=>body?{...records[0],revision:'new',status:{state:'not_started'}}:new Promise(r=>finish=r);
+store.api=async(path,body)=>path==='/api/monitoring'?{goals:[],available:true}:body?{...records[0],revision:'new',status:{state:'not_started'}}:new Promise(r=>finish=r);
 const pending=store.refresh();await store.move(records[0].id,'not_started');
 finish({reports:[records[0]],total:1,next_before:null});await pending;
 console.log(JSON.stringify({lane:laneOf(store.items[0]),revision:store.items[0].revision}));''')

@@ -2,7 +2,8 @@
 
 The owners asked for a system that runs and improves itself without them invoking it, stays observable (a
 dashboard) and stays steerable (by talking to Claude Code). This is that system. Code: `tools/superagent.py`
-(brain), `server/agentdb.py` (state), `server/agent.html` (dashboard at `/agent`), `agent/` (goals, steering, policies).
+(brain), `server/agentdb.py` (state), `server/goalmonitor.py` (read-only monitoring),
+`server/agent.html` (work and decisions at `/agent`), `agent/` (goals, steering, policies).
 
 ## Running it
 
@@ -21,15 +22,16 @@ computer that treats what goes wrong as feedback and fixes it:
   repository so every install gets it. The PR carries a public summary and the checks it passed; nothing from your
   home (frames, clips, times, names, addresses) goes in, and the public-repo guard and your pet's name are checked
   again before anything is pushed. Needs a fork as `origin` and `gh` signed in; `CONTRIBUTE=off` keeps fixes local.
-- **Watch it** in the app's **Agent** tab: goals with 7-day trends, what it's working on, every decision.
+- **Watch it** in **Monitoring**: measured goals beside the behavior you want to keep an eye on.
+  **Agent activity** shows its work and recorded decisions.
   **Steer it** in plain words: edit `agent/steer.md`, or tell Claude Code.
 
 Design and the research it draws on: [docs/superagent.md](superagent.md).
 
 ## Request board states
 
-Backlog is work or investigation the agent still needs to do. Monitoring is behavior the owner wants to
-keep an eye on during normal use, with no decision requested now. Needs review is reserved for a concrete
+Backlog is work or investigation the agent still needs to do. Monitoring holds continuously measured goals
+and behavior the owner wants to keep an eye on during normal use, with no decision requested now. Needs review is reserved for a concrete
 question and supporting material the owner can inspect now. Missing validation, an expired investigation,
 or a failed attempt belongs in Backlog. A legacy freeform `needs_owner` prompt does not make a review ready.
 
@@ -42,6 +44,19 @@ Without a component resolution, an answered reply may supply the same bundle in 
 `live`, `no_change`, or `planned` outcome. Failed or still-running attempts do not enter the review queue.
 Manual moves to Needs review ask what can be reviewed or decided. Moving a card never creates completion
 evidence, and Done still requires every requested component to be verified.
+
+Goal cards are read-only monitors, not request cards. Their targets and definitions come from
+`agent/goals.json`, synchronized into the server's goal catalog with the existing metric batch. An on-target
+reading or a closed work thread never moves a goal to Done. A card shows its measurement, target, source,
+notes, recent recorded values and existing linked work. Viewing it does not collect metrics or start work.
+
+Health is separate from work state. Missing, invalid and stale observations cannot show On target.
+Most readings expire after 90 minutes; nightly QA expires after 36 hours based on the original QA result's
+timestamp, not the time a cached result was copied. Old QA and report scans without trustworthy source
+timestamps stay unverified until the existing collector supplies a new reading. Search and Follow metrics
+retain their detector-proxy limitations. The authenticated `/api/monitoring` endpoint only reads existing
+state; it never creates a database or migrates it. Report history, workflow revisions and counts remain
+separate from goal monitors.
 
 ## Design, after "Exploring Super-agent Design" (DeepSeek Harness, 2026-11-01)
 
@@ -104,7 +119,8 @@ What we apply:
 - **Fixes that wait** because the code moved on are rebased and re-judged on a later tick.
 
 ## Operating it
-- **Watch:** open `/agent` in the app. It shows goals with 7-day trends, what the agent is working on, its recent decisions and the steering.
+- **Watch:** open **Monitoring** in the app for goal readings and watched behavior. Open `/agent` for linked work,
+  recent decisions and the steering. Links between the two keep a selected goal in context.
 - **Steer:** tell Claude Code. It edits `agent/steer.md` (read every turn), `agent/goals.json` or `agent/policies.md`, and pushes the change.
 - **Pause or resume:** `tools/install_autopilot.sh --remove` / `tools/install_autopilot.sh`.
 - **Logs:** `eval/superagent/superagent.log`, `launchd-*.log` and `archive.jsonl`.

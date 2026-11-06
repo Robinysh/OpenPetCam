@@ -70,3 +70,17 @@
 .requests-sheet [hidden],.requests-sheet .hidden{display:none}
 @media(min-width:701px){#report-sheet{align-items:center;padding:12px}.sheet.requests-sheet{border-radius:22px;max-height:calc(100dvh - 24px)}}
 @media(max-width:700px){.sheet.requests-sheet{gap:10px}.request-board{display:flex;overflow:hidden}.request-lane{width:100%;flex:1}.request-lane[data-selected=false]{display:none}.request-card{padding:15px}.request-card-title{font-size:16px}.request-card-meta{font-size:12px}.requests-head h3{font-size:21px}.request-detail h4{font-size:20px}.request-tabs{margin-right:-8px;padding-right:8px}.request-lane h4{display:none}}
+.request-card-kind{display:block;color:var(--muted);font-size:11px;font-weight:650;margin-bottom:7px}
+.request-goal-reading{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:12px}
+.request-goal-reading strong{font-size:21px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.request-goal-health{font-size:12px;font-weight:650;text-align:right}
+.request-goal-reading[data-health=on_target] .request-goal-health,.request-goal-status[data-health=on_target]{color:var(--ok)}
+.request-goal-reading[data-health=off_target] .request-goal-health,.request-goal-status[data-health=off_target]{color:var(--opc-on-warning)}
+.request-goal-reading[data-health=stale] .request-goal-health,.request-goal-status[data-health=stale],.request-goal-reading[data-health=unavailable] .request-goal-health,.request-goal-status[data-health=unavailable]{color:var(--muted)}
+.request-goal-status{font-size:16px;font-weight:700;margin:0 0 10px}
+.request-goal-facts{display:grid;grid-template-columns:minmax(105px,1fr) minmax(0,3fr);gap:9px 16px;margin:22px 0;font-size:15px;line-height:1.55}
+.request-goal-facts dt{color:var(--muted)}.request-goal-facts dd{margin:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.request-goal-trend{display:block;width:100%;height:72px;margin:12px 0}.request-goal-trend path{fill:none;stroke:var(--accent);stroke-width:1.6;vector-effect:non-scaling-stroke}
+.request-goal-work{padding:15px 0;border-top:1px solid var(--line);font-size:15px;line-height:1.6}.request-goal-work p{margin:5px 0;color:var(--muted)}
+.request-goal-readonly{font-size:13px;line-height:1.6;color:var(--muted);margin:25px 0 0}
+@media(max-width:500px){.request-goal-facts{grid-template-columns:1fr;gap:3px}.request-goal-facts dd{margin-bottom:10px}}

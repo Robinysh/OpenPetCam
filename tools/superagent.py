@@ -953,12 +953,28 @@ out["search"] = [found, home]
 import re
 secs = sorted(int(m.group(1)) for _, d in ev if "found her" in (d or "") for m in [re.search(r" in (\d+) s", d or "")] if m)
 out["find_s"] = [secs[len(secs) // 2] if secs else None, len(secs)]   # median seconds to "found her", 24 h
-reps = sorted(d for d in os.listdir(f"{S}/reports") if d[:8].isdigit())
-waiting = [now - os.path.getmtime(f"{S}/reports/{d}/report.json") for d in reps if not os.path.exists(f"{S}/reports/{d}/reply.json")]
+report_meta = {}
+for d in sorted(os.listdir(f"{S}/reports")):
+    path = f"{S}/reports/{d}/report.json"
+    if not d[:8].isdigit() or not os.path.isfile(path):
+        continue
+    try:
+        stamp = os.path.getmtime(path)
+        with open(path) as report_file:
+            prefix = report_file.read(400)
+    except FileNotFoundError:
+        # A report may disappear between the directory listing and the read.
+        # Other I/O failures must abort collection, not become verified zeros.
+        continue
+    if prefix.strip():
+        report_meta[d] = (stamp, prefix)
+reps = sorted(report_meta)
+waiting = [now - report_meta[d][0] for d in reps if not os.path.exists(f"{S}/reports/{d}/reply.json")]
 out["oldest_unanswered_min"] = round(max(waiting) / 60, 1) if waiting else 0
-week = [d for d in reps if os.path.getmtime(f"{S}/reports/{d}/report.json") > now - 7 * 86400]
-owner = [d for d in week if "probe" not in open(f"{S}/reports/{d}/report.json").read(400).lower()]
+week = [d for d in reps if report_meta[d][0] > now - 7 * 86400]
+owner = [d for d in week if "probe" not in report_meta[d][1].lower()]
 out["owner_reports_per_day"] = round(len(owner) / 7, 2)
+out["reports_observed_at"] = now
 # video start: the app's live_first_frame events, 7 days. open_ms (page opened -> first frame) when the app sent it,
 # else ms (connect -> first frame, a lower bound of the same thing)
 rows = c.execute("select ms, detail from usage where name='live_first_frame' and ts > ?", (now - 7 * 86400,)).fetchall()
@@ -982,11 +998,19 @@ print(json.dumps(out))
 
 def metrics():
     r = subprocess.run(SSH + ["sudo python3 -"], input=METRICS_REMOTE, capture_output=True, text=True, timeout=120)
-    m = json.loads(r.stdout) if r.returncode == 0 else {}
+    try:
+        m = json.loads(r.stdout) if r.returncode == 0 else {}
+    except ValueError:
+        m = {}
+    if not isinstance(m, dict):
+        m = {}
     rows = []
 
-    def add(goal, value, target, ok, detail=None):
-        rows.append({"goal": goal, "value": value, "target": target, "ok": ok, "detail": detail})
+    def add(goal, value, target, ok, detail=None, observed_at=None):
+        sample = {"goal": goal, "value": value, "target": target, "ok": ok, "detail": detail}
+        if observed_at is not None:
+            sample['observed_at'] = observed_at
+        rows.append(sample)
     if "cpu" in m:
         add("cpu", m["cpu"], "<= 8", m["cpu"] <= 8, "% of one core, camera services, since last measure")
     add("app_status_fresh", m.get("live_age"), "<= 0.1", (m.get("live_age") if m.get("live_age") is not None else 999) <= 0.1,
@@ -1020,8 +1044,16 @@ def metrics():
             waits.append(q.get("queued_at") or os.path.getmtime(os.path.join(RUN, f)))
     qh = round((time.time() - min(waits)) / 3600, 1) if waits else 0.0
     add("fix_queue", qh, "<= 24", qh <= 24, f"hours the oldest finished fix has waited to ship; {len(waits)} waiting")
-    add("reports_answered", m.get("oldest_unanswered_min", 0), "<= 15", m.get("oldest_unanswered_min", 0) <= 15, "minutes")
-    add("owner_reports", m.get("owner_reports_per_day", 0), "<= 1", m.get("owner_reports_per_day", 0) <= 1, "per day, 7-day average")
+    unanswered = m.get('oldest_unanswered_min')
+    owner_reports = m.get('owner_reports_per_day')
+    # The source timestamp distinguishes this verified scan from legacy zeros
+    # that were manufactured after a failed remote collection. A failed attempt
+    # still records a timestamp and null value, so it cannot reuse an old success.
+    report_time = m.get('reports_observed_at')
+    add("reports_answered", unanswered, "<= 15", unanswered is not None and unanswered <= 15, "minutes",
+        observed_at=report_time if unanswered is not None else time.time())
+    add("owner_reports", owner_reports, "<= 1", owner_reports is not None and owner_reports <= 1, "per day, 7-day average",
+        observed_at=report_time if owner_reports is not None else time.time())
     try:
         ins, reg = SITE.get("LIGHTSAIL_INSTANCE"), SITE.get("LIGHTSAIL_REGION", "us-east-1")
         if ins:
@@ -1045,12 +1077,15 @@ def metrics():
         except ValueError:
             pass
     try:
-        res = json.load(open(qa))
+        with open(qa) as qa_file:
+            res = json.load(qa_file)
         fails = [x["name"] for x in res if x["status"] == "FAIL"]
-        add("qa", len(fails), "== 0", not fails, ", ".join(fails)[:300] or "all pass")
+        add("qa", len(fails), "== 0", not fails, ", ".join(fails)[:300] or "all pass", observed_at=os.path.getmtime(qa))
     except (OSError, ValueError):
         pass
-    adb("metric", {"metrics": rows})
+    with open(os.path.join(AGENT, 'goals.json')) as goal_file:
+        catalog = json.load(goal_file)['goals']
+    adb("metric", {"metrics": rows, "goals": catalog})
     try:
         shadow_step()
     except Exception as e:  # noqa: BLE001

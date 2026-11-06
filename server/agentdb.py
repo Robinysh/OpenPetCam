@@ -13,7 +13,9 @@ Objects (each has an ID so sessions can recall context by reference, "Chain of R
   beat     heartbeats of the agent's own loops (router, workers, watchdog, collector)
 """
 import json
+import math
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -30,6 +32,8 @@ CREATE INDEX IF NOT EXISTS log_ts ON log(ts);
 CREATE TABLE IF NOT EXISTS metrics (ts REAL, goal TEXT, value REAL, target TEXT, ok INTEGER, detail TEXT);
 CREATE INDEX IF NOT EXISTS metrics_goal ON metrics(goal, ts);
 CREATE TABLE IF NOT EXISTS beats (name TEXT PRIMARY KEY, ts REAL, detail TEXT);
+CREATE TABLE IF NOT EXISTS goal_catalog (id TEXT PRIMARY KEY, definition TEXT NOT NULL, updated REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS goal_catalog_state (id INTEGER PRIMARY KEY CHECK(id=1), updated REAL NOT NULL);
 """
 SPILL = 400          # characters inlined per text field; the rest is recalled by ID ("Inline & Spill")
 
@@ -124,12 +128,72 @@ def cmd_log(c, a):
     return {"ok": True}
 
 
+def _goal_definitions(value):
+    """Validate an entire owner-authored catalog before changing its snapshot."""
+    if not isinstance(value, list) or len(value) > 200:
+        raise ValueError('goals must be a list of at most 200 definitions')
+    out, seen = [], set()
+    for item in value:
+        if not isinstance(item, dict) or not isinstance(item.get('id'), str) \
+                or not re.fullmatch(r'[a-z0-9][a-z0-9_.-]{0,79}', item['id']) or item['id'] in seen:
+            raise ValueError('goal identifiers must be unique and valid')
+        definition = {'id': item['id']}
+        for field in ('what', 'metric', 'target', 'ground_truth'):
+            text = item.get(field)
+            if not isinstance(text, str) or not text.strip() or len(text) > 4000:
+                raise ValueError('goal definitions need bounded title, metric, target and source text')
+            definition[field] = text
+        note = item.get('note', '')
+        if not isinstance(note, str) or len(note) > 8000:
+            raise ValueError('goal note must be bounded text')
+        definition['note'] = note
+        out.append(definition)
+        seen.add(item['id'])
+    return out
+
+
+def _save_goal_catalog(c, definitions):
+    c.execute('DELETE FROM goal_catalog')
+    c.executemany('INSERT INTO goal_catalog(id,definition,updated) VALUES(?,?,?)',
+                  [(item['id'], json.dumps(item, sort_keys=True, allow_nan=False), time.time()) for item in definitions])
+    c.execute('INSERT INTO goal_catalog_state(id,updated) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET updated=excluded.updated',
+              (time.time(),))
+
+
+def cmd_goal_catalog(c, a):
+    """Replace only goal descriptions; no metrics, thresholds, threads or triggers are changed."""
+    definitions = _goal_definitions(a.get('goals'))
+    with c:
+        _save_goal_catalog(c, definitions)
+    return {'goals': len(definitions)}
+
+
+def _metric_detail(metric):
+    detail = metric.get('detail')
+    observed = metric.get('observed_at')
+    if isinstance(observed, (int, float)) and not isinstance(observed, bool) and math.isfinite(observed):
+        # Keep provenance parseable even when a producer emits a long detail.
+        text = detail if isinstance(detail, str) else json.dumps(detail, allow_nan=False)
+        text = text[:1700]
+        while True:
+            encoded = json.dumps({'measurement': text, 'observed_at': observed}, allow_nan=False)
+            if len(encoded) <= 2000:
+                return encoded
+            text = text[:len(text) // 2]
+    return json.dumps(detail, allow_nan=False)[:2000]
+
+
 def cmd_metric(c, a):
-    c.executemany("INSERT INTO metrics(ts,goal,value,target,ok,detail) VALUES(?,?,?,?,?,?)",
-                  [(time.time(), m["goal"], m.get("value"), str(m.get("target", "")), int(bool(m.get("ok"))),
-                    json.dumps(m.get("detail"))[:2000]) for m in a["metrics"]])
-    c.execute("DELETE FROM metrics WHERE ts < ?", (time.time() - 90 * 86400,))
-    c.commit()
+    definitions = _goal_definitions(a['goals']) if 'goals' in a else None
+    values = [(time.time(), m['goal'], m.get('value'), str(m.get('target', '')),
+               int(bool(m.get('ok'))), _metric_detail(m)) for m in a['metrics']]
+    # Catalog and samples belong to the same producer snapshot. Older callers
+    # without a catalog remain compatible and cannot erase its definitions.
+    with c:
+        if definitions is not None:
+            _save_goal_catalog(c, definitions)
+        c.executemany("INSERT INTO metrics(ts,goal,value,target,ok,detail) VALUES(?,?,?,?,?,?)", values)
+        c.execute("DELETE FROM metrics WHERE ts < ?", (time.time() - 90 * 86400,))
     return {"ok": True}
 
 
@@ -168,8 +232,10 @@ def cmd_digest(c, a):
 
 
 def latest_goals(c):
-    return rows(c.execute("SELECT m.goal, m.value, m.target, m.ok, m.ts, m.detail FROM metrics m JOIN "
-                          "(SELECT goal, MAX(ts) mt FROM metrics GROUP BY goal) x ON x.goal=m.goal AND x.mt=m.ts ORDER BY m.goal"))
+    return rows(c.execute("SELECT m.goal,m.value,m.target,m.ok,m.ts,m.detail FROM (SELECT DISTINCT goal FROM metrics) g "
+                          "JOIN metrics m ON m.rowid=(SELECT n.rowid FROM metrics n WHERE n.goal=g.goal "
+                          "ORDER BY n.ts DESC,n.rowid DESC LIMIT 1) "
+                          "ORDER BY m.goal"))
 
 
 def cmd_dashboard(c, a):
