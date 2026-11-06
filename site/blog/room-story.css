@@ -26,6 +26,10 @@
 .room-story .hero-motion{max-width:600px}
 .hero-motion .motion-stage{aspect-ratio:9/8;background:#0b101c}
 .hero-motion video{display:block;width:100%;height:100%;object-fit:contain}
+.room-story .story-notes{max-width:720px;margin:24px auto 34px;border-top:1px solid var(--ink-2);border-bottom:1px solid var(--ink-2)}
+.story-notes summary{font:16px/1.5 var(--body);padding:15px 36px 15px 0}
+.story-notes summary::after{font-size:28px;top:8px}
+.story-notes p{font:16px/1.7 var(--body);color:var(--ink-2);margin:0 0 18px}
 .echo-note{padding:24px 28px 24px 8px;font-size:17px;line-height:1.5}
 .echo-note p{margin:0 0 14px}
 .echo-note .echo-premise{font-size:19px}
