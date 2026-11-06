@@ -1,3 +1,9 @@
+/* Lists follow the same reading column and type as the article paragraphs. */
+.room-story article>ul,.room-story article>ol{max-width:720px;margin:0 auto 1.25em;padding-inline-start:1.4em;font-size:19px;line-height:1.75}
+.room-story article>ul>li,.room-story article>ol>li{padding-inline-start:.2em;margin-bottom:.7em}
+.room-story article>ul>li:last-child,.room-story article>ol>li:last-child{margin-bottom:0}
+@media(max-width:640px){.room-story article>ul,.room-story article>ol{font-size:18px;line-height:1.7}}
+
 /* Article illustrations share the paper, ink and drawn type of the surrounding page. */
 .room-story .motion-figure{max-width:720px;margin:34px auto 42px;clear:both}
 .motion-stage{overflow:hidden;border-radius:14px;background:var(--paper-2)}
