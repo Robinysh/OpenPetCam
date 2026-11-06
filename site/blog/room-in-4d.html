@@ -132,7 +132,8 @@
 
 <p>Just for a reality check, I got out a tape measure: 31 inches, which is 0.79 m. Nice!</p>
 
-<p>Now we have a ruler! Since we have an estimate of the camera’s height above the floor and its viewing angle, we can calculate the distance to visible points on a flat floor using simple trigonometry.</p>
+<h2 id="scaled-room">Now we have a ruler!</h2>
+<p>Since we have an estimate of the camera’s height above the floor and its viewing angle, we can calculate the distance to visible points on a flat floor using simple trigonometry.</p>
 <p>We can then use these distances to estimate the scale of our depth map. For example, if the map puts a point on the floor 2 units away, but geometry tells us it is actually 4 metres away, we have a scale factor of 2.</p>
 <p>Once we have calibrated the depth, each pixel gives us two things: <strong>a direction from the panorama and an estimated distance</strong>. Multiplying the unit direction vector by that distance gives us a point in 3D space. Do this for thousands of pixels, and we get a point cloud: an approximate 3D reconstruction of the room.</p>
 <p>The <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/depthpano.py">depth fusion code</a> merges the overlapping estimates and smooths their seams. In this build, wall edges marked on the panorama and simple furniture shapes also help organize the surface.</p>
