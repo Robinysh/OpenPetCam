@@ -58,6 +58,13 @@ retain their detector-proxy limitations. The authenticated `/api/monitoring` end
 state; it never creates a database or migrates it. Report history, workflow revisions and counts remain
 separate from goal monitors.
 
+`video_start` tracks page load to the video's first `playing` event, with targets of median ≤1 second
+and p90 ≤2 seconds over seven days. At least five valid page-open samples are needed. Connection-only
+timings remain diagnostics and cannot satisfy that goal. Monitoring shows both percentiles, the sample
+count and source age. Timeout and reconnect counts are shown separately: percentiles of successful
+starts are not a startup success rate. Foreground-resume and controlled unloaded measurements remain
+explicit agent work. A request component can link to this continuous goal with `goal_id: "video_start"`.
+
 Each unresolved component can supply `next_action` with `assignee` (`owner` or `agent`), `task`,
 `steps`, `measure` and `done_when`. An owner check also needs `on_failure`: the observable event
 that should be reported, without asking the owner to diagnose the cause. Use `record_template`

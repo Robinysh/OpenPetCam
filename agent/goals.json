@@ -69,10 +69,10 @@
     {
       "id": "video_start",
       "what": "Opening the app shows her live within a second",
-      "metric": "seconds from opening the app (page load) to the first playing video frame, median and 90th percentile over 7 days; until enough opens carry open_ms, connect -> first frame",
+      "metric": "seconds from page load to the first video playing event: median and 90th percentile over 7 days, assessed only with at least 5 recorded page openings; connection timings are separate diagnostics",
       "target": "p50 <= 1, p90 <= 2",
-      "ground_truth": "the app's own live_first_frame events (/api/usage)",
-      "note": "owner, 2026-11-04. Baseline (connect -> first frame, 174 starts): median 1.2 s, p90 4.6 s, worst 24.6 s"
+      "ground_truth": "the app's live_first_frame events with open_ms (/api/usage), with sample counts, source observation times and separate startup-timeout/reconnect counts",
+      "note": "Median <= 1 s and p90 <= 2 s are continuous performance targets. Percentiles describe successful page-load starts; failed starts and foreground resumes are not silently counted as fast successes. Startup timeout/reconnect counts are context, not a measured success rate. Missing or stale page-open samples cannot establish healthy startup. Controlled unloaded and foreground-resume measurements remain agent work."
     },
     {
       "id": "fix_queue",

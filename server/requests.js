@@ -42,6 +42,26 @@
     return health;
   };
   const goalValue = row => typeof row.sample?.value === 'number' && Number.isFinite(row.sample.value) ? String(row.sample.value) : '—';
+  const startupSeconds = value => typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value.toFixed(3).replace(/\.?0+$/, '') + ' s' : '—';
+  const startupStats = row => {
+    const raw = row.goal_id === 'video_start' ? row.sample?.startup : null;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const number = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+    const count = value => Number.isInteger(value) && value >= 0 ? value : null;
+    const min = Math.max(5, count(raw.min_samples) || 5), pageOpen = raw.from === 'open';
+    const n = pageOpen ? count(raw.n) : null, p50 = pageOpen ? number(raw.p50) : null, p90 = pageOpen ? number(raw.p90) : null;
+    return { n, p50, p90, min_samples: min, ready: raw.ready === true && n !== null && n >= min && p50 !== null && p90 !== null,
+      window_days: count(raw.window_days), timeouts: count(raw.timeouts), reconnects: count(raw.reconnects),
+      connect_n: count(raw.connect_n), connect_p50: number(raw.connect_p50), connect_p90: number(raw.connect_p90) };
+  };
+  const startupReading = row => {
+    const stats = startupStats(row);
+    if (!stats) return { value: 'Median —', detail: 'Page-open median and P90 unavailable' };
+    const sampleCount = stats.n === null ? 'sample count unavailable' : `${stats.n} page openings`;
+    return { value: 'Median ' + (stats.ready ? startupSeconds(stats.p50) : '—'),
+      detail: `P90 ${stats.ready ? startupSeconds(stats.p90) : '—'} · ${sampleCount}${stats.ready ? '' : ` · need ${stats.min_samples} valid samples`}` };
+  };
   const measurementAge = (row, now = Date.now() / 1000) => {
     const sourceKnown = typeof row.sample?.observed_at === 'number' && Number.isFinite(row.sample.observed_at);
     const measured = sourceKnown ? row.sample.observed_at : row.sample?.ts;
@@ -201,7 +221,7 @@
   function mount({ api, snapshot, onSent = () => {} }) {
     const $ = id => document.getElementById(id), root = $('report-sheet');
     const board = $('report-list'), detail = $('report-detail'), tabs = $('report-tabs');
-    let active = false, selectedLane = 'needs_review', selectedId = null, query = '', timer = null, openEpoch = 0;
+    let active = false, selectedLane = 'needs_review', selectedId = null, query = '', timer = null, openEpoch = 0, goalNavigation = 0;
     try {
       const saved = localStorage.getItem('openpetcam.requests.lane');
       if (LANES.some(([state]) => state === saved)) selectedLane = saved;
@@ -236,8 +256,10 @@
         button.append(make('span', 'request-card-kind', 'Automatic goal'));
         button.append(make('span', 'request-card-title', goalTitle(row)));
         const health = goalHealth(row), reading = make('span', 'request-goal-reading');
-        reading.append(make('strong', '', goalValue(row)), make('span', 'request-goal-health', health.label));
+        const startup = row.goal_id === 'video_start' ? startupReading(row) : null;
+        reading.append(make('strong', '', startup ? startup.value : goalValue(row)), make('span', 'request-goal-health', health.label));
         reading.dataset.health = health.state; button.append(reading);
+        if (startup) button.append(make('span', 'request-card-next', startup.detail));
         button.append(make('span', 'request-card-next', 'Target ' + (row.target || 'not configured')));
         button.append(make('span', 'request-card-meta', measurementAge(row)));
         button.onclick = () => openCard(row.id); item.append(button); return item;
@@ -372,6 +394,12 @@
       }
       detail.append(back, title, make('p', 'request-detail-meta', `${when(row.ts)}${row.by ? ' · ' + row.by : ''}`));
       renderNextActions(row);
+      const goalIds = [...new Set(components(row).map(part => part.goal_id).filter(id => typeof id === 'string' && /^[a-zA-Z0-9_.-]{1,100}$/.test(id)))];
+      for (const goalId of goalIds) {
+        const link = make('button', 'btn', goalIds.length === 1 ? 'View measured goal' : 'View measured goal: ' + goalId);
+        link.type = 'button'; link.dataset.goal = goalId;
+        link.onclick = () => openMeasuredGoal(goalId, row.id); detail.append(link);
+      }
       renderSavedFrame(row);
       detail.append(make('p', 'request-status-reason', row.status?.reason || 'No verified resolution is recorded yet.'));
       if (laneOf(row) === 'needs_review' && row.workflow?.reason) {
@@ -434,7 +462,24 @@
       if (health.reason) detail.append(make('p', 'request-status-reason', health.reason));
       const readings = make('dl', 'request-goal-facts');
       const fact = (label, value) => { readings.append(make('dt', '', label), make('dd', '', value)); };
-      fact('Latest value', goalValue(row)); fact('Target', row.target || 'Not configured');
+      if (row.goal_id === 'video_start') {
+        const stats = startupStats(row);
+        fact('Page-open median', stats?.ready ? startupSeconds(stats.p50) : 'Not assessed');
+        fact('Page-open p90', stats?.ready ? startupSeconds(stats.p90) : 'Not assessed');
+        fact('Page-open samples', stats?.n == null ? 'Unavailable' : String(stats.n));
+        fact('Window', stats?.window_days ? `Last ${stats.window_days} days` : 'Unavailable');
+        fact('Measurement', 'Page load to video playing for successful starts. Failed starts are outside these percentiles; foreground resumes are not measured as page opens.');
+        fact('Startup timeout events', stats?.timeouts == null ? 'Unavailable' : String(stats.timeouts));
+        fact('Reconnect events', stats?.reconnects == null ? 'Unavailable' : String(stats.reconnects));
+        if (stats?.connect_n != null) {
+          fact('Connection-only samples', String(stats.connect_n));
+          fact('Connection-only median', startupSeconds(stats.connect_p50));
+          fact('Connection-only p90', startupSeconds(stats.connect_p90));
+          fact('Connection diagnostics', 'Connection to video playing; these timings do not satisfy the page-open target.');
+        }
+        if (!stats && goalValue(row) !== '—') fact('Legacy recorded value', goalValue(row) + ' (measurement basis unverified)');
+      } else fact('Latest value', goalValue(row));
+      fact('Target', row.target || 'Not configured');
       fact('Measured at', row.sample?.observed_at != null ? when(row.sample.observed_at) : 'Source measurement time unavailable');
       if (row.sample?.ts != null) fact('Collected at', when(row.sample.ts));
       if (row.sample?.target != null && String(row.sample.target) !== String(row.target)) fact('Sample target', String(row.sample.target));
@@ -472,6 +517,19 @@
         : state === 'monitoring' ? 'What should I keep an eye on? (optional)' : 'What is blocking this?';
       if (input) input.required = required;
       if ($('request-move-save')) $('request-move-save').disabled = saving || (required && !input?.value.trim());
+    }
+    async function openMeasuredGoal(goalId, reportId) {
+      if (!/^[a-zA-Z0-9_.-]{1,100}$/.test(goalId)) return;
+      if (saving || detailDirty) { say('Save your request changes before opening this goal.'); return; }
+      const navigation = ++goalNavigation, epoch = openEpoch;
+      say('Checking goal measurements…');
+      await store.fetchGoals();
+      if (!active || epoch !== openEpoch || navigation !== goalNavigation || selectedId !== reportId || saving || detailDirty) return;
+      const id = 'goal:' + goalId;
+      if (store.goalError || !store.goals.some(row => row.id === id)) {
+        say('Goal measurements are unavailable. Your request is still open.'); return;
+      }
+      say(''); chooseLane('monitoring'); openCard(id);
     }
     function openCard(id) {
       const row = store.allItems().find(r => r.id === id); if (!row) return;
@@ -579,7 +637,7 @@
       }
     } };
   }
-  const exported = { LANES, laneDescriptions, Store, laneOf, progress, matches, components, hasEvidence, reviewReady, componentState, componentLabel, readyReplyReview, reviewQuestion, nonempty, actionPlans, actionSummary, reportFrame, needsReason, isGoal, compareRows, normalizeGoals, goalTitle, goalHealth, goalValue, measurementAge, trendSegments, mount };
+  const exported = { LANES, laneDescriptions, Store, laneOf, progress, matches, components, hasEvidence, reviewReady, componentState, componentLabel, readyReplyReview, reviewQuestion, nonempty, actionPlans, actionSummary, reportFrame, needsReason, isGoal, compareRows, normalizeGoals, goalTitle, goalHealth, goalValue, startupSeconds, startupStats, startupReading, measurementAge, trendSegments, mount };
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   global.OpenPetRequests = exported;
 })(typeof window === 'undefined' ? globalThis : window);

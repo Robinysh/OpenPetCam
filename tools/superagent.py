@@ -911,7 +911,7 @@ def lessons():
 METRICS_REMOTE = r'''
 import json, os, sqlite3, time, subprocess, sys
 sys.path.insert(0, "/opt/petcam")
-import followmetrics
+import followmetrics, startupmetrics
 S = "/var/lib/petcam"; now = time.time(); out = {}
 units = "petcam-watch mediamtx petcam-app caddy".split()
 cur = {u: int(subprocess.run(["systemctl", "show", "-p", "CPUUsageNSec", "--value", u], capture_output=True, text=True).stdout.strip() or 0) for u in units}
@@ -975,23 +975,10 @@ week = [d for d in reps if report_meta[d][0] > now - 7 * 86400]
 owner = [d for d in week if "probe" not in report_meta[d][1].lower()]
 out["owner_reports_per_day"] = round(len(owner) / 7, 2)
 out["reports_observed_at"] = now
-# video start: the app's live_first_frame events, 7 days. open_ms (page opened -> first frame) when the app sent it,
-# else ms (connect -> first frame, a lower bound of the same thing)
-rows = c.execute("select ms, detail from usage where name='live_first_frame' and ts > ?", (now - 7 * 86400,)).fetchall()
-opens, conns = [], []
-for ms, det in rows:
-    try:
-        o = (json.loads(det or "{}") or {}).get("open_ms")
-    except ValueError:
-        o = None
-    if o is not None:
-        opens.append(float(o))
-    if ms is not None:
-        conns.append(float(ms))
-pick = opens if len(opens) >= 5 else conns
-pick.sort()
-q = lambda v, f: round(v[min(len(v) - 1, int(f * len(v)))] / 1000, 2) if v else None   # noqa: E731
-out["video_start"] = {"p50": q(pick, 0.5), "p90": q(pick, 0.9), "n": len(pick), "from": "open" if pick is opens else "connect"}
+# video start: page-load -> playing samples only. Connection times are a
+# separate lower-bound diagnostic and cannot satisfy the app-open target.
+rows = c.execute("select ts, name, ms, detail from usage where name in ('live_first_frame','live_start_timeout','live_reconnect') and ts > ? order by ts", (now - 7 * 86400,)).fetchall()
+out["video_start"] = startupmetrics.summarize(rows, now=time.time())
 print(json.dumps(out))
 '''
 
@@ -1026,12 +1013,10 @@ def metrics():
     fs, fn = m.get("find_s", [None, 0])
     if fn:
         add("find_time", fs, "<= 20", fs <= 20, f"median seconds from search start to 'found her', {fn} finds in 24 h")
-    vs = m.get("video_start") or {}
-    if vs.get("n"):
-        ok = vs["p50"] <= 1.0 and vs["p90"] <= 2.0
-        add("video_start", vs["p50"], "p50 <= 1, p90 <= 2", ok,
-            f"seconds from {'opening the app' if vs['from'] == 'open' else 'connecting'} to the first video frame; "
-            f"p90 {vs['p90']} s, {vs['n']} starts in 7 days")
+    import startupmetrics
+    # Always write unknown on missing/insufficient data rather than retaining an
+    # older success or substituting a faster reconnect-only measurement.
+    rows.append(startupmetrics.goal_metric(m.get("video_start")))
     # the loop's own health: a finished fix that cannot ship is a stuck loop (2026-11-03/04: 17 waited, none retried,
     # because the checkout was never clean); measured on this computer, where the queue lives
     waits = []

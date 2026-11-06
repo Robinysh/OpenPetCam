@@ -27,6 +27,17 @@ def _rows(c, query, args=()):
     return [dict(zip(names, tuple(row))) for row in cursor]
 
 
+def _startup_payload(raw):
+    """Only the versioned producer record establishes the page-open basis."""
+    try:
+        value = json.loads(raw) if isinstance(raw, str) else raw
+        value = value.get('measurement', value) if isinstance(value, dict) else value
+        value = json.loads(value) if isinstance(value, str) else value
+    except (ValueError, TypeError):
+        return None
+    return value if isinstance(value, dict) and value.get('schema') == 'startup-v1' else None
+
+
 def _detail(raw):
     try:
         value = json.loads(raw) if isinstance(raw, str) else raw
@@ -34,6 +45,9 @@ def _detail(raw):
         value = raw
     observed = value.get('observed_at') if isinstance(value, dict) else None
     content = value.get('measurement', value) if isinstance(value, dict) else value
+    startup = _startup_payload(raw)
+    if startup is not None and isinstance(startup.get('summary'), str):
+        content = startup['summary']
     text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False) if content is not None else ''
     return text, observed
 
@@ -55,6 +69,19 @@ def _health(goal, sample, now, catalog_known):
     if sample['target'] != sample['configured_target']:
         return state('invalid', 'Target changed', 'The recorded result used a different target; a new measurement is needed.')
     observed = sample['observed_at']
+    if goal == 'video_start':
+        stats = sample.get('startup')
+        if not isinstance(stats, dict) or stats.get('from') != 'open':
+            return state('invalid', 'Measurement basis unverified', 'Legacy connection timings cannot establish the page-open startup target.')
+        n = stats.get('n')
+        if type(n) is not int or n < 5 or stats.get('ready') is not True:
+            return state('unmeasured', 'Need more app openings', 'At least five recorded page openings are needed; connection-only timings remain diagnostic.')
+        p50, p90 = stats.get('p50'), stats.get('p90')
+        if not _number(p50) or not _number(p90) or not 0 <= p50 <= p90 or sample['value'] != p50 \
+                or not _number(observed) or observed != stats.get('observed_at'):
+            return state('invalid', 'Invalid startup measurement', 'The page-open percentiles or their source observation time are incomplete.')
+        if sample['ok'] is not (p50 <= 1 and p90 <= 2):
+            return state('invalid', 'Startup assessment inconsistent', 'Both the median and p90 must meet the displayed target.')
     if goal == 'qa' and not _number(observed):
         return state('invalid', 'Source time unknown', 'A cached QA result was recorded without its original observation time.')
     if goal in ('reports_answered', 'owner_reports') and observed is None:
@@ -109,6 +136,9 @@ def project(c, now=None):
                       'target': str(raw['target'] or '').strip(), 'configured_target': str(definition.get('target', '')).strip(),
                       'ok': verdict, 'observed_at': observed, 'detail': detail,
                       'freshness_basis': 'source_observation' if observed is not None else 'collection_time'}
+            startup = _startup_payload(raw['detail']) if ident == 'video_start' else None
+            if startup is not None and isinstance(startup.get('stats'), dict):
+                sample['startup'] = startup['stats']
         trend = []
         for row in _rows(c, 'SELECT m.ts,m.value,m.ok FROM metrics m WHERE goal=? AND ts>=? AND ts<=? '
                              'AND rowid=(SELECT n.rowid FROM metrics n WHERE n.goal=m.goal AND n.ts=m.ts ORDER BY n.rowid DESC LIMIT 1) '
