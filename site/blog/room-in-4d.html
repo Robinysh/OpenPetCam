@@ -12,7 +12,7 @@
 <link rel="icon" href="../favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="../apple-touch-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../site.css?v=type-2">
-<link rel="stylesheet" href="room-story.css?v=4">
+<link rel="stylesheet" href="room-story.css?v=5">
 <link rel="stylesheet" href="room-film.css?v=2">
 <script src="room-story.js?v=1" defer></script>
 <script src="room-film.js?v=2" defer></script>
@@ -86,6 +86,43 @@
 </figure>
 
 <p>There is one problem, though: a neural network can guess the shape of a room without knowing its actual size. A room that is 3 metres wide and one that is 6 metres wide might produce very similar images, so relative-depth models cannot reliably tell them apart.</p>
+
+<figure class="motion-figure scale-figure" id="scale-panorama" aria-labelledby="scale-panorama-caption">
+<div class="motion-stage scale-stage">
+<p class="scale-heading">One panorama, two possible scales</p>
+<a class="scale-photo" href="../media/blog/stitched-panorama.jpg" aria-label="Open the full stitched panorama"><img src="../media/blog/stitched-panorama.jpg" width="2048" height="1024" loading="lazy" alt="Stitched view around the camera: chairs beside the counter, the living room and window, doors and pet bowls. Overlapping photos leave visible exposure seams."></a>
+<div class="scale-options">
+<div class="scale-option">
+<p class="scale-size">3 m wide?</p>
+<svg viewBox="0 0 300 200" role="img" aria-label="A hypothetical smaller room, with a camera and furniture seen from above.">
+<g transform="translate(100 60) scale(.5)"><rect class="sketch-line" width="200" height="140"/>
+<rect class="sketch-field" x="22" y="14" width="64" height="26" rx="5"/>
+<path class="sketch-line" d="M28 32H80M28 22V36M80 22V36"/>
+<circle class="sketch-line" cx="148" cy="48" r="16"/>
+<path class="sketch-field" d="M100 112L44 40H156Z"/>
+<path class="sketch-faint" d="M100 112V40"/>
+<circle class="sketch-blue" cx="100" cy="112" r="5"/></g>
+<path class="sketch-line sketch-accent" d="M100 145H200M100 140V150M200 140V150"/>
+</svg>
+</div>
+<div class="scale-option">
+<p class="scale-size">6 m wide?</p>
+<svg viewBox="0 0 300 200" role="img" aria-label="The same hypothetical room with every distance doubled. The camera sees the furniture at the same angles.">
+<g transform="translate(50 25)"><rect class="sketch-line" width="200" height="140"/>
+<rect class="sketch-field" x="22" y="14" width="64" height="26" rx="5"/>
+<path class="sketch-line" d="M28 32H80M28 22V36M80 22V36"/>
+<circle class="sketch-line" cx="148" cy="48" r="16"/>
+<path class="sketch-field" d="M100 112L44 40H156Z"/>
+<path class="sketch-faint" d="M100 112V40"/>
+<circle class="sketch-blue" cx="100" cy="112" r="5"/></g>
+<path class="sketch-line sketch-accent" d="M50 180H250M50 175V185M250 175V185"/>
+</svg>
+</div>
+</div>
+<p class="scale-note">Twice the size. The same view.</p>
+</div>
+<figcaption id="scale-panorama-caption"><strong>The stitched panorama still needs a ruler.</strong> Double every distance in the scene, including the furniture and the camera’s height, and the viewing angles stay the same. These are two hypothetical scales, not measurements of my room.</figcaption>
+</figure>
 
 <h2 id="scale">An approximate ruler</h2>
 <p>How can we measure a real distance without asking the user to do anything? One idea I had was to send out a signal and measure how long its reflection takes to come back. On the pet camera we have:</p>
