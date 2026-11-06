@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "kind": "recorded nighttime appearance only",
+  "source_sha256": "d57e3dabddbfd4710aea577152ae4ba495e862f6c9ced9c931e35db8a58ab086",
+  "image_sha256": "19bcce2551cb52d239f38dec2dfc9651467943d4cef52216ad1f56f80ebf69c9",
+  "crop_dimensions": [
+    325,
+    190
+  ],
+  "processing": "Lossless crop of decoded pixels; no brightness, contrast, colour or geometric adjustment",
+  "led_state": "not recorded for this frame",
+  "matched_led_off_frame": false,
+  "residual_computed": false
+}

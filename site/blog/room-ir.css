@@ -22,3 +22,8 @@
 .ir-example .ir-image:focus-visible{outline:3px solid var(--blue);outline-offset:4px}
 @media(max-width:540px){.ir-example .ir-inputs{gap:8px}.ir-example .ir-results{gap:16px}.ir-example .ir-label{font-size:14px;min-height:46px}.ir-example .ir-label small{font-size:11px}.ir-example .ir-formula{font-size:13px}.ir-example .ir-sample{width:10px;height:10px}.ir-example .ir-arithmetic{font-size:14px}}
 @media(max-width:540px){.ir-example .ir-inputs .ir-label{min-height:60px}}
+
+/* Night appearance pending a genuinely paired, stationary capture. */
+.room-story .ir-night{max-width:520px;margin:30px auto 40px}
+.ir-night .ir-night-label{margin-bottom:8px;color:var(--ink);font:15px/1.4 var(--body)}
+.ir-night img{display:block;width:100%;height:auto;border-radius:0}
