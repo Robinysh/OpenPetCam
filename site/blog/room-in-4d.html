@@ -66,8 +66,30 @@
 <figcaption>One mount, many directions. A panorama gives each pixel a bearing.</figcaption>
 </figure>
 
+<h2 id="shape">From panorama to depth</h2>
+<p>Now we know the direction of every visible pixel. How can we estimate how far away it is and turn the panorama into a 3D room? One obvious idea is photogrammetry. However, our camera stays on one mount and mostly rotates, so there is no useful stereo baseline in this build. Lucky for us, there are neural networks for depth estimation from a single camera. <a href="https://github.com/ByteDance-Seed/Depth-Anything-3">Depth Anything 3</a> and <a href="https://github.com/prs-eth/Marigold">Marigold</a> are two examples. I used Depth Anything 3 for depth here.</p>
+<p>In a nutshell, these networks have learned what the 3D world usually looks like from training images. Walls tend to be vertical, floors horizontal, and familiar objects look smaller as they move farther away. Given an image, they can estimate how far away each pixel is, producing something called a <strong>depth map</strong>.</p>
+
+<figure class="room-film film-depth" id="depth-film" data-film aria-label="Photographs and the depth panorama">
+<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
+<button type="button" data-film-src="../media/blog/film/photo-depth.mp4" data-film-poster="../media/blog/film/photo-depth.jpg" data-film-title="The original photographs and their depth-map reveals" aria-pressed="true">Photo → depth</button>
+<button type="button" data-film-src="../media/blog/film/depth-panorama.mp4" data-film-poster="../media/blog/film/depth-panorama.jpg" data-film-title="The fused depth panorama revealed across the room" aria-pressed="false">The stitched panorama</button>
+</div>
+<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/photo-depth.jpg" width="720" height="840" aria-label="The original photographs and their depth-map reveals"></video></div>
+<div class="film-controls" hidden>
+<button type="button" data-film-play>Play</button>
+<label for="depth-film-scrub">Scrub<input id="depth-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="depth-film-caption"></label>
+<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
+</div>
+<p class="film-status" role="status"></p>
+<noscript><p><a href="../media/blog/film/photo-depth.mp4">Watch this sequence</a></p></noscript>
+<figcaption id="depth-film-caption">A photo and its depth estimate, followed by the merged panorama. The wipe reveals the merged depth map.</figcaption>
+</figure>
+
+<p>There is one problem, though: a neural network can guess the shape of a room without knowing its actual size. A room that is 3 metres wide and one that is 6 metres wide might produce very similar images, so relative-depth models cannot reliably tell them apart.</p>
+
 <h2 id="scale">An approximate ruler</h2>
-<p>How can we obtain distance in a way that doesn’t require the user to do anything? One idea I had was to send out a signal and measure how long its reflection takes to come back. On the pet camera we have:</p>
+<p>How can we measure a real distance without asking the user to do anything? One idea I had was to send out a signal and measure how long its reflection takes to come back. On the pet camera we have:</p>
 <ul>
 <li><strong>Passive optics:</strong> the camera itself doesn’t emit light; it only collects it. On its own, this doesn’t give us an echo to time.</li>
 <li><strong>Infrared night vision and IR LEDs:</strong> we can emit light and receive it, but the speed of light is very, very fast. A 10 cm difference in distance changes the round-trip delay by about 0.67 nanoseconds, far beyond what this camera can time without dedicated time-of-flight hardware.</li>
@@ -109,30 +131,10 @@
 
 <p>Just for a reality check, I got out a tape measure: 31 inches, which is 0.79 m. Nice!</p>
 
-<h2 id="shape">From panorama to depth</h2>
-<p>Now we know the direction of every visible pixel and have an estimate of the distance to the floor. How can we turn that into a 3D room at the right scale? One obvious idea is photogrammetry. However, our camera stays on one mount and mostly rotates, so there is no useful stereo baseline in this build. Lucky for us, there are neural networks for depth estimation from a single camera. <a href="https://github.com/ByteDance-Seed/Depth-Anything-3">Depth Anything 3</a> and <a href="https://github.com/prs-eth/Marigold">Marigold</a> are two examples. I used Depth Anything 3 for depth here.</p>
-<p>In a nutshell, these networks have learned what the 3D world usually looks like from training images. Walls tend to be vertical, floors horizontal, and familiar objects look smaller as they move farther away. Given an image, they can estimate how far away each pixel is, producing something called a <strong>depth map</strong>.</p>
-<p>There is one problem, though: a neural network can guess the shape of a room without knowing its actual size. A room that is 3 metres wide and one that is 6 metres wide might produce very similar images, so relative-depth models cannot reliably tell them apart.</p>
-<p>Fortunately, we already have a ruler! Since we have an estimate of the camera’s height above the floor and its viewing angle, we can calculate the distance to visible points on a flat floor using simple trigonometry.</p>
+<p>Now we have a ruler! Since we have an estimate of the camera’s height above the floor and its viewing angle, we can calculate the distance to visible points on a flat floor using simple trigonometry.</p>
 <p>We can then use these distances to estimate the scale of our depth map. For example, if the map puts a point on the floor 2 units away, but geometry tells us it is actually 4 metres away, we have a scale factor of 2.</p>
 <p>Once we have calibrated the depth, each pixel gives us two things: <strong>a direction from the panorama and an estimated distance</strong>. Multiplying the unit direction vector by that distance gives us a point in 3D space. Do this for thousands of pixels, and we get a point cloud: an approximate 3D reconstruction of the room.</p>
 <p>The <a href="https://github.com/crimeacs/OpenPetCam/blob/main/sim/world/depthpano.py">depth fusion code</a> merges the overlapping estimates and smooths their seams. In this build, wall edges marked on the panorama and simple furniture shapes also help organize the surface.</p>
-
-<figure class="room-film film-depth" id="depth-film" data-film aria-label="Photographs and the depth panorama">
-<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
-<button type="button" data-film-src="../media/blog/film/photo-depth.mp4" data-film-poster="../media/blog/film/photo-depth.jpg" data-film-title="The original photographs and their depth-map reveals" aria-pressed="true">Photo → depth</button>
-<button type="button" data-film-src="../media/blog/film/depth-panorama.mp4" data-film-poster="../media/blog/film/depth-panorama.jpg" data-film-title="The fused depth panorama revealed across the room" aria-pressed="false">The stitched panorama</button>
-</div>
-<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/photo-depth.jpg" width="720" height="840" aria-label="The original photographs and their depth-map reveals"></video></div>
-<div class="film-controls" hidden>
-<button type="button" data-film-play>Play</button>
-<label for="depth-film-scrub">Scrub<input id="depth-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="depth-film-caption"></label>
-<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
-</div>
-<p class="film-status" role="status"></p>
-<noscript><p><a href="../media/blog/film/photo-depth.mp4">Watch this sequence</a></p></noscript>
-<figcaption id="depth-film-caption">A photo and its depth estimate, followed by the merged panorama. The wipe reveals the finished map.</figcaption>
-</figure>
 
 <p>The result is not a perfect 3D scan, but a roughly scaled initial world model that we can keep refining. We will talk about that in more detail if it works.</p>
 <p>You can orbit the model and recognise the room.</p>
