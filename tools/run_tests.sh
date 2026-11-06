@@ -35,4 +35,12 @@ timeout 120 python3 tests/sim/obstruction_forest_test.py
 timeout 120 python3 tests/sim/obstruction_reference_test.py
 timeout 120 python3 tests/sim/obstruction_bench_test.py
 timeout 120 python3 tests/sim/obstruction_report_test.py
+timeout 120 python3 tests/sim/acoustic_localization_model_test.py
+timeout 120 python3 tests/sim/acoustic_localization_test.py
+python3 -c 'import shutil; assert shutil.which("clang++") or shutil.which("c++"), "3D acoustic physics checks require a C++ compiler"'
+timeout 120 python3 tests/sim/acoustic_wave3d_test.py
+timeout 120 python3 tests/sim/acoustic_phase_localization_test.py
+timeout 120 python3 tests/sim/acoustic_wave_room_test.py
+timeout 120 python3 tests/sim/acoustic_wave_experiment_test.py
+timeout 120 python3 tests/sim/acoustic_wave_report_test.py
 echo "all offline tests passed"

@@ -1,0 +1,3 @@
+# Offline analysis only; no server dependency or model download.
+numpy>=1.24,<3
+scipy>=1.11,<2
