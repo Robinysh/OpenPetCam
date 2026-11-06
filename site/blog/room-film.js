@@ -196,7 +196,7 @@
       ++playToken;
       requested = false;
       ended = true;
-      say('End of scene. Replay it or choose another view.');
+      say('End of scene.');
       update();
     });
     video.addEventListener('error', () => {
