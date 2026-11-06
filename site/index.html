@@ -43,6 +43,7 @@
   "contentUrl":"https://crimeacs.github.io/OpenPetCam/media/openpetcam-film-720p.mp4"},
  {"@type":"FAQPage","mainEntity":[
   {"@type":"Question","name":"Is there a pet camera without a subscription?","acceptedAnswer":{"@type":"Answer","text":"Yes. OpenPetCam is free and open source. You pay only for a small server you own (an AWS Lightsail nano is about $5 a month) and a Thingino-compatible Wi-Fi camera. There is no subscription and no vendor cloud."}},
+  {"@type":"Question","name":"Is OpenPetCam an alternative to Furbo or Petcube?","acceptedAnswer":{"@type":"Answer","text":"For the core job, yes: live video, alerts and a camera that finds your dog, with no subscription and no vendor cloud. It has no treat toss, and setup needs a terminal."}},
   {"@type":"Question","name":"Which cameras work with OpenPetCam?","acceptedAnswer":{"@type":"Answer","text":"Pan/tilt Wi-Fi cameras supported by the open Thingino firmware. The reference camera is a Cinnado D1 (Ingenic T23N). Other models may need their pan/tilt calibrated."}},
   {"@type":"Question","name":"Does OpenPetCam work on iPhone?","acceptedAnswer":{"@type":"Answer","text":"Yes. It is a web app: open it in Safari and choose Add to Home Screen. It then runs full screen and can send notifications. No App Store and no developer account are needed."}},
   {"@type":"Question","name":"How does it tell my dog from a toy?","acceptedAnswer":{"@type":"Answer","text":"Two stages. A small detector (YOLOX-nano) proposes anything dog-like, then a second model trained on pictures from your own camera decides whether it is your pet. On the reference install it scored a plush toy 0.00 and the dog 0.99 on the same frame."}},
@@ -212,6 +213,7 @@ cd OpenPetCam
 <section id="faq" class="faq" data-section="faq">
   <p class="mono tag">09 / questions</p>
   <details data-faq><summary>Is there a pet camera without a subscription?</summary><p>Yes, this one. The software is free and open source. You pay for a small server you own (an AWS Lightsail nano is about $5 a month) and a Thingino-compatible camera, once.</p></details>
+  <details data-faq><summary>Is it an alternative to Furbo or Petcube?</summary><p>For the core job, yes: live video, alerts and a camera that finds your dog, with no subscription and no vendor cloud. It has no treat toss, and setup needs a terminal. <a href="guide/open-source-pet-camera.html">The side-by-side comparison</a>.</p></details>
   <details data-faq><summary>Which cameras work?</summary><p>Pan/tilt Wi-Fi cameras supported by <a href="https://thingino.com">Thingino</a>. Ours is a Cinnado D1 (Ingenic T23N). Other models may need their pan and tilt calibrated once with <code>tools/calibrate.py</code>. See the <a href="guide/thingino-pet-camera.html">Thingino guide</a>.</p></details>
   <details data-faq><summary>iPhone or Android?</summary><p>Both. Open the address in Safari or Chrome and choose Add to Home Screen. The app then runs full screen and sends notifications, with no App Store step.</p></details>
   <details data-faq><summary>How does the camera tell my dog from a toy?</summary><p>A small detector (YOLOX-nano) proposes anything dog-like. A second model, trained on pictures from your own camera, decides whether that's your pet. On our camera the verifier gave the plush toy 0.00 and the dog 0.99 in the same frame.</p></details>
@@ -233,7 +235,7 @@ cd OpenPetCam
 
 <footer>
   <p class="mono">OpenPetCam · Apache-2.0 · built on Thingino, MediaMTX, Caddy, WireGuard and YOLOX</p>
-  <p class="mono"><a href="https://github.com/crimeacs/OpenPetCam">GitHub</a> · <a href="https://github.com/crimeacs/OpenPetCam/releases">Releases</a> · <a href="guide/">Guides</a> · <a href="llms.txt">llms.txt</a> · set in Snout, Snout Text and Snout Mono, drawn for this project</p>
+  <p class="mono"><a href="https://github.com/crimeacs/OpenPetCam">GitHub</a> · <a href="https://github.com/crimeacs/OpenPetCam/releases">Releases</a> · <a href="guide/">Guides</a> · <a href="blog/">Blog</a> · <a href="llms.txt">llms.txt</a> · set in Snout, Snout Text and Snout Mono, drawn for this project</p>
 </footer>
 <script>
 (function(){

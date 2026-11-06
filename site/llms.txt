@@ -22,6 +22,7 @@ Key facts:
 ## Guides
 - [Build a pet camera with Thingino firmware](https://crimeacs.github.io/OpenPetCam/guide/thingino-pet-camera.html)
 - [A pet camera without a subscription](https://crimeacs.github.io/OpenPetCam/guide/pet-camera-without-subscription.html)
+- [An open-source alternative to Furbo and Petcube](https://crimeacs.github.io/OpenPetCam/guide/open-source-pet-camera.html)
 
 ## Blog
 - [Teaching a $12 pet camera where to look](https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html): a rough room map from photographs and a candidate floor echo, a history of sightings, an offline search replay, and the next experiment toward full waveform inversion

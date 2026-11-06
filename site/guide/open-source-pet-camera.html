@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>An open-source alternative to Furbo and Petcube | OpenPetCam</title><meta name="description" content="OpenPetCam (Open Pet Cam) compared with Furbo, Petcube and a plain home camera: what you pay each month, where your video goes, what finds your dog, and what is harder to set up.">
+<link rel="canonical" href="https://crimeacs.github.io/OpenPetCam/guide/open-source-pet-camera.html">
+<meta property="og:type" content="article"><meta property="og:site_name" content="OpenPetCam">
+<meta property="og:title" content="An open-source alternative to Furbo and Petcube | OpenPetCam"><meta property="og:description" content="What you pay each month, where your video goes, what finds your dog, and what is harder to set up.">
+<meta property="og:url" content="https://crimeacs.github.io/OpenPetCam/guide/open-source-pet-camera.html">
+<meta property="og:image" content="https://crimeacs.github.io/OpenPetCam/media/share.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#355BEB">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../site.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [
+ {"@type": "TechArticle", "headline": "An open-source alternative to Furbo and Petcube", "description": "OpenPetCam compared with Furbo, Petcube and a plain home camera: monthly cost, where video goes, finding your dog, and setup effort.", "datePublished": "2026-11-06", "dateModified": "2026-11-06", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/guide/open-source-pet-camera.html", "image": "https://crimeacs.github.io/OpenPetCam/media/share.png"},
+ {"@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "OpenPetCam", "item": "https://crimeacs.github.io/OpenPetCam/"}, {"@type": "ListItem", "position": 2, "name": "Guides", "item": "https://crimeacs.github.io/OpenPetCam/guide/"}, {"@type": "ListItem", "position": 3, "name": "An open-source alternative to Furbo and Petcube"}]},
+ {"@type": "FAQPage", "mainEntity": [
+  {"@type": "Question", "name": "Is there an open-source alternative to Furbo?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. OpenPetCam is free, open-source pet camera software for Thingino-flashed pan/tilt Wi-Fi cameras. It runs on a small server you own (about $5 a month) and has no subscription. It has no treat toss, and setup takes about 30 minutes in a terminal."}},
+  {"@type": "Question", "name": "Do Furbo's smart alerts need a subscription?", "acceptedAnswer": {"@type": "Answer", "text": "Furbo's plans page lists its AI-powered alerts and video history as part of the Furbo Nanny subscription, at $9.99 a month on monthly billing and less on yearly billing (checked 6 November 2026)."}}]}
+]}</script>
+<script src="../analytics.js" defer></script></head>
+<body><nav class="nav"><a class="word" href="../" aria-label="OpenPetCam home"><img src="../media/openpetcam-mark-color.svg" width="34" height="34" alt="">OpenPetCam</a>
+<div class="links"><a href="../#search">The search</a><a href="./">Guides</a><a href="../blog/">Blog</a><a class="star" href="https://github.com/crimeacs/OpenPetCam" data-track="nav">★ GitHub</a></div></nav>
+<main class="doc" data-section="guide">
+<p class="crumbs"><a href="../">OpenPetCam</a> / <a href="./">Guides</a></p>
+<h1>An open-source alternative to Furbo and Petcube</h1>
+<p><strong>Short answer:</strong> OpenPetCam (Open Pet Cam) does the core job of a smart pet camera, live video, alerts and finding your dog when she wanders off, with no subscription and no vendor cloud. In exchange you flash the camera with open firmware and run a small server. If you want treat tossing or a five-minute setup, a commercial camera is the better fit.</p>
+
+<h2>Side by side</h2>
+<table>
+<tr><th></th><th>OpenPetCam</th><th>Furbo</th><th>Petcube</th><th>A plain home camera</th></tr>
+<tr><td>Monthly cost</td><td>About $5 for your own server; no subscription</td><td>Furbo Nanny plan for AI alerts and video history: $9.99 a month billed monthly, less yearly</td><td>Free basic tier; paid Petcube Care plans add recording history</td><td>Usually optional cloud plan; local card recording</td></tr>
+<tr><td>Where video goes</td><td>Your camera to your server, over WireGuard</td><td>Furbo's cloud</td><td>Petcube's cloud</td><td>Card or the maker's cloud</td></tr>
+<tr><td>Finds your pet when she leaves the frame</td><td>Yes: pans and searches the room, in the order she is likely to be at that hour</td><td>Depends on the model (Furbo 360° rotates)</td><td>Depends on the model (fixed or 360°)</td><td>Pan/tilt models can follow motion</td></tr>
+<tr><td>Tells your pet from a toy</td><td>A second model trained on your own camera's pictures</td><td>AI pet alerts in the paid plan</td><td>Depends on the plan</td><td>Generic pet or motion detection</td></tr>
+<tr><td>Treat toss</td><td>No</td><td>Yes</td><td>On Bites models</td><td>No</td></tr>
+<tr><td>Setup</td><td>Flash Thingino, rent a server, run <code>./setup</code> (about 30 minutes, needs a terminal)</td><td>App, minutes</td><td>App, minutes</td><td>App, minutes</td></tr>
+<tr><td>Source code</td><td>Apache-2.0, on GitHub</td><td>Closed</td><td>Closed</td><td>Closed, except on open firmware</td></tr>
+</table>
+<p style="font-size:15px;color:var(--ink-2)">Prices change; check <a href="https://furbo.com/us/pages/furbo-nanny">Furbo's plans page</a> and <a href="https://petcube.com/care/">Petcube Care</a> for today's numbers. Furbo's figure was read from its US plans page on 6 November 2026.</p>
+
+<h2>What you give up</h2>
+<p>No treat toss, no app store, and no support line. You need a Thingino-supported pan/tilt camera (the reference is a Cinnado D1), a server with a public IP, and enough comfort with a terminal to run one installer. When something breaks, the fix is a GitHub issue or the built-in agent that drafts a repair, not a phone call.</p>
+
+<h2>What you get</h2>
+<p>Everything stays yours. The camera dials out to your server, so no ports are open at home, and nothing leaves that server. Search is the part commercial cameras rarely do: when the dog is out of view, the camera turns, checks the floor where she usually rests at that hour, and stops on her. Replayed on 56 recorded searches, she was in view at a stop in 48 of them. <a href="../blog/room-in-4d.html">How the camera learned its room</a> explains why.</p>
+
+<h2>Try it</h2>
+<p>Start with <a href="thingino-pet-camera.html">Build a pet camera with Thingino firmware</a>, or read <a href="pet-camera-without-subscription.html">A pet camera without a subscription</a> for how the self-hosted setup works.</p>
+
+<p style="margin-top:48px"><a class="btn primary" style="background:var(--blue);color:#fff;font-family:var(--snout-t)" href="https://github.com/crimeacs/OpenPetCam" data-track="guide-star">Get OpenPetCam on GitHub</a></p>
+</main>
+</body></html>
