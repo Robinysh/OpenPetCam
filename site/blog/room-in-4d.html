@@ -13,9 +13,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../site.css?v=type-2">
 <link rel="stylesheet" href="room-story.css?v=1">
-<link rel="stylesheet" href="room-day.css?v=1">
+<link rel="stylesheet" href="room-film.css?v=1">
 <script src="room-story.js?v=1" defer></script>
-<script src="room-day.js?v=1" defer></script>
+<script src="room-film.js?v=1" defer></script>
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "Teaching a $12 pet camera where to look", "description": "An attempt to stop a pet camera staring at the counter led to a room model, a useful search result and a few measurements that still need checking.", "datePublished": "2026-11-05", "dateModified": "2026-11-06", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html", "image": "https://crimeacs.github.io/OpenPetCam/media/blog/room-orbit.jpg"}</script>
 <script src="../analytics.js" defer></script></head>
 <body>
@@ -72,35 +72,57 @@
 <p>The camera has a speaker and a microphone, so I tried a frequency sweep. Deconvolving the recording compresses that long sound into a short response, with peaks at different delays. Some belong to the room. The speaker, microphone, housing and recording chain contribute their own response too.</p>
 <p>I used a recurring peak near 4.7 milliseconds as a candidate floor return. With the timing and path assumptions in that first build, it put the floor roughly 0.8 metres below the lens. That gave the model a scale to work with.</p>
 
-<figure class="motion-figure" data-motion="The candidate floor echo">
-<div class="motion-stage echo-layout">
-<svg viewBox="0 0 320 320" role="img" aria-labelledby="echo-title echo-desc">
-<title id="echo-title">A possible round trip to the floor</title><desc id="echo-desc">A pulse follows a schematic path from the speaker to the floor and back to the microphone. Identifying the peak and timing reference is still unverified.</desc>
-<path class="sketch-line" d="M27 50H293M97 51V65H159V51M111 66V79Q128 93 145 79V66M28 252H292"/>
-<path class="sketch-faint" d="M120 80L128.5 251L137 80"/>
-<circle class="sketch-blue echo-dot" cx="120" cy="80" r="5"/>
-<path class="sketch-line" d="M64 88V242M59 94L64 88L69 94M59 236L64 242L69 236"/>
-<text class="sketch-label" x="196" y="279">floor</text>
-<text class="sketch-label" x="160" y="26" text-anchor="middle">speaker → floor → microphone</text>
-</svg>
-<div class="echo-note"><p class="echo-premise">If this peak is the floor…</p><p class="echo-value">≈ 4.7 ms</p><p>With the original timing assumptions, a height of roughly <strong>0.8 m</strong>.</p></div>
+<figure class="room-film film-portrait" id="floor-film" data-film aria-label="The speaker sweep and recorded return">
+<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
+<button type="button" data-film-src="../media/blog/film/speaker-sweep.mp4" data-film-poster="../media/blog/film/speaker-sweep.jpg" data-film-title="The film&#x27;s illustrated speaker sweep" aria-pressed="true">The sweep</button>
+<button type="button" data-film-src="../media/blog/film/floor-return.mp4" data-film-poster="../media/blog/film/floor-return.jpg" data-film-title="The film&#x27;s recorded echo trace and candidate floor return" aria-pressed="false">The return</button>
 </div>
-<div class="motion-toolbar"><span>Candidate path · schematic</span><button class="motion-toggle" type="button" hidden>Play animation</button></div>
-<figcaption>The scale depends on identifying both the return and its timing reference.</figcaption>
+<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/speaker-sweep.jpg" width="540" height="960" aria-label="The film&#x27;s illustrated speaker sweep"></video></div>
+<div class="film-controls" hidden>
+<button type="button" data-film-play>Play</button>
+<label for="floor-film-scrub">Scrub<input id="floor-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="floor-film-caption"></label>
+<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
+</div>
+<p class="film-status" role="status"></p>
+<noscript><p><a href="../media/blog/film/speaker-sweep.mp4">Watch this sequence</a></p></noscript>
+<figcaption id="floor-film-caption">The sweep and the recorded response, from the film. The clay scene illustrates the path; identifying the floor return still depends on the timing assumptions above.</figcaption>
 </figure>
 <p>The saved value is <code>0.807 m</code>, which looks more authoritative than it deserves. I have not independently checked the arrival used as the timing reference. I did fetch a tape measure: from the floor to the lowest point of the hanging camera it reads 31 inches, 0.787 m. The lens sits a few centimetres above that point, so between about 0.79 and 0.82 m, and the echo lands within about 2% of it. The room still inherits an approximate ruler, but no longer an unchecked one.</p>
 
 <h2 id="shape">Moving the sofa in software</h2>
 <p><a href="https://github.com/ByteDance-Seed/Depth-Anything-3">Depth Anything 3</a> supplied an estimate of shape from the photographs. The pipeline merges its overlapping depth maps, smooths their seams and scales the result using the floor estimate. Wall edges marked on the panorama and simple furniture shapes help organize the rough surface.</p>
-<figure><img src="../media/blog/depth.png" width="1540" height="1011" alt="A camera photograph beside its learned depth estimate, above a stitched panorama coloured by estimated range." loading="lazy"><figcaption>A photograph, its learned depth, and the merged range panorama. The metre scale comes from the provisional floor estimate; white areas have no data.</figcaption></figure>
+<figure class="room-film film-depth" id="depth-film" data-film aria-label="Photographs and the depth panorama">
+<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
+<button type="button" data-film-src="../media/blog/film/photo-depth.mp4" data-film-poster="../media/blog/film/photo-depth.jpg" data-film-title="The original photographs and their depth-map reveals" aria-pressed="true">Photo → depth</button>
+<button type="button" data-film-src="../media/blog/film/depth-panorama.mp4" data-film-poster="../media/blog/film/depth-panorama.jpg" data-film-title="The fused depth panorama revealed across the room" aria-pressed="false">The stitched panorama</button>
+</div>
+<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/photo-depth.jpg" width="720" height="840" aria-label="The original photographs and their depth-map reveals"></video></div>
+<div class="film-controls" hidden>
+<button type="button" data-film-play>Play</button>
+<label for="depth-film-scrub">Scrub<input id="depth-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="depth-film-caption"></label>
+<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
+</div>
+<p class="film-status" role="status"></p>
+<noscript><p><a href="../media/blog/film/photo-depth.mp4">Watch this sequence</a></p></noscript>
+<figcaption id="depth-film-caption">A photograph becomes a depth map, then the fused panorama is revealed. The wipe shows the finished result; its metre scale comes from the provisional floor estimate.</figcaption>
+</figure>
 <p>In one version, the depth model put the sofa about 1.5 metres from the camera. Placing it from the line where it met the floor moved it to about 3 metres. Both constructions used the same assumed camera height. Changing the placement method had moved the front of the sofa by more than a metre.</p>
 <p>The dog gives me another way to question the surface. Where she stands, her feet should meet the floor. Across 2,255 detected foot directions, the merged depth disagreed with the assumed floor by a median 4.7%, compared with 5.2% for a simple merge. That is a useful consistency check, although it still shares the scale assumption and the detector's imperfect estimate of her feet.</p>
 <p>The wall distances have no equivalent independent check yet. You can orbit the model and recognize the room, but that familiar appearance leaves quite a lot unresolved.</p>
 
-<figure class="motion-figure model-motion" data-motion="The reconstructed room">
-<div class="motion-stage"><video muted loop playsinline preload="none" poster="../media/blog/room-orbit.jpg" width="720" height="640" data-src="../media/blog/room-orbit.mp4" aria-label="A short orbit of the textured room reconstruction, with gaps where surfaces are missing."></video></div>
-<div class="motion-toolbar"><span>The reconstructed surface</span><button class="motion-toggle" type="button" hidden>Play animation</button></div>
-<figcaption>The room is recognizable from another angle. The holes, displaced surfaces and provisional scale are part of the reconstruction too.</figcaption>
+<figure class="room-film film-model" id="shell-film" data-film aria-label="The original pullback from the camera into the reconstructed shell">
+<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
+<button type="button" data-film-src="../media/blog/film/room-reveal.mp4" data-film-poster="../media/blog/film/room-reveal.jpg" data-film-title="The original pullback from the camera into the reconstructed shell" aria-pressed="true">The reconstructed room</button>
+</div>
+<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/room-reveal.jpg" width="720" height="640" aria-label="The original pullback from the camera into the reconstructed shell"></video></div>
+<div class="film-controls" hidden>
+<button type="button" data-film-play>Play</button>
+<label for="shell-film-scrub">Scrub<input id="shell-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="shell-film-caption"></label>
+<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
+</div>
+<p class="film-status" role="status"></p>
+<noscript><p><a href="../media/blog/film/room-reveal.mp4">Watch this sequence</a></p></noscript>
+<figcaption id="shell-film-caption">The film’s pullback into the reconstructed room. The holes, displaced surfaces and provisional scale are part of the reconstruction too.</figcaption>
 </figure>
 
 <h2 id="acoustics">Asking more of the waveform</h2>
@@ -112,26 +134,41 @@
 
 <h2 id="time">A room also has a daily routine</h2>
 <p>Once there is a place to store an observation, the map can accumulate a day. Each small surface patch holds its colour and the way its light changes over time. Logged dog detections leave a history on the floor. In the viewer, a time slider lets me move through those records.</p>
-<p>Move through a day in the sketch below. Watch the light cross the floor and the sightings change from one hour to the next. Select the hallway, then switch on camera coverage. A blank patch looks rather different when you know how little the camera has seen of it.</p>
+<p>The film lets you watch that history build. Follow the last sighting through the recorded day, or switch to the week’s accumulated observations.</p>
 
-<figure class="room-day" data-room-day aria-label="Explore light, sightings and camera coverage through an illustrative day">
-<div data-day-scene></div>
-<div data-day-controls></div>
-<noscript><p>This illustration needs JavaScript for its time slider. In the example, light changes through the day and the floor shows sightings from the preceding hour. A patch with few observations remains uncertain, even when no dog was detected.</p></noscript>
-<figcaption>An illustration of the layers, with an invented room and sample sightings. For the actual reconstruction, open the recorded view below.</figcaption>
+<figure class="room-film film-model" id="time-film" data-film aria-label="Recorded observations over a day and week">
+<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
+<button type="button" data-film-src="../media/blog/film/day-sightings.mp4" data-film-poster="../media/blog/film/day-sightings.jpg" data-film-title="The recorded daily observation sequence and last-sighting marker" aria-pressed="true">Through the recorded day</button>
+<button type="button" data-film-src="../media/blog/film/week-observations.mp4" data-film-poster="../media/blog/film/week-observations.jpg" data-film-title="An orbit over the accumulated week of recorded observations" aria-pressed="false">Across the week</button>
+</div>
+<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/day-sightings.jpg" width="720" height="640" aria-label="The recorded daily observation sequence and last-sighting marker"></video></div>
+<div class="film-controls" hidden>
+<button type="button" data-film-play>Play</button>
+<label for="time-film-scrub">Scrub<input id="time-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="time-film-caption"></label>
+<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
+</div>
+<p class="film-status" role="status"></p>
+<noscript><p><a href="../media/blog/film/day-sightings.mp4">Watch this sequence</a></p></noscript>
+<figcaption id="time-film-caption">Scrub the recorded day, or orbit the week’s accumulated observations. The marker is the last logged sighting. The heat and camera view change over a fixed daytime picture; the slider shows clip progress.</figcaption>
 </figure>
 
-<p>The real heatmap has the camera's habits mixed into it too. A corner that is rarely watched tells me little about how often the dog uses it. Even so, the places where she has repeatedly been seen are worth visiting when she disappears again.</p>
+<p>The heatmap has the camera's habits mixed into it. A corner that is rarely watched tells me little about how often the dog uses it. Even so, the places where she has repeatedly been seen are worth visiting when she disappears again.</p>
 
-<details class="story-film">
-<summary>See the recorded room</summary>
-<figure class="motion-figure model-motion" data-motion="The observation layer">
-<div class="motion-stage"><video muted loop playsinline preload="none" poster="../media/blog/time-layer.jpg" width="720" height="640" data-src="../media/blog/time-layer.mp4" aria-label="The room viewer with warm patches marking its observation layer across the floor."></video></div>
-<div class="motion-toolbar"><span>Observations on the floor</span><button class="motion-toggle" type="button" hidden>Play animation</button></div>
-<figcaption>The viewer's observation layer, laid over the reconstructed floor.</figcaption>
+<figure class="room-film film-model" id="infrared-film" data-film aria-label="Comparing infrared views">
+<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
+<button type="button" data-film-src="../media/blog/film/nir-contrast.mp4" data-film-poster="../media/blog/film/nir-contrast.jpg" data-film-title="The original near-infrared contrast layer on the reconstructed room" aria-pressed="true">Infrared contrast</button>
+<button type="button" data-film-src="../media/blog/film/infrared-response.mp4" data-film-poster="../media/blog/film/infrared-response.jpg" data-film-title="The original infrared reflectance layer on the reconstructed room" aria-pressed="false">The lamp’s response</button>
+</div>
+<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/nir-contrast.jpg" width="720" height="640" aria-label="The original near-infrared contrast layer on the reconstructed room"></video></div>
+<div class="film-controls" hidden>
+<button type="button" data-film-play>Play</button>
+<label for="infrared-film-scrub">Scrub<input id="infrared-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="infrared-film-caption"></label>
+<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
+</div>
+<p class="film-status" role="status"></p>
+<noscript><p><a href="../media/blog/film/nir-contrast.mp4">Watch this sequence</a></p></noscript>
+<figcaption id="infrared-film-caption">Two infrared views from the same build. Magenta shows near-infrared contrast; the second view shows the camera’s illumination response. The colours remain uncalibrated.</figcaption>
 </figure>
-</details>
-<figure class="half"><img src="../media/blog/infrared.jpg" width="720" height="826" alt="The room shell with an exploratory near-infrared appearance layer, highlighting some surfaces in magenta." loading="lazy"><figcaption>The infrared appearance layer. I have not calibrated these colours against known materials.</figcaption></figure>
 <p>The infrared LEDs add another layer. Comparing frames with the light on and off helps isolate the camera's illumination; comparing that with visible light makes some plants, fabrics and fur stand out. Exposure and surface angle still complicate the comparison. I kept it in the viewer as something to inspect, without assigning material identities to the colours.</p>
 
 <h2 id="search">A better first few places</h2>
@@ -140,6 +177,21 @@
 <p>The old order reached a view containing her in <strong>36 of 56</strong> searches. The room map alone reached <strong>38</strong>. Using the map first, then trying the remaining learned stops, reached <strong>48</strong>. Of the 26 searches both the old and combined orders reached, the combined order was earlier in 19, by a median of 4.6 seconds.</p>
 <p>These are replayed sightlines, and a dog in the picture can still escape the detector. The estimated dog position and the visibility calculation also share the room model. Recorded searches favour places the old order already visited. New live searches will have to tell me how much of the gain survives.</p>
 <p>Keeping the old stops meant the search could fall back on places the map had failed to cover.</p>
+
+<figure class="room-film film-model" id="search-film" data-film aria-label="The original recorded camera sightlines and last-sighting marker">
+<div class="film-chapters" role="group" aria-label="Choose a scene" hidden>
+<button type="button" data-film-src="../media/blog/film/recorded-search.mp4" data-film-poster="../media/blog/film/recorded-search.jpg" data-film-title="The original recorded camera sightlines and last-sighting marker" aria-pressed="true">The recorded view</button>
+</div>
+<div class="film-stage"><video data-film-fps="24" muted playsinline preload="none" poster="../media/blog/film/recorded-search.jpg" width="720" height="640" aria-label="The original recorded camera sightlines and last-sighting marker"></video></div>
+<div class="film-controls" hidden>
+<button type="button" data-film-play>Play</button>
+<label for="search-film-scrub">Scrub<input id="search-film-scrub" data-film-scrub type="range" min="0" max="1000" step="1" value="0" aria-describedby="search-film-caption"></label>
+<output data-film-time aria-live="off" aria-label="Playback time">0:00 / —</output>
+</div>
+<p class="film-status" role="status"></p>
+<noscript><p><a href="../media/blog/film/recorded-search.mp4">Watch this sequence</a></p></noscript>
+<figcaption id="search-film-caption">The camera’s view cone and last logged sighting. This recording shows how they sit in the room; the figures above come from the offline search replay.</figcaption>
+</figure>
 
 <h2 id="next">One measured wall</h2>
 <p>The map already gives the search a few better places to look. I would like to ask more of it, especially when a bark comes from outside the picture. Before I trust its answer, I want to know that it has put one wall in the right place.</p>
