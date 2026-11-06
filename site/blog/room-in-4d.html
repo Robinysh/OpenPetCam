@@ -6,15 +6,15 @@
 <meta property="og:type" content="article"><meta property="og:site_name" content="OpenPetCam">
 <meta property="og:title" content="Teaching a $12 pet camera where to look"><meta property="og:description" content="An attempt to stop a pet camera staring at the counter led to a room model, a useful search result and a few measurements that still need checking.">
 <meta property="og:url" content="https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html">
-<meta property="og:image" content="https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room-poster.jpg">
-<meta property="og:video" content="https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room.mp4"><meta property="og:video:type" content="video/mp4">
-<meta property="og:video:width" content="1080"><meta property="og:video:height" content="1920">
+<meta property="og:image" content="https://crimeacs.github.io/OpenPetCam/media/blog/room-orbit.jpg">
 <meta property="article:published_time" content="2026-11-05">
 <meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#355BEB">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="../apple-touch-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../site.css?v=type-2">
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "Teaching a $12 pet camera where to look", "description": "An attempt to stop a pet camera staring at the counter led to a room model, a useful search result and a few measurements that still need checking.", "datePublished": "2026-11-05", "dateModified": "2026-11-05", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html", "image": "https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room-poster.jpg", "video": {"@type": "VideoObject", "name": "An early walkthrough of the OpenPetCam room model", "description": "A one-minute visual introduction. The accompanying article explains the measurements, assumptions and later checks.", "thumbnailUrl": "https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room-poster.jpg", "contentUrl": "https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room.mp4", "uploadDate": "2026-11-05", "duration": "PT1M0S"}}</script>
+<link rel="stylesheet" href="room-story.css?v=1">
+<script src="room-story.js?v=1" defer></script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BlogPosting", "headline": "Teaching a $12 pet camera where to look", "description": "An attempt to stop a pet camera staring at the counter led to a room model, a useful search result and a few measurements that still need checking.", "datePublished": "2026-11-05", "dateModified": "2026-11-05", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "mainEntityOfPage": "https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html", "image": "https://crimeacs.github.io/OpenPetCam/media/blog/room-orbit.jpg"}</script>
 <script src="../analytics.js" defer></script></head>
 <body>
 <nav class="nav"><a class="word" href="../" aria-label="OpenPetCam home"><img src="../media/openpetcam-mark-color.svg" width="34" height="34" alt="">OpenPetCam</a>
@@ -39,18 +39,53 @@
 <p>Of 1,268 settled search frames, 304 showed almost no floor according to the room model. About a quarter of the looks went to cabinet, counter or wall. The sofa and rug seemed like better places to start.</p>
 <p>A useful map would tell the search which motor positions showed those places, how much the views overlapped, and where the dog had been earlier in the day. The awkward part was getting distances from a camera that could barely change its point of view.</p>
 
-<details class="story-film"><summary>Watch the one-minute walkthrough</summary>
-<figure class="reel"><video controls playsinline preload="none" poster="../media/openpetcam-4d-room-poster.jpg" width="1080" height="1920"><source src="../media/openpetcam-4d-room.mp4" type="video/mp4"></video>
-<figcaption>Made before the later timing checks. The acoustic scale estimates remain provisional. An animated opening is followed by views of the model.</figcaption></figure></details>
-
 <h2 id="panorama">One place to look from</h2>
 <p>The head can turn almost all the way around, but the camera stays on its mount. The lens does shift a little as it turns; I have not calibrated that motion well enough to use it for stereo. I treated the pictures as a sweep from approximately one viewpoint.</p>
 <p>Overlapping photographs can still tell you a lot. Match the same corner in several pictures and you can work out the lens distortion and how far each motor step turns the image. Across a sweep of 67 views, the median matching error was about three pixels. That let me stitch the pictures together and attach a direction to each pixel.</p>
 <p>I could point to the sofa on the panorama; putting it on a floor plan would require a distance.</p>
 
+<figure class="motion-figure" data-motion="The camera sweep">
+<div class="motion-stage sweep-layout">
+<svg viewBox="0 0 320 290" role="img" aria-labelledby="sweep-title sweep-desc">
+<title id="sweep-title">A sweep around one mount</title><desc id="sweep-desc">A viewing cone turns around a fixed point. The drawing simplifies the small, uncalibrated movement of the lens.</desc>
+<circle class="sketch-faint" cx="160" cy="135" r="103"/>
+<path class="sketch-faint" d="M160 135V32M160 135L263 135M160 135L57 135"/>
+<g class="sweep-cone"><path class="sketch-field" d="M160 135L111 45Q160 19 209 45Z"/><path class="sketch-line sketch-accent" d="M160 135V34"/></g>
+<circle class="sketch-mount" cx="160" cy="135" r="19"/><circle class="sketch-blue" cx="160" cy="135" r="5"/>
+<path class="sketch-line" d="M147 156H173M160 156V178"/>
+<text x="160" y="251" text-anchor="middle">One mount, many directions</text>
+</svg>
+<svg viewBox="0 0 320 290" role="img" aria-labelledby="ribbon-title ribbon-desc">
+<title id="ribbon-title">Overlapping views form a panorama</title><desc id="ribbon-desc">A frame moves along a schematic panorama of furniture. Overlapping photographs can be aligned without establishing their distance.</desc>
+<path class="sketch-line" d="M28 85H292V183H28ZM28 164H292M47 164V142Q47 135 54 135H104Q111 135 111 142V164M53 135V120H105V135M54 165V171M104 165V171M155 164V113M139 131Q124 109 137 106Q152 111 155 137M157 143Q174 113 180 125Q181 139 157 147M143 164H168M218 164V100H271V164M218 122H271M218 143H271"/>
+<g class="view-window"><rect class="sketch-field" x="30" y="77" width="83" height="114" rx="4"/><path class="sketch-line sketch-accent" d="M71.5 83V94M71.5 174V185"/></g>
+<text x="160" y="251" text-anchor="middle">A direction for each pixel</text>
+</svg>
+</div>
+<div class="motion-toolbar"><span>Sweep geometry · schematic</span><button class="motion-toggle" type="button" hidden>Play animation</button></div>
+<figcaption>Turning the head gives the panorama its directions. The small shift of the lens still needs calibration before it can supply a useful stereo baseline.</figcaption>
+</figure>
+
 <h2 id="scale">An approximate ruler</h2>
 <p>The camera has a speaker and a microphone, so I tried a frequency sweep. Deconvolving the recording compresses that long sound into a short response, with peaks at different delays. Some belong to the room. The speaker, microphone, housing and recording chain contribute their own response too.</p>
 <p>I used a recurring peak near 4.7 milliseconds as a candidate floor return. With the timing and path assumptions in that first build, it put the floor roughly 0.8 metres below the lens. That gave the model a scale to work with.</p>
+
+<figure class="motion-figure" data-motion="The candidate floor echo">
+<div class="motion-stage echo-layout">
+<svg viewBox="0 0 320 320" role="img" aria-labelledby="echo-title echo-desc">
+<title id="echo-title">A possible round trip to the floor</title><desc id="echo-desc">A pulse follows a schematic path from the speaker to the floor and back to the microphone. Identifying the peak and timing reference is still unverified.</desc>
+<path class="sketch-line" d="M27 50H293M97 51V65H159V51M111 66V79Q128 93 145 79V66M28 252H292"/>
+<path class="sketch-faint" d="M120 80L128.5 251L137 80"/>
+<circle class="sketch-blue echo-dot" cx="120" cy="80" r="5"/>
+<path class="sketch-line" d="M64 88V242M59 94L64 88L69 94M59 236L64 242L69 236"/>
+<text class="sketch-label" x="196" y="279">floor</text>
+<text class="sketch-label" x="160" y="26" text-anchor="middle">speaker → floor → microphone</text>
+</svg>
+<div class="echo-note"><p class="echo-premise">If this peak is the floor…</p><p class="echo-value">≈ 4.7 ms</p><p>With the original timing assumptions, a height of roughly <strong>0.8 m</strong>.</p></div>
+</div>
+<div class="motion-toolbar"><span>Candidate path · schematic</span><button class="motion-toggle" type="button" hidden>Play animation</button></div>
+<figcaption>The scale depends on identifying both the return and its timing reference.</figcaption>
+</figure>
 <p>The saved value is <code>0.807 m</code>, which looks more authoritative than it deserves. I have not independently checked the arrival used as the timing reference or measured the height with a tape. For now, the room inherits an approximate ruler.</p>
 
 <h2 id="shape">Moving the sofa in software</h2>
@@ -59,6 +94,12 @@
 <p>In one version, the depth model put the sofa about 1.5 metres from the camera. Placing it from the line where it met the floor moved it to about 3 metres. Both constructions used the same assumed camera height. Changing the placement method had moved the front of the sofa by more than a metre.</p>
 <p>The dog gives me another way to question the surface. Where she stands, her feet should meet the floor. Across 2,255 detected foot directions, the merged depth disagreed with the assumed floor by a median 4.7%, compared with 5.2% for a simple merge. That is a useful consistency check, although it still shares the scale assumption and the detector's imperfect estimate of her feet.</p>
 <p>The wall distances have no equivalent independent check yet. You can orbit the model and recognize the room, but that familiar appearance leaves quite a lot unresolved.</p>
+
+<figure class="motion-figure model-motion" data-motion="The reconstructed room">
+<div class="motion-stage"><video muted loop playsinline preload="none" poster="../media/blog/room-orbit.jpg" width="720" height="640" data-src="../media/blog/room-orbit.mp4" aria-label="A short orbit of the textured room reconstruction, with gaps where surfaces are missing."></video></div>
+<div class="motion-toolbar"><span>The reconstructed surface</span><button class="motion-toggle" type="button" hidden>Play animation</button></div>
+<figcaption>The room is recognizable from another angle. The holes, displaced surfaces and provisional scale are part of the reconstruction too.</figcaption>
+</figure>
 
 <h2 id="acoustics">Scrambling the labels</h2>
 <p>The sound recordings changed when the head turned. I tried a ray model to explain those changes: given a pose and the room geometry, predict the echoes that ought to reach the microphone.</p>
@@ -69,6 +110,12 @@
 <h2 id="time">Keeping the observations</h2>
 <p>Once there is a place to store an observation, the map can accumulate a day. Each small surface patch holds its colour and the way its light changes over time. Logged dog detections leave a history on the floor. In the viewer, a time slider lets me move through those records.</p>
 <p>The heatmap has the camera's habits mixed into it. A corner that is rarely watched tells me little about how often the dog uses it. Even so, the places where she has repeatedly been seen are worth visiting when she disappears again.</p>
+
+<figure class="motion-figure model-motion" data-motion="The observation layer">
+<div class="motion-stage"><video muted loop playsinline preload="none" poster="../media/blog/time-layer.jpg" width="720" height="640" data-src="../media/blog/time-layer.mp4" aria-label="The room viewer with warm patches marking its observation layer across the floor."></video></div>
+<div class="motion-toolbar"><span>Observations on the floor</span><button class="motion-toggle" type="button" hidden>Play animation</button></div>
+<figcaption>The viewer's observation layer, laid over the reconstructed floor.</figcaption>
+</figure>
 <figure class="half"><img src="../media/blog/infrared.jpg" width="720" height="826" alt="The room shell with an exploratory near-infrared appearance layer, highlighting some surfaces in magenta." loading="lazy"><figcaption>The infrared appearance layer. I have not calibrated these colours against known materials.</figcaption></figure>
 <p>The infrared LEDs add another layer. Comparing frames with the light on and off helps isolate the camera's illumination; comparing that with visible light makes some plants, fabrics and fur stand out. Exposure and surface angle still complicate the comparison. I kept it in the viewer as something to inspect, without assigning material identities to the colours.</p>
 
