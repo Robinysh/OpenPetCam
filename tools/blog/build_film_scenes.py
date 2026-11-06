@@ -74,7 +74,7 @@ def main():
     receipt = {
         "source": "Original caption-free picture master",
         "source_sha256": MASTER_SHA256,
-        "published_film": "https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room.mp4",
+        "published_film": "https://openpetcam.com/media/openpetcam-4d-room.mp4",
         "published_film_sha256": PUBLIC_SHA256,
         "fps": 24,
         "frame_ranges": "Zero-based, start inclusive, end exclusive; original playback speed.",

@@ -7,7 +7,7 @@
 
 <p align="center"><b>A pet camera that knows your pet, and goes looking when they wander off.</b><br>
 OpenPetCam (Open Pet Cam) is open source. Runs on a small server you own. No subscription, no vendor cloud.<br>
-<a href="https://crimeacs.github.io/OpenPetCam/"><b>Website &amp; 60-second film →</b></a></p>
+<a href="https://openpetcam.com/"><b>Website &amp; 60-second film →</b></a></p>
 
 <p align="center">
   <a href="https://github.com/crimeacs/OpenPetCam/actions/workflows/ci.yml"><img src="https://github.com/crimeacs/OpenPetCam/actions/workflows/ci.yml/badge.svg" alt="CI"></a>

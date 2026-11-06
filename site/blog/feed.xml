@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <title>OpenPetCam blog</title>
-  <link href="https://crimeacs.github.io/OpenPetCam/blog/"/>
-  <link rel="self" href="https://crimeacs.github.io/OpenPetCam/blog/feed.xml"/>
-  <id>https://crimeacs.github.io/OpenPetCam/blog/</id>
+  <link href="https://openpetcam.com/blog/"/>
+  <link rel="self" href="https://openpetcam.com/blog/feed.xml"/>
+  <id>https://openpetcam.com/blog/</id>
   <updated>2026-11-06T17:49:01Z</updated>
   <author><name>OpenPetCam contributors</name></author>
   <entry>
     <title>A 4D model of the room using a stationary $12 camera and wave physics</title>
-    <link href="https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html"/>
-    <id>https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html</id>
+    <link href="https://openpetcam.com/blog/room-in-4d.html"/>
+    <id>https://openpetcam.com/blog/room-in-4d.html</id>
     <updated>2026-11-06T17:49:01Z</updated>
     <summary>How I used a camera sweep, a floor echo and neural depth estimates to build a rough 3D room, then added observations over time.</summary>
   </entry>

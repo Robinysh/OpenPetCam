@@ -21,4 +21,4 @@ Allow: /
 User-agent: Applebot-Extended
 Allow: /
 
-Sitemap: https://crimeacs.github.io/OpenPetCam/sitemap.xml
+Sitemap: https://openpetcam.com/sitemap.xml

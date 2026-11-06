@@ -1,7 +1,7 @@
 {
   "source": "Original caption-free picture master",
   "source_sha256": "14b419be6b33ac2fda1089664a54f0fd03bba00cae2dbb8ba897eafd9b3a62f2",
-  "published_film": "https://crimeacs.github.io/OpenPetCam/media/openpetcam-4d-room.mp4",
+  "published_film": "https://openpetcam.com/media/openpetcam-4d-room.mp4",
   "published_film_sha256": "1a3ca8945d7bce5f127ca61093b440cb2d9b8fdba151b93bf262195cd88dc5a6",
   "fps": 24,
   "frame_ranges": "Zero-based, start inclusive, end exclusive; original playback speed.",
