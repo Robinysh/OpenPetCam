@@ -24,7 +24,7 @@
 
 <header class="story-header">
 <p class="crumbs"><a href="../">OpenPetCam</a> / <a href="./">Build notes</a></p>
-<p class="story-date"><time datetime="2026-11-05">5 November 2026</time> · 6 minute read</p>
+<p class="story-date"><time datetime="2026-11-05">5 November 2026</time> · 7 minute read</p>
 <h1>Teaching a $12 pet camera where to look</h1>
 <p class="dek">I wanted the camera to remember the room after the dog had left the picture.</p>
 </header>
@@ -101,11 +101,12 @@
 <figcaption>The room is recognizable from another angle. The holes, displaced surfaces and provisional scale are part of the reconstruction too.</figcaption>
 </figure>
 
-<h2 id="acoustics">Scrambling the labels</h2>
-<p>The sound recordings changed when the head turned. I tried a ray model to explain those changes: given a pose and the room geometry, predict the echoes that ought to reach the microphone.</p>
-<p>The fit scored <strong>0.397</strong>. I then scrambled which head pose went with which recording and fitted it again. The scrambled labels scored <strong>0.402</strong>. Whatever the model had picked up, I had no evidence that it knew which way the camera was pointing.</p>
-<p>A more detailed wave simulation did not establish a reliable reconstruction either. An idealized propagation test says little about whether I have drawn the real housing and nearby counter correctly.</p>
-<p>Later recordings brought the problem closer to the instrument. Four shots in one capture can repeat extremely well, while separate captures at the same pose shift by as much as about 1.8 milliseconds. I need to understand that shift before combining recordings into a coherent acoustic survey. The responses vary with pose; explaining that variation is still unfinished work.</p>
+<h2 id="acoustics">Asking more of the waveform</h2>
+<p>The floor peak was a way to give the visual model a rough scale. What I want to attempt next is <a href="https://doi.org/10.1190/1.3238367">full waveform inversion</a>. Start with the room I have drawn, solve the acoustic wave equation for each shot, and adjust the model to account for the pressure traces the microphone recorded. The phase and amplitude matter: reflections overlap, reinforce one another and cancel. Those patterns carry information that a list of echo times leaves out.</p>
+<p>The early ray-model fit was a much narrower experiment. It scored <strong>0.397</strong> with the correct pose labels and <strong>0.402</strong> after I shuffled them. That fit had not earned a claim to recover geometry. It did not test the waveform inversion I want to do.</p>
+<p>The older wave simulation did not carry out that experiment either. Its comparison used waveform envelopes, discarding phase. A later one-plane fitter kept the signed waveforms, but used an analytic reflection model. These have helped expose problems in the setup; the room-scale wave-equation inversion is still ahead.</p>
+<p>One of those problems is timing. Four shots within one capture can repeat extremely well, while separate captures at the same pose shift by as much as about 1.8 milliseconds. The inversion needs a constrained account of the source, microphone and timing alongside the room. Otherwise it can move a wall to explain a late shot. Freely sliding every trace into a better fit would also remove travel-time differences I want the geometry to explain.</p>
+<p>I want to begin with one independently measured surface, deliberately put it in the wrong place in the input model, and ask the waveform fit to recover it. Whole poses and separate capture sessions would stay out of the fit until I test its predictions. A model that only adjusts the instrument response belongs alongside it as a comparison. That would give me a first test of whether moving the surface explains something the instrument alone cannot.</p>
 
 <h2 id="time">Keeping the observations</h2>
 <p>Once there is a place to store an observation, the map can accumulate a day. Each small surface patch holds its colour and the way its light changes over time. Logged dog detections leave a history on the floor. In the viewer, a time slider lets me move through those records.</p>
