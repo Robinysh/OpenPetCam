@@ -1,0 +1,7 @@
+FROM --platform=linux/amd64 debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
+# See the private build receipt for resolved package versions and image identity.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential ca-certificates git curl file wget cmake pkg-config \
+    autoconf automake libtool python3 rsync unzip xz-utils bc bison flex cpio patch \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /work
