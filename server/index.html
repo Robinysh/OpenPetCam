@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#F6F8FF">
 <link rel="stylesheet" href="/themes.css">
+<link rel="stylesheet" href="/requests.css?v={{BUILD}}">
 <script>/* the chosen theme before first paint; theme-app.js resolves the rest */try{var p=JSON.parse(localStorage.getItem("openpetcam.theme.preferences.v1")||"{}"),d=document.documentElement;d.setAttribute("data-opc-theme",{cobalt:1,golden:1,meadow:1}[p.theme]?p.theme:"cobalt");if(p.appearance==="light"||p.appearance==="dark")d.setAttribute("data-opc-mode",p.appearance)}catch(e){}</script>
 <script type="module" src="/theme-app.js"></script>
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -716,20 +717,33 @@
 </div>
 
 <div class="sheet-bg hidden" id="report-sheet">
-  <div class="sheet chat" role="dialog" aria-label="Your agent">
-    <div class="chat-head">
-      <div><h3>Your agent</h3><div class="note" id="report-shown" style="margin:0"></div></div>
+  <div class="sheet requests-sheet" id="report-dialog" role="dialog" aria-modal="true" aria-labelledby="requests-title" tabindex="-1">
+    <div class="requests-head">
+      <h3 id="requests-title">Your requests</h3>
+      <div class="requests-head-actions">
+      <button class="btn primary" id="report-new" type="button">New request</button>
       <button class="iconbtn" id="report-cancel" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
     </div>
-    <div class="row" style="justify-content:space-between;margin:0 2px 6px">
-      <span class="note" id="report-history" style="margin:0"></span>
-      <button class="linkbtn hidden" id="report-older" type="button">Load older requests</button>
+    <label class="request-search-label" id="report-search-label" for="report-search">Search requests
+      <input class="field" id="report-search" type="search" placeholder="Find a request or requested change…">
+    </label>
+    <div class="requests-summary">
+      <span id="report-history" role="status"></span>
+      <button class="linkbtn hidden" id="report-retry" type="button">Retry loading</button>
     </div>
-    <div class="thread" id="report-list" aria-live="polite"></div>
-    <div class="note" id="report-status" style="margin:0 2px 6px"></div>
-    <div class="composer">
-      <textarea class="field" id="report-note" rows="1" maxlength="2000" placeholder="What looks wrong?" aria-label="What looks wrong?"></textarea>
+    <div class="request-tabs" id="report-tabs" role="group" aria-label="Request columns"></div>
+    <div class="request-board" id="report-list" role="region" aria-label="Request board"></div>
+    <div class="request-detail hidden" id="report-detail"></div>
+    <p class="requests-status" id="report-status" role="status"></p>
+    <div class="report-compose hidden" id="report-compose">
+      <label for="report-note">What looks wrong, or what would you like changed?</label>
+      <div class="composer">
+      <textarea class="field" id="report-note" rows="2" maxlength="2000" placeholder="Describe the request…"></textarea>
       <button class="send" id="report-send" type="button" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
+      </div>
+      <div class="note" id="report-shown"></div>
+      <button class="linkbtn" id="report-compose-cancel" type="button">Cancel</button>
     </div>
   </div>
 </div>
@@ -741,6 +755,7 @@
   <video id="player-video" playsinline controls autoplay></video>
 </div>
 
+<script src="/requests.js?v={{BUILD}}"></script>
 <script>
 "use strict";
 const PET = {{PET_JS}};
@@ -949,7 +964,6 @@ function petText(l) {
   return [l.last_seen ? `Not in view · seen ${ago(l.last_seen)}` : `${PET.name} isn't in view`, ""];
 }
 // "Something wrong?": freeze what the app shows right now, then send it with a note.
-let reportSnap = null;
 function clientState() {
   const v = $("live");
   return {
@@ -961,103 +975,8 @@ function clientState() {
     recent_errors: clientErrors.slice(-10),
   };
 }
-$("report-open").onclick = () => {
-  track("sheet", { name: "report" });
-  reportSnap = clientState();
-  $("report-shown").textContent = `The app shows: ${reportSnap.shown_status}${reportSnap.shown_health ? " · " + reportSnap.shown_health : ""}`;
-  $("report-status").textContent = ""; $("report-send").disabled = false;
-  $("report-sheet").classList.remove("hidden");
-  reportItems = []; reportNext = null; reportExpanded = false;
-  loadReports(true);
-};
-$("report-cancel").onclick = () => $("report-sheet").classList.add("hidden");
-$("report-sheet").addEventListener("click", (e) => { if (e.target.id === "report-sheet") $("report-sheet").classList.add("hidden"); });
-$("report-note").addEventListener("input", (e) => { const t = e.target; t.style.height = "auto"; t.style.height = `${Math.min(120, t.scrollHeight)}px`; });
-function replyStatus(rep, status) {
-  if (status && status.label) {
-    const cls = { done: "fixed", in_progress: "coming", not_started: "look", needs_review: "needs", needs_hardware: "needs" };
-    return [cls[status.state] || "needs", status.label];
-  }
-  if (!rep || rep.status !== "answered") return ["look", "Looking…"];
-  const f = (rep.fix && rep.fix.status) || "";
-  if (/Your call:/.test(rep.text || "")) return ["needs", "Needs you"];
-  if (f === "live") return ["needs", "Needs review"];
-  if (f === "queued" || f === "planned") return ["coming", "Fix coming"];
-  if (f === "error" || f === "failed_checks" || f === "rolled_back") return ["needs", "Not fixed yet"];
-  return ["needs", "Needs review"];
-}
-let reportPoll = null, reportItems = [], reportNext = null, reportTotal = 0, reportExpanded = false, reportLoading = false;
-async function loadReports(scroll, older = false) {
-  if (reportLoading || (older && !reportNext)) return;
-  reportLoading = true; $("report-older").disabled = true;
-  const box = $("report-list");
-  let page;
-  try { page = await api(`/api/reports?page=1&limit=20${older ? `&before=${encodeURIComponent(reportNext)}` : ""}`); }
-  catch (e) { $("report-status").textContent = `Couldn't load: ${e.message}`; return; }
-  finally { reportLoading = false; $("report-older").disabled = false; }
-  const incoming = Array.isArray(page) ? page : page.reports || [];
-  if (older) reportExpanded = true;
-  if (older || !reportExpanded) reportNext = Array.isArray(page) ? null : page.next_before;
-  reportTotal = Array.isArray(page) ? page.length : page.total;
-  const merged = new Map(reportItems.map((r) => [r.id, r]));
-  incoming.forEach((r) => merged.set(r.id, r));
-  reportItems = [...merged.values()];
-  const rs = reportItems.slice().sort((a, b) => a.ts - b.ts);
-  const oldHeight = box.scrollHeight, oldTop = box.scrollTop;
-  $("report-history").textContent = `${rs.length} of ${reportTotal} requests`;
-  $("report-older").classList.toggle("hidden", !reportNext);
-  box.innerHTML = "";
-  if (!rs.length) { const m = document.createElement("div"); m.className = "msg agent"; m.textContent = `Tell me what looks wrong and I'll check the video and fix what I can.`; box.appendChild(m); }
-  const when = (ts) => new Date(ts * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
-  let waiting = false;
-  for (const r of rs) {
-    const me = document.createElement("div"); me.className = "msg me";
-    me.textContent = r.note || "(no note)";
-    const mm = document.createElement("span"); mm.className = "meta"; mm.textContent = `${when(r.ts)}${r.by ? " · " + r.by : ""}`; me.appendChild(mm);
-    box.appendChild(me);
-    const rep = r.reply || {}, [cls, label] = replyStatus(rep, r.status);
-    const ag = document.createElement("div"); ag.className = "msg agent";
-    if (label) { const st = document.createElement("span"); st.className = `stat ${cls}`; st.textContent = label; ag.appendChild(st); ag.appendChild(document.createElement("br")); }
-    if (r.status && r.status.reason) { const why = document.createElement("div"); why.className = "note"; why.textContent = r.status.reason; ag.appendChild(why); }
-    ag.append(rep.status === "answered" ? rep.text : "Checking the video from that moment.");
-    const components = r.resolution && r.resolution.components || [];
-    if (components.length) {
-      const parts = document.createElement("ul"); parts.className = "note";
-      const labels = { done: "Done", in_progress: "In progress", not_started: "Not started", needs_review: "Needs review", needs_hardware: "Needs hardware" };
-      components.forEach((c) => {
-        const part = document.createElement("li"); part.textContent = `${c.title || c.id}: ${labels[c.state] || "Needs review"}`;
-        if (c.reason) { const why = document.createElement("p"); why.textContent = c.reason; part.appendChild(why); }
-        if (Array.isArray(c.evidence) && c.evidence.length) {
-          const detail = document.createElement("details"), summary = document.createElement("summary"), checks = document.createElement("ul");
-          summary.textContent = "Evidence and limitations"; detail.appendChild(summary);
-          c.evidence.forEach((text) => { const check = document.createElement("li"); check.textContent = String(text); checks.appendChild(check); });
-          detail.appendChild(checks); part.appendChild(detail);
-        }
-        parts.appendChild(part);
-      });
-      ag.appendChild(parts);
-    }
-    if (r.status ? ["in_progress", "not_started"].includes(r.status.state) : rep.status !== "answered") waiting = true;
-    box.appendChild(ag);
-  }
-  if (older) box.scrollTop = oldTop + box.scrollHeight - oldHeight;   // keep the same request in view as older ones prepend
-  else if (scroll !== false) box.scrollTop = box.scrollHeight;
-  clearTimeout(reportPoll);   // while a reply is pending and the chat is open, check again every 20 s
-  if (waiting && !$("report-sheet").classList.contains("hidden")) reportPoll = setTimeout(() => loadReports(), 20000);
-}
-$("report-older").onclick = () => loadReports(false, true);
-$("report-send").onclick = async () => {
-  const note = $("report-note").value.trim();
-  if (!note) { $("report-note").focus(); return; }
-  $("report-send").disabled = true; $("report-status").textContent = "";
-  try {
-    await api("/api/report", { note, client: reportSnap || clientState() });
-    $("report-note").value = ""; $("report-note").style.height = "";
-    track("report_sent");
-    await loadReports(true);
-  } catch (e) { $("report-status").textContent = `Couldn't send: ${e.message}`; }
-  $("report-send").disabled = false;
-};
+const requestBoard = OpenPetRequests.mount({ api, snapshot: clientState, onSent: () => track("report_sent") });
+$("report-open").onclick = () => { track("sheet", { name: "requests" }); requestBoard.open(); };
 
 // Live status is pushed (server-sent events); polling every 2 s is only the fallback.
 let liveES = null, esFails = 0, esLastMsg = 0;
@@ -1308,7 +1227,7 @@ function stickEnd() {
 stick.addEventListener("pointerup", stickEnd);
 stick.addEventListener("pointercancel", stickEnd);
 document.addEventListener("keydown", (e) => {
-  if (curTab !== "live" || document.activeElement.tagName === "INPUT") return;
+  if (curTab !== "live" || document.querySelector(".sheet-bg:not(.hidden)") || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
   const map = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
   if (map[e.key]) { e.preventDefault(); api("/api/nudge", { vx: map[e.key][0] * 0.8, vy: map[e.key][1] * 0.8 }).catch(() => {}); }
 });

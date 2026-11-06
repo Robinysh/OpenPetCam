@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import petconf
 import roomapi
+import requestboard
 
 STATE_DIR = petconf.STATE
 
@@ -1612,7 +1613,6 @@ def list_reports(limit=20):
 def report_page(limit=20, before=None):
     """Read all request ages through stable ID cursors; resolution is separate from replies."""
     import re
-    import reportstate
     limit = int(limit)
     if not 1 <= limit <= 100:
         raise ValueError("report limit must be 1..100")
@@ -1627,20 +1627,9 @@ def report_page(limit=20, before=None):
     selected = remaining[:limit]
     for rid in selected:
         try:
-            with open(f"{REPORTS_DIR}/{rid}/report.json") as f:
-                r = json.load(f)
-        except (OSError, ValueError):
+            out.append(requestboard.load(REPORTS_DIR, rid))
+        except (OSError, ValueError, TypeError):
             continue
-        def optional(name):
-            try:
-                with open(f"{REPORTS_DIR}/{rid}/{name}.json") as f:
-                    return json.load(f)
-            except (OSError, ValueError):
-                return None
-        reply, resolution = optional("reply"), optional("resolution")
-        out.append({"id": rid, "ts": r.get("ts"), "by": r.get("by"), "note": r.get("note"),
-                    "shown": (r.get("client") or {}).get("shown_status"), "reply": reply,
-                    "resolution": resolution, "status": reportstate.classify(r, reply, resolution)})
     return {"reports": out, "total": len(ids),
             "next_before": selected[-1] if len(remaining) > len(selected) else None}
 
@@ -1897,6 +1886,9 @@ class Handler(BaseHTTPRequestHandler):
             if q.get("page") == "1":
                 return self.camera_call(report_page, q.get("limit", 20), q.get("before"))
             return self.send_json(200, list_reports())
+        if path in ("/requests.js", "/requests.css"):
+            ctype = "text/css; charset=utf-8" if path.endswith(".css") else "text/javascript; charset=utf-8"
+            return self.send(200, read_file(path[1:]), ctype)
         if path == "/api/agent":
             return self.send_json(200, agent_dashboard())
         if path == "/api/version":
@@ -2005,6 +1997,18 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, AssertionError):
             return self.send_json(400, {"error": "bad json"})
         me = (self.device() or {}).get("id")
+        if path == "/api/reports/move":
+            try:
+                row = requestboard.move(REPORTS_DIR, body.get("id"), body.get("state"),
+                                        body.get("revision"), (self.device() or {}).get("name", "Owner"),
+                                        body.get("reason", ""))
+                return self.send_json(200, row)
+            except requestboard.Conflict as e:
+                return self.send_json(409, {"error": str(e)})
+            except FileNotFoundError:
+                return self.send_json(404, {"error": "This request no longer exists."})
+            except (ValueError, TypeError) as e:
+                return self.send_json(400, {"error": str(e)})
         if path == "/api/pet":     # the pet's name and pronoun, set from the app (first open or Settings)
             try:
                 return self.send_json(200, petconf.save_pet(body.get("name"), body.get("pronoun")))
