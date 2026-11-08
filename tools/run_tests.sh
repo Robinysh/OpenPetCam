@@ -65,4 +65,19 @@ timeout 120 python3 tests/sim/acoustic_volume_test.py
 timeout 120 python3 tests/sim/acoustic_device_native_test.py
 timeout 120 python3 tests/sim/acoustic_device_io_test.py
 timeout 120 python3 tests/sim/acoustic_device_decode_test.py
+timeout 120 python3 tests/sim/acoustic_localization_adaptive_test.py
+timeout 120 python3 tests/sim/acoustic_localization_bearing_test.py
+timeout 120 python3 tests/sim/acoustic_localization_data_test.py
+timeout 120 python3 tests/sim/acoustic_localization_development_test.py
+timeout 120 python3 tests/sim/acoustic_localization_exact_oracle_test.py
+timeout 120 python3 tests/sim/acoustic_localization_experiment_test.py
+timeout 120 python3 tests/sim/acoustic_localization_fresh_stress_test.py
+timeout 120 python3 tests/sim/acoustic_localization_harmonic_test.py
+timeout 120 python3 tests/sim/acoustic_localization_identifiability_test.py
+timeout 120 python3 tests/sim/acoustic_localization_pipeline_test.py
+timeout 120 python3 tests/sim/acoustic_localization_real_test.py
+timeout 120 python3 tests/sim/acoustic_localization_resolution_test.py
+timeout 120 python3 tests/sim/acoustic_localization_sensitivity_test.py
+timeout 120 python3 tests/sim/world_acoustic_room_test.py
+timeout 120 python3 tests/sim/world_mount_geometry_test.py
 echo "all offline tests passed"
