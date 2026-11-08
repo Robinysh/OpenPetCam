@@ -69,6 +69,7 @@ FOLLOW_PPO = "/opt/petcam/models/follow_ppo.onnx"         # a recurrent PPO poli
 POLICY_OVERRIDE = f"{STATE}/policy_override"   # "<arm> <unix expiry>": force learned/ppo for a live smoke test, expires itself
 REPORTS = f"{STATE}/reports"                         # "Something wrong?" reports from the app
 CANDIDATES = f"{STATE}/candidates"                  # frames with dog-like things, for the next bootstrap
+MARKS = f"{STATE}/marks"                            # the owner's "she is here" taps (app.py mark_pet), labels
 SEARCHES = f"{STATE}/searches"                      # what each search saw, to label Find right/wrong (tools/search_review.py)
 SEARCH_FRAMES_MAX = 24                              # frames kept per search: the first at every stop, and every sighting
 ZONES = f"{STATE}/zones.json"                       # written by the web app
@@ -169,7 +170,7 @@ BLOCKED_FRACTION = 0.8
 WEAK_MIN = 0.15               # a dog-like box the verifier scored at least this (but under its cut-off) may keep an
                               # existing Follow track going (tracker.py WEAK_MAX); her toys score ~0.00 and never do
 MOTION_DETECT = 1.6           # mean pixel change (0-255, 160x90 gray) that triggers a detector run; IR grain alone is 0.5-1.1
-RETAIN = {"snaps_days": 14, "clips_days": 30, "clips_gb": 4.0, "obs_days": 30, "timelapse_days": 365, "highlights_days": 90, "searches_days": 21}
+RETAIN = {"snaps_days": 14, "clips_days": 30, "clips_gb": 4.0, "obs_days": 30, "timelapse_days": 365, "highlights_days": 90, "searches_days": 21, "marks_days": 180}
 
 
 def infrared(jpg):
@@ -1161,6 +1162,7 @@ def housekeeping():
     prune_dirs(SNAPS, RETAIN["snaps_days"])
     prune_dirs(CANDIDATES, RETAIN["clips_days"])
     prune_dirs(SEARCHES, RETAIN["searches_days"])
+    prune_dirs(MARKS, RETAIN["marks_days"])
     if SOUNDFIND is not None:
         try:
             SOUNDFIND.prune()

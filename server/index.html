@@ -68,6 +68,7 @@
   .reticle.go { animation:aim .7s ease-out forwards; }
   @keyframes aim { 0% { opacity:.95; } 70% { opacity:.95; } 100% { opacity:0; } }
   .hint { text-align:center; color:var(--muted); font-size:12px; margin:8px 0 0; }
+  #stage.marking { outline:3px dashed var(--accent, #f5a524); outline-offset:-3px; }
   .linkbtn { background:none; border:0; color:var(--muted); font:inherit; text-decoration:underline; padding:6px 4px; min-height:32px; }
 
   /* ---------- controls ---------- */
@@ -480,6 +481,7 @@
   </div>
   <div class="note center hidden" id="privacy-note" role="status" aria-live="polite"></div>
   <div class="note center" id="move-note"></div>
+  <div class="note center hidden" id="mark-bar">Tap {{PET}} in the picture · <button class="linkbtn" id="mark-absent" type="button">Not in this picture</button> · <button class="linkbtn" id="mark-cancel" type="button">Cancel</button></div>
 
   <div class="controls">
     <button class="round talk talk-hold" id="talk-btn" type="button" aria-label="Hold to talk to {{PET}}">
@@ -507,7 +509,7 @@
     <div class="chips strip" id="zones" style="margin-top:8px"></div>
     <div class="note">Zones count {{PET_POSS}} water, food and bed visits when the camera is at the view they were drawn on.</div>
   </div>
-  <p class="hint">Tap the picture to look there · hold the stick to move · <button class="linkbtn" id="report-open" type="button">Something wrong?</button> · <button class="linkbtn" id="monitoring-open" type="button">Monitoring</button></p>
+  <p class="hint">Tap the picture to look there · hold the stick to move · <button class="linkbtn" id="mark-open" type="button">Mark {{PET}}</button> · <button class="linkbtn" id="report-open" type="button">Something wrong?</button> · <button class="linkbtn" id="monitoring-open" type="button">Monitoring</button></p>
 </main>
 
 <!-- ======================= TODAY ======================= -->
@@ -1260,6 +1262,26 @@ function drawBox(b) {
   el.classList.add("on");
 }
 
+// ======================= mark the pet =======================
+// "Mark Sandy": the next tap on the picture labels where she is instead of aiming the camera (or "not in this
+// picture"). The server saves the frame with the tap as training data; it never moves the camera.
+let marking = false;
+function setMarking(on) {
+  marking = on; $("mark-bar").classList.toggle("hidden", !on); $("stage").classList.toggle("marking", on);
+  if (on) track("mark", { open: true });
+}
+async function sendMark(body) {
+  setMarking(false);
+  try {
+    const j = await api("/api/mark", body);
+    toast(j.label === "absent" ? "Saved: not in this picture. Thanks!" :
+      j.missed ? `Saved. I missed ${PET.name} there; this helps me learn.` : `Saved. Thanks for marking ${PET.name}!`);
+  } catch (err) { $("move-note").textContent = err.message; }
+}
+$("mark-open").onclick = () => setMarking(!marking);
+$("mark-cancel").onclick = () => setMarking(false);
+$("mark-absent").onclick = () => sendMark({ absent: true });
+
 // ======================= tap to aim =======================
 $("touch").addEventListener("click", async (e) => {
   const v = videoRect(), s = v.s;
@@ -1268,6 +1290,7 @@ $("touch").addEventListener("click", async (e) => {
   const r = $("reticle");
   r.style.left = `${e.clientX - s.left}px`; r.style.top = `${e.clientY - s.top}px`;
   r.classList.remove("go"); void r.offsetWidth; r.classList.add("go");
+  if (marking) return sendMark({ fx, fy });
   try { await api("/api/aim", { fx, fy }); $("move-note").textContent = ""; } catch (err) { $("move-note").textContent = err.message; }
 });
 

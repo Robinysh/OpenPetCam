@@ -1925,6 +1925,63 @@ def file_report(device_id, device_name, body):
     return {"id": rid}
 
 
+# ---------- owner marks: "she is HERE" (or "she isn't in this picture") ----------
+# The detector's complete misses never reach training data: watch.py saves a candidate frame only when it proposed
+# an animal. A mark is the owner's own label for the current picture: where the pet is, or that she is absent.
+# Labels only: a mark never changes presence or moves the camera. Bounded: one per device every MARK_MIN_GAP_S,
+# at most MARK_MAX_PER_DAY a day; watch.py prunes the folder after RETAIN["marks_days"].
+MARKS_DIR = f"{STATE_DIR}/marks"
+MARK_MIN_GAP_S = 5
+MARK_MAX_PER_DAY = 200
+_mark_last = {}            # device id -> ts of its last mark
+
+
+def mark_pet(device_id, device_name, body):
+    """Save the live picture with the owner's tap on it. body: {"fx", "fy"} as /api/aim (-0.5..0.5 from the
+    centre of the picture), or {"absent": true}. Returns the saved mark's id."""
+    absent = body.get("absent") is True
+    point = None
+    if not absent:
+        try:
+            fx, fy = float(body.get("fx")), float(body.get("fy"))
+        except (TypeError, ValueError):
+            raise ValueError("Tap where she is in the picture")
+        if not (abs(fx) <= 0.5 and abs(fy) <= 0.5):
+            raise ValueError("That tap is outside the picture")
+        point = [round(fx + 0.5, 4), round(fy + 0.5, 4)]     # 0..1 from the top-left corner, like detector boxes
+    t = time.time()
+    if t - _mark_last.get(device_id, 0) < MARK_MIN_GAP_S:
+        raise Busy("Saved a moment ago. Try again in a few seconds.")
+    day = time.strftime("%Y-%m-%d", time.localtime(t))
+    d = f"{MARKS_DIR}/{day}"
+    try:
+        today = sum(1 for n in os.listdir(d) if n.endswith(".json"))
+    except OSError:
+        today = 0
+    if today >= MARK_MAX_PER_DAY:
+        raise Busy(f"That's {MARK_MAX_PER_DAY} marks today, enough to learn from. Thank you!")
+    frame = live_frame()                 # raises while the camera is paused: no picture, no mark
+    _mark_last[device_id] = t
+    try:
+        pose = list(position())
+    except Exception:  # noqa: BLE001 - the label is still useful without the motor position
+        pose = None
+    live = read_live()
+    mid = time.strftime("%H%M%S", time.localtime(t)) + f"-{int((t % 1) * 1000):03d}"
+    os.makedirs(d, exist_ok=True)
+    with open(f"{d}/{mid}.jpg", "wb") as f:
+        f.write(frame)
+    rec = {"id": f"{day}/{mid}", "ts": t, "by": device_name, "device": device_id,
+           "label": "absent" if absent else "pet", "point": point, "pose": pose,
+           # what the watcher believed at that moment: a "pet" mark over present=False is a detector miss
+           "watch": {k: live.get(k) for k in ("present", "status", "score", "box", "det_t", "last_seen")}}
+    with open(f"{d}/{mid}.json", "w") as f:
+        json.dump(rec, f)
+    missed = not absent and not live.get("present")
+    print(f"mark: {rec['label']} at {point} by {device_name}{' (detector missed her)' if missed else ''}", flush=True)
+    return {"id": rec["id"], "label": rec["label"], "missed": missed}
+
+
 def list_reports(limit=20):
     """Compatibility list; paginated clients use report_page to reach older requests."""
     return report_page(limit)["reports"]
@@ -2374,6 +2431,7 @@ class Handler(BaseHTTPRequestHandler):
         routes = {
             "/api/report": lambda: file_report(me or "legacy", (self.device() or {}).get("name", "Someone"), body),
             "/api/report/hold": lambda: hold_report_frame(me or "legacy"),
+            "/api/mark": lambda: mark_pet(me or "legacy", (self.device() or {}).get("name", "Someone"), body),
             "/api/find": lambda: request_find(),
             "/api/find/cancel": lambda: cancel_find(),
             "/api/aim": lambda: aim(body.get("fx", 0), body.get("fy", 0)),
