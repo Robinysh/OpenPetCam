@@ -52,6 +52,7 @@
   .badge { position:absolute; top:10px; right:10px; z-index:3; display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px;
            background:var(--scrim); color:var(--on-video); font-size:12px; font-weight:700; letter-spacing:.04em; pointer-events:none; }
   .badge i { width:8px; height:8px; border-radius:50%; background:var(--live); }
+  .badge.down i { background:var(--dim); }
   .pet-pill { position:absolute; left:10px; bottom:10px; z-index:3; display:flex; align-items:center; gap:7px; padding:6px 12px;
                 border-radius:999px; background:var(--scrim); color:var(--on-video); font-size:13px; font-weight:650; pointer-events:none; }
   .pet-pill i { width:9px; height:9px; border-radius:50%; background:var(--opc-video-unseen); }
@@ -959,6 +960,9 @@ function petText(l) {
   if (l.status === "privacy") return ["Camera paused", ""];
   // Watcher silent >20 s: whatever it last said is stale, so don't claim she's away (report 2026-11-02 20:04).
   if (l.status === "watcher_down") return [`Can't tell where ${PET.name} is right now`, ""];
+  // No picture: the camera can't see her, so "out of sight" would claim she left (report 2026-11-05 21:26).
+  if (l.status === "offline" || l.status === "frozen")
+    return [l.last_seen ? `${PET.name} · last seen ${ago(l.last_seen)}` : `Can't see ${PET.name} right now`, ""];
   // A Follow search is sweeping the room: say so, or the camera seems to move on its own (report 2026-11-03 07:41).
   // It holds the camera still while it judges a view; "Looking" over a motionless picture read as stuck (report 2026-11-05 22:35).
   if (l.searching) {
@@ -1034,6 +1038,8 @@ function renderLive(l) {
     live.status === "offline" ? "Camera offline" : live.status === "watcher_down" ? "Watcher not running" :
     live.view_blocked ? "View blocked: check the camera" : "";
   $("health").textContent = bad; $("health").classList.toggle("hidden", !bad);
+  const [badge, down] = badgeState(live, $("live"));
+  $("live-badge").querySelector("span").textContent = badge; $("live-badge").classList.toggle("down", down);
   renderLiveBox();
   $("doing-sub").textContent = doingSub(live);
   renderModes(live && live.imaging);
@@ -1041,6 +1047,15 @@ function renderLive(l) {
   if (live && live.settings && Date.now() - followPending > 4000) showFollow(live.settings.follow);
   if (live && live.settings && document.activeElement !== $("talk-vol")) showTalkVol(live.settings.talk_volume);
   renderPrivacy(live);
+}
+// "LIVE" only while the camera is up and this phone has a picture; it said LIVE under "Camera offline"
+// (report 2026-11-05 21:26: status offline, WebRTC connected, video readyState 0).
+function badgeState(l, v) {
+  if (!l) return ["NO SERVER", true];
+  if (l.status === "offline") return ["OFFLINE", true];
+  if (l.status === "frozen") return ["FROZEN", true];
+  if (v && Number.isFinite(v.readyState) && v.readyState < 2) return ["CONNECTING", true];
+  return ["LIVE", false];
 }
 function visibleBox(l) {
   if (!l || l.status !== "ok" || !l.present || !Array.isArray(l.box) || l.box.length !== 4 ||

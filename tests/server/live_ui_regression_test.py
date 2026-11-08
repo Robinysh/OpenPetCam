@@ -110,7 +110,7 @@ console.log(JSON.stringify({owned:whepUrl, deleted, peers:peers.length}));''')
 
     def status(self, record, action="renderLive(input);"):
         src = HTML.read_text()
-        definitions = "".join(function(src, name, optional=True) for name in ["visibleBox", "renderLiveBox", "renderLive"])
+        definitions = "".join(function(src, name, optional=True) for name in ["badgeState", "visibleBox","renderLiveBox", "renderLive"])
         resize = re.search(r'window.addEventListener\("resize", (.*?)\);', src).group(1)
         return node(r'''
 let now = 1000000, live = null, draws = [], order = [], privacyPending = 0, followPending = 0;
