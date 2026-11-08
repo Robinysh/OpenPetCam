@@ -288,7 +288,11 @@ def crops(d):
     for name, path in frames:
         if not os.path.exists(path):
             continue
-        im = Image.open(path).convert("RGB")
+        try:
+            im = Image.open(path).convert("RGB")
+        except Exception as e:  # noqa: BLE001 - report 20261105-212631: the camera was offline, frame.jpg is not an image;
+            log("crops: skipped unreadable", name, type(e).__name__)   # the report still needs its diagnosis
+            continue
         for f in det.detect(im, min_score=0.10):
             if f["label"] == "person":
                 continue
