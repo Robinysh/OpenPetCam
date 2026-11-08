@@ -61,6 +61,15 @@ MODEL_DYN = "/opt/petcam/models/yolox_nano_dyn.onnx"   # the same weights with a
 DETECT_RECT = True    # run the detector at 256x416 (the 16:9 frame without square padding): same answers on 389 recorded
                       # frames with her and 242 without, 37% less detector time (sim/world/detcost.py).
                       # Without that model file (a GitHub release ships no models) the square input runs, as before.
+# A second look at the frame's native size (640x360 -> 384x640) when the usual 256x416 pass found no pet but she was
+# verified within NATIVE_RECENT s or a search is on. The detector downscales the frame otherwise, and a lying or
+# partly cut-off dog loses the pixels it needs. On 40 of the watcher's own minute pictures (2026-11-08, labelled by eye
+# blind to the detector): she was found in 19 of 28 frames with her at 256x416 and 25 of 28 with the second look,
+# with 0 of 12 empty frames accepted; on 134 frames labelled with no pet the false accepts were 19 vs 18.
+# The cost falls only on misses while she is around (the verifier still decides every box).
+NATIVE_RECHECK = True
+NATIVE_SHAPE = (384, 640)
+NATIVE_RECENT = 120.0
 YAMNET_MODEL = "/opt/petcam/models/yamnet.tflite"
 VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.py
 ROOM_MAP = "/opt/petcam/models/room_map.json"         # from sim/world/find_map.py (this home's room model); optional
@@ -1226,7 +1235,8 @@ def pet_moving(prev_box, box, diff):
 
 class Watch:
     def __init__(self):
-        self.det = Detector(MODEL_DYN, shape=(256, 416)) if DETECT_RECT and os.path.exists(MODEL_DYN) else Detector(MODEL)
+        self.det_dynamic = DETECT_RECT and os.path.exists(MODEL_DYN)
+        self.det = Detector(MODEL_DYN, shape=(256, 416)) if self.det_dynamic else Detector(MODEL)
         try:
             self.verifier = Verifier()
             log(f"verifier: {self.verifier.cfg['mode']} threshold {self.verifier.threshold}")
@@ -2005,6 +2015,18 @@ class Watch:
             judged.append({"box": [round(v, 4) for v in f["box"]], "det": round(f["score"], 3), "p": round(p, 4)})
             if p >= thr and (best is None or p > best[0]):
                 best = (p, f["box"])
+        if best is None and NATIVE_RECHECK and getattr(self, "det_dynamic", False) \
+                and (self.tracker.searching or now() - (self.last_seen or 0) <= NATIVE_RECENT):
+            native = [f for f in self.det.detect(img, min_score=0.10, shape=NATIVE_SHAPE) if f["label"] != "person"]
+            for f in sorted(native, key=lambda f: -f["score"])[:3]:
+                p = self.verifier.prob(img, f["box"]) if self.verifier else f["score"]
+                judged.append({"box": [round(v, 4) for v in f["box"]], "det": round(f["score"], 3), "p": round(p, 4), "native": True})
+                if p >= thr and (best is None or p > best[0]):
+                    best = (p, f["box"])
+            self.native_rechecks = getattr(self, "native_rechecks", 0) + 1
+            self.native_found = getattr(self, "native_found", 0) + (best is not None)
+            if self.native_rechecks % 200 == 0:
+                log(f"native second look: found her in {self.native_found} of {self.native_rechecks} recent misses")
         if best is None and settled and self.tracker.searching and self.verifier:
             best = self.tiled_box(img, thr, judged)
         if self.tracker.searching:
