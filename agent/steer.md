@@ -17,4 +17,6 @@ Written by Claude Code when the owner says so in chat. The router reads this eve
 - 2026-11-02: Stay on the $5 server; profile and find smarter ways before asking for hardware or money.
 - 2026-11-02: Motor noise: no automatic moves near a resting dog until the noise is measured (full band). Talk is rare
   and stressful for the dog: never add sounds played to her.
+  (Measured full band 2026-11-08 11:31: at the automatic speed 250, 8-20 kHz +0.3 dB over the room; resting
+  recentring is on, once per rest. Measurement note, not new steering.)
 - 2026-11-02: Privacy: pause means picture and microphone off. Never weaken it.
