@@ -28,7 +28,7 @@
 <link rel="preload" href="fonts/snout-mono.woff2?v=2" as="font" type="font/woff2" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="site.css?v=type-2">
+<link rel="stylesheet" href="site.css?v=040">
 <script type="application/ld+json">
 {"@context":"https://schema.org","@graph":[
  {"@type":"WebSite","name":"OpenPetCam","alternateName":["Open Pet Cam","OpenPetCam pet camera"],"url":"https://openpetcam.com/"},
@@ -36,7 +36,7 @@
   "description":"Free, open-source, self-hosted pet camera software for Thingino Wi-Fi pan/tilt cameras: live video on your phone, automatic search for your pet, pet detection that ignores toys, daily activity and alerts, on a small server you own.",
   "applicationCategory":"MultimediaApplication","operatingSystem":"Ubuntu 24.04 server; web app for iPhone, Android and desktop",
   "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://www.apache.org/licenses/LICENSE-2.0",
-  "softwareVersion":"0.3.7","downloadUrl":"https://github.com/crimeacs/OpenPetCam/releases",
+  "softwareVersion":"0.4.0","downloadUrl":"https://github.com/crimeacs/OpenPetCam/releases",
   "codeRepository":"https://github.com/crimeacs/OpenPetCam","image":"https://openpetcam.com/media/share.png"},
  {"@type":"VideoObject","name":"OpenPetCam in 60 seconds","description":"The camera searches the room and finds the dog, tells her from her toy, and fixes itself when something is off.",
   "thumbnailUrl":"https://openpetcam.com/media/poster.jpg","uploadDate":"2026-11-03","duration":"PT1M1S",
@@ -60,7 +60,7 @@
 <nav class="nav">
   <a class="word" href="./" aria-label="OpenPetCam home"><img src="media/openpetcam-mark-color.svg" width="34" height="34" alt="">OpenPetCam</a>
   <div class="links">
-    <a href="#search">The search</a><a href="#setup">Set up</a><a href="#faq">FAQ</a><a href="blog/">Blog</a>
+    <a href="#search">The search</a><a href="#room">The room</a><a href="#setup">Set up</a><a href="#faq">FAQ</a><a href="blog/">Blog</a>
     <a class="star" href="https://github.com/crimeacs/OpenPetCam" data-track="nav">★ <span data-stars>Star</span></a>
   </div>
 </nav>
@@ -69,14 +69,14 @@
   <h1 class="mega felt">The pet cam that<br>finds your dog.</h1>
   <div class="hero-row">
     <p class="lede">OpenPetCam is a free, open pet cam: open-source software for a cheap pan/tilt Wi-Fi camera.
-      When your dog wanders out of view, the camera turns and goes looking for her, and the detector knows her from her toys.
-      Everything runs on a $5 server you own, so there's nothing to subscribe to.</p>
+      It follows your dog, goes looking when she wanders out of view, learns where her barks come from,
+      and knows her from her toys. Everything runs on a small server you own, so there's nothing to subscribe to.</p>
     <div class="get">
       <div class="term" data-section="hero">
         <code id="cmd-hero">git clone https://github.com/crimeacs/OpenPetCam.git &amp;&amp; cd OpenPetCam &amp;&amp; ./setup</code>
         <button type="button" data-copy="#cmd-hero">Copy</button>
       </div>
-      <p class="mono small">Apache-2.0 · v0.2.1 · <a href="https://github.com/crimeacs/OpenPetCam" data-track="hero-star">see the code on GitHub</a></p>
+      <p class="mono small">Apache-2.0 · <a href="#new">v0.4.0, what's new</a> · <a href="https://github.com/crimeacs/OpenPetCam" data-track="hero-star">see the code on GitHub</a></p>
     </div>
   </div>
   <figure class="vf">
@@ -101,7 +101,8 @@
     <h2 class="felt">She wandered off.<br>The camera went looking.</h2>
     <p>Out of view for a while? The camera sweeps the room on its own. The sweep starts where the lens already points,
       so the motor doesn't swing around for nothing, and stops the moment she's back in frame. Or tap <b>Find</b>.
-      This search took 12 seconds.</p>
+      This search took 12 seconds. While she's in view, <b>Follow</b> keeps her in the picture, and when she settles
+      down off-centre the camera recentres her once, at a speed measured to be quiet for her ears.</p>
   </div>
   <ol class="frames">
     <li><picture><source srcset="media/photos/search-1.webp" type="image/webp"><img src="media/photos/search-1.jpg" width="960" height="516" alt="The camera pointed at the food bowls" loading="lazy"></picture><span class="mono">out of view</span></li>
@@ -114,12 +115,29 @@
   </ol>
 </section>
 
+<section id="sound" class="sound" data-section="sound">
+  <div class="head">
+    <p class="mono tag">02 / by ear</p>
+    <h2 class="felt">A bark out of view.<br>It learns where from.</h2>
+    <p>Every room colours a sound in its own way: the walls near where she barks leave a fingerprint in it.
+      OpenPetCam learns those fingerprints from her own sounds, with no calibration, and the camera checks every lesson.</p>
+  </div>
+  <ol class="steps">
+    <li><span class="num felt">1</span><h3>Hear</h3><p>A bark or a whine while she's out of view. Speech and TV are skipped and never kept.</p></li>
+    <li><span class="num felt">2</span><h3>Guess</h3><p>The sound is matched against the ones heard when the camera <i>saw</i> where she was.</p></li>
+    <li><span class="num felt">3</span><h3>Check</h3><p>When the search finds her, that answer becomes the next lesson. Right or wrong, it's written down first.</p></li>
+  </ol>
+  <p class="mono small honest">The guess only gets to steer the search after it has beaten the usual search order on 15 real finds.
+    Until then it runs quietly in the background and keeps score. It's new in 0.4 and still learning on our camera.</p>
+</section>
+
 <section class="versus" data-section="verifier">
-  <p class="mono tag">02 / the toy problem</p>
+  <p class="mono tag">03 / the toy problem</p>
   <h2 class="felt">Dog-shaped isn't the same as <em>your dog</em>.</h2>
   <p class="why">A small detector flags anything that looks like a dog. Then a second model, trained on pictures from
       <em>your</em> camera, decides whether that's actually her. Same frame, two answers. Plush toys don't set off the search,
-      and they don't get counted in her day.</p>
+      and they don't get counted in her day. Wrong answer? Tap <b>Mark the pet</b> on the live view and show it where she is:
+      the next model learns from it.</p>
   <div class="vs">
     <figure class="zoom"><img src="media/photos/crop-toy.jpg" width="297" height="216" alt="Close-up of the black plush toy, enlarged from the camera frame" loading="lazy"><figcaption><span class="num felt">0.00</span><span class="mono">her toy · 4× zoom</span></figcaption></figure>
     <figure><img src="media/photos/crop-dog.jpg" width="900" height="791" alt="Close-up of the dog" loading="lazy"><figcaption><span class="num felt">0.99</span><span class="mono">her</span></figcaption></figure>
@@ -127,10 +145,10 @@
 </section>
 
 <section class="ledger" data-section="numbers">
-  <p class="mono tag">03 / running costs</p>
+  <p class="mono tag">04 / running costs</p>
   <dl>
-    <div><dt class="felt">$5</dt><dd>a month for the server. That's the whole bill.</dd></div>
-    <div><dt class="felt">5%</dt><dd>of one CPU core, on a 512 MB machine.</dd></div>
+    <div><dt class="felt">$5</dt><dd>a month for the server. That's the whole bill ($7 gives it room to spare).</dd></div>
+    <div><dt class="felt">512</dt><dd>MB of memory is enough. Idle, it uses about 6% of one CPU core.</dd></div>
     <div><dt class="felt">6h</dt><dd>of rolling video, kept on your server.</dd></div>
     <div><dt class="felt">0</dt><dd>ports opened at home. The camera dials out over WireGuard.</dd></div>
   </dl>
@@ -138,7 +156,7 @@
 
 <section class="day" data-section="day">
   <div class="head">
-    <p class="mono tag">04 / her day</p>
+    <p class="mono tag">05 / her day</p>
     <h2 class="felt">Her whole day,<br>minus the boring parts.</h2>
     <p><b>Today</b> lists the moments she was in view, her naps, when she was up and about, and every bark.
       The <b>Diary</b> keeps two weeks, with a highlight reel each night. Your phone gets a ping when she barks or sounds
@@ -152,9 +170,29 @@
   </div>
 </section>
 
+<section id="room" class="room" data-section="room">
+  <div class="head">
+    <p class="mono tag">06 / the room</p>
+    <h2 class="felt">A camera that can only turn<br>maps the room anyway.</h2>
+    <p>From one corner, with no second camera and no depth sensor, OpenPetCam builds a 3D model of the room
+      and fills it with where she spends her time. It's the research side of the project, and it's all in the repository.</p>
+  </div>
+  <div class="bento">
+    <figure class="big">
+      <video controls playsinline preload="none" poster="media/openpetcam-4d-room-poster.jpg" width="1080" height="1920">
+        <source src="media/openpetcam-4d-room.mp4" type="video/mp4">
+      </video>
+      <figcaption><b>The room in 4D.</b> Shape from the camera's own sweep, time from her week. <a href="blog/room-in-4d.html">How it's made →</a></figcaption>
+    </figure>
+    <div class="card"><p class="mono tag">calibration</p><h3>It calibrates itself</h3><p>The camera's own sweep gives its lens and motor geometry, checked on photos it never trained on. Re-mount it and the model follows.</p></div>
+    <div class="card"><p class="mono tag">sound</p><h3>A ruler made of sound</h3><p>Its speaker chirps and its microphone times the echo from the floor. That one number turns a shape into metres.</p></div>
+    <div class="card"><p class="mono tag">infrared</p><h3>Night vision, measured</h3><p>The infrared LEDs blink on and off between frames to show what reflects their light, and the app hides any view it can't yet trust.</p></div>
+  </div>
+</section>
+
 <section class="fixes" data-section="agent">
   <div class="head">
-    <p class="mono tag">05 / when the camera gets something wrong</p>
+    <p class="mono tag">07 / when the camera gets something wrong</p>
     <h2 class="felt">Report the mistake.<br>Get a fix by morning.</h2>
   </div>
   <ol class="comic">
@@ -162,15 +200,35 @@
       <p><b>1.</b> In the app, tap <b>Something wrong?</b> and describe what happened in plain words: <i>"the camera moved but didn't say why."</i></p></li>
     <li><img src="media/photos/felt-b.jpg" width="1600" height="898" alt="" loading="lazy">
       <p><b>2.</b> An optional agent on your computer reads the report and the video from that moment, then writes a fix and a test.
-        The fix ships only if checks the agent can't edit all pass, and the agent replies to you in the app.</p></li>
+        The fix ships only if checks the agent can't edit all pass. It doesn't wait for you to decide: you see each request
+        move across a board in the app, with the evidence for every answer.</p></li>
     <li><img src="media/photos/felt-c.jpg" width="1600" height="898" alt="" loading="lazy">
       <p><b>3.</b> A fix that has run well on your camera goes upstream as a pull request. Once that fix is in a release, every OpenPetCam installs the update overnight.</p></li>
   </ol>
   <p class="mono small">Felt scenes are illustrations. The agent runs with <a href="https://claude.com/claude-code">Claude Code</a>. The camera, app and alerts don't need the agent.</p>
 </section>
 
+<section class="firmware" data-section="firmware">
+  <p class="mono tag">08 / under the hood</p>
+  <div class="fw">
+    <div>
+      <h2 class="felt">We fixed the camera's clock.</h2>
+      <p>On this chip, the video encoder stamps a keyframe's three parts with one time, and the streamer counted
+        each part as its own frame. Recordings slowly ran ahead of their sound: 31.1 seconds of video for every 30 seconds of real time.
+        We traced it at the chip's own interface, patched the streamer, checked it on the camera for 11 minutes,
+        and <a href="https://github.com/themactep/prudynt-t/pull/53">offered the fix upstream</a>, so once it's merged every Thingino camera gets it.</p>
+      <p class="mono small"><a href="https://github.com/crimeacs/OpenPetCam/tree/main/tools/firmware/prudynt-timestamps">The write-up, tests and installer →</a></p>
+    </div>
+    <ul class="facts">
+      <li><span class="felt">+3.9%</span> clock drift before the fix</li>
+      <li><span class="felt">16,499</span> frames in the on-camera check, every one on time</li>
+      <li><span class="felt">0</span> changes to the firmware image: the fix runs from RAM and rolls itself back if a boot goes wrong</li>
+    </ul>
+  </div>
+</section>
+
 <section id="film" class="film" data-section="film">
-  <p class="mono tag">06 / one minute</p>
+  <p class="mono tag">09 / one minute</p>
   <video data-track controls playsinline preload="metadata" poster="media/poster.jpg" width="1280" height="720">
     <source src="media/openpetcam-film.webm" type="video/webm">
     <source src="media/openpetcam-film-720p.mp4" type="video/mp4">
@@ -180,7 +238,7 @@
 <section id="setup" class="setup" data-section="how">
   <div class="cam"><img src="media/photos/camera.jpg" width="1280" height="720" alt="The reference camera, a small white pan/tilt camera mounted under a counter" loading="lazy"></div>
   <div>
-    <p class="mono tag">07 / setup</p>
+    <p class="mono tag">10 / setup</p>
     <h2 class="felt">One evening, one camera, one command.</h2>
     <ul class="need">
       <li><b>A pan/tilt camera</b> that runs <a href="https://thingino.com">Thingino</a>, the open firmware. We use a Cinnado D1.</li>
@@ -200,24 +258,43 @@ cd OpenPetCam
   </div>
 </section>
 
+<section id="new" class="new" data-section="new">
+  <div class="new-head"><p class="mono tag">11 / what's new</p><a class="mono small" href="https://github.com/crimeacs/OpenPetCam/releases">All releases →</a></div>
+  <div class="cards">
+    <a class="note" href="https://github.com/crimeacs/OpenPetCam/releases"><p class="mono small">0.4.0 · Nov 8</p><h3>Find by sound, a fixed camera clock</h3><p>The camera learns where her sounds come from, recentres her when she settles, and records on time.</p></a>
+    <a class="note" href="https://github.com/crimeacs/OpenPetCam/releases"><p class="mono small">0.3.6 · Nov 5</p><h3>Scheduled sweeps</h3><p>The server photographs a set of views on its own, at night and by day, with no computer needed.</p></a>
+    <a class="note" href="https://github.com/crimeacs/OpenPetCam/releases"><p class="mono small">0.3.5 · Nov 5</p><h3>Re-mounts carried through</h3><p>Move the camera and its saved views, search stops and history are re-aimed to match.</p></a>
+    <a class="note" href="https://github.com/crimeacs/OpenPetCam/releases"><p class="mono small">0.3.4 · Nov 5</p><h3>No more chasing into walls</h3><p>Follow skips turns that would hit an end stop or face a wall, and comes back when a chase finds nothing.</p></a>
+  </div>
+</section>
+
 <section class="also" data-section="also">
-  <p class="mono tag">08 / also in there</p>
+  <p class="mono tag">12 / also in there</p>
   <ul>
-    <li>Live video with sound</li><li>Bark and distress-sound alerts</li><li>Camera offline, view blocked</li>
-    <li>Infrared at night</li><li>Nightly highlight reel</li><li>Timelapse</li>
-    <li>Family invites by one-time link</li><li>Privacy switch: picture <i>and</i> mic off</li><li>Nightly updates, auto rollback</li>
-    <li>Three themes, light and dark</li><li>Your pet's name, set in the app</li><li>Agent dashboard with goals</li>
+    <li><b>Live video with sound</b><span>Opus audio, straight to the phone</span></li>
+    <li><b>Alerts that matter</b><span>Barks, distress, offline, view blocked</span></li>
+    <li><b>Infrared at night</b><span>And no flapping when it faces a wall</span></li>
+    <li><b>Nightly highlight reel</b><span>Plus a timelapse of her day</span></li>
+    <li><b>Privacy, really off</b><span>Picture and mic stop on the camera itself, even after a reboot</span></li>
+    <li><b>Family invites</b><span>By one-time link, revocable</span></li>
+    <li><b>Mark the pet</b><span>Tap where she is to teach the next model</span></li>
+    <li><b>Nightly updates</b><span>With automatic rollback</span></li>
+    <li><b>Honest status</b><span>LIVE only when there's a picture</span></li>
+    <li><b>Request board</b><span>Every report, and what was done about it</span></li>
+    <li><b>Three themes</b><span>Light and dark, and her name in the app</span></li>
+    <li><b>Room tab</b><span>Her map in 3D, on your phone</span></li>
   </ul>
 </section>
 
 <section id="faq" class="faq" data-section="faq">
-  <p class="mono tag">09 / questions</p>
+  <p class="mono tag">13 / questions</p>
   <details data-faq><summary>Is there a pet camera without a subscription?</summary><p>Yes, this one. The software is free and open source. You pay for a small server you own (an AWS Lightsail nano is about $5 a month) and a Thingino-compatible camera, once.</p></details>
   <details data-faq><summary>Is it an alternative to Furbo or Petcube?</summary><p>For the core job, yes: live video, alerts and a camera that finds your dog, with no subscription and no vendor cloud. It has no treat toss, and setup needs a terminal. <a href="guide/open-source-pet-camera.html">The side-by-side comparison</a>.</p></details>
   <details data-faq><summary>Which cameras work?</summary><p>Pan/tilt Wi-Fi cameras supported by <a href="https://thingino.com">Thingino</a>. Ours is a Cinnado D1 (Ingenic T23N). Other models may need their pan and tilt calibrated once with <code>tools/calibrate.py</code>. See the <a href="guide/thingino-pet-camera.html">Thingino guide</a>.</p></details>
   <details data-faq><summary>iPhone or Android?</summary><p>Both. Open the address in Safari or Chrome and choose Add to Home Screen. The app then runs full screen and sends notifications, with no App Store step.</p></details>
   <details data-faq><summary>How does the camera tell my dog from a toy?</summary><p>A small detector (YOLOX-nano) proposes anything dog-like. A second model, trained on pictures from your own camera, decides whether that's your pet. On our camera the verifier gave the plush toy 0.00 and the dog 0.99 in the same frame.</p></details>
   <details data-faq><summary>Who can see my video?</summary><p>You, and the people you invite. Video goes from the camera to your server over WireGuard and nowhere else. One tap turns off the picture and the microphone. This website uses anonymous, cookieless analytics.</p></details>
+  <details data-faq><summary>Can it really find my dog by sound?</summary><p>It's learning to. With one microphone it can't hear direction, so instead it learns how each spot in your room colours her barks, using the camera to check where she actually was. The guess only steers searches once it has beaten the usual search order on 15 real finds; until then it keeps score in the background. <code>tools/soundfind_report.sh</code> shows the tally.</p></details>
   <details data-faq><summary>What about cats?</summary><p>So far OpenPetCam is built and tested on a dog. Cats need different classes in the detector and sound model. If you have a cat and some patience, that's a great first contribution.</p></details>
   <details data-faq><summary>Do I need the agent?</summary><p>No. The camera, app and alerts work on their own. The agent is optional, runs on your computer with Claude Code, and turns your reports into tested fixes.</p></details>
 </section>

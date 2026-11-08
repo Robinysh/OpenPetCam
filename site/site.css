@@ -252,3 +252,56 @@ footer p{margin:6px 0}
 h1,h2,.word,.mono,.links,.tag,.term{font-synthesis:none}
 
 @media(max-width:380px){.nav{gap:12px}.word{font-size:22px;gap:8px}.word img{width:30px;height:30px}.links{font-size:14px;letter-spacing:0}.star{padding:8px 12px}}
+
+/* 0.4: by ear */
+.steps{list-style:none;padding:0;margin:clamp(36px,5vw,64px) 0 0;display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(16px,2.4vw,28px)}
+.steps li{border-top:2px solid var(--line);padding:22px 8px 0 0}
+.steps .num{display:block;font:clamp(64px,8vw,110px)/.9 var(--snout);color:var(--blue)}
+.steps h3{font:clamp(26px,2.6vw,34px)/1.15 var(--snout-t);margin:14px 0 8px}
+.steps p{margin:0;color:var(--ink-2);max-width:340px}
+.honest{max-width:760px;margin:clamp(28px,4vw,44px) 0 0;border-left:3px solid var(--honey);padding:4px 0 4px 16px}
+
+/* 0.4: the room (bento) */
+.room .bento{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1fr);grid-template-rows:repeat(3,auto);gap:clamp(14px,1.8vw,22px);margin-top:clamp(36px,5vw,64px)}
+.bento .big{grid-row:1/4;margin:0;background:#1B1D2A;border-radius:22px;overflow:hidden;display:flex;flex-direction:column}
+.bento .big video{width:100%;max-height:78vh;object-fit:cover;background:#000;flex:1}
+.bento .big figcaption{color:#F1EBDF;padding:16px 20px 20px;font-size:16px}
+.bento .big figcaption a{color:#CDD6FF}
+.bento .card{background:var(--paper-2);border-radius:22px;padding:clamp(20px,2.4vw,32px)}
+.bento .card .tag{margin-bottom:12px}
+.bento .card h3,.fw h2+p,.note h3{margin:0}
+.bento .card h3{font:clamp(26px,2.6vw,36px)/1.12 var(--snout-t);margin:0 0 10px}
+.bento .card p:last-child{margin:0;color:var(--ink-2)}
+
+/* 0.4: firmware */
+.firmware{background:var(--paper-2);max-width:none}
+.firmware>*{max-width:1328px;margin-left:auto;margin-right:auto}
+.fw{display:grid;grid-template-columns:1.25fr 1fr;gap:clamp(28px,5vw,80px);align-items:start}
+.fw h2+p{margin-top:26px;font-size:clamp(18px,1.6vw,21px);color:var(--ink-2);max-width:640px}
+.fw .facts{list-style:none;padding:0;margin:0}
+.fw .facts li{border-top:2px solid var(--line);padding:16px 0 18px;font-size:17px;color:var(--ink-2)}
+.fw .facts span{display:block;font:clamp(48px,5.6vw,84px)/1 var(--snout);color:var(--blue);margin-bottom:6px}
+
+/* 0.4: what's new (changelog cards) */
+.new-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
+.new .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:clamp(12px,1.6vw,20px)}
+.note{display:block;text-decoration:none;background:var(--paper-2);border:2px solid transparent;border-radius:18px;padding:20px 20px 22px}
+.note:hover{border-color:var(--blue);color:inherit}
+.note .small{margin:0 0 10px;color:var(--blue)}
+.note h3{font:24px/1.15 var(--snout-t);margin:0 0 8px}
+.note p:last-child{margin:0;font-size:16px;color:var(--ink-2)}
+
+/* 0.4: also in there, as cards */
+.also ul{row-gap:0}
+.also li b{display:block;font-weight:400}
+.also li span{display:block;font:16px/1.45 var(--body);color:var(--ink-2);margin-top:6px}
+
+@media (max-width:900px){
+  .steps{grid-template-columns:1fr}
+  .room .bento{grid-template-columns:1fr}
+  .bento .big{grid-row:auto}
+  .bento .big video{max-height:70vh}
+  .fw{grid-template-columns:1fr}
+  .new .cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:560px){.new .cards{grid-template-columns:1fr}.new-head{flex-direction:column;gap:0}}
