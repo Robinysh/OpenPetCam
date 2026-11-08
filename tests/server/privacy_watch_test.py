@@ -116,6 +116,20 @@ class PrivacyWatchTest(unittest.TestCase):
             w.search_tick()
         self.assertEqual(w.published[-1]['status'], 'privacy')
 
+    def test_search_phase_is_published_at_once_when_it_changes(self):
+        w = self.watcher()
+        self.flag.write_text('0')
+        w.tracker = types.SimpleNamespace(search_phase='looking')
+        w.last_tick = 0
+        w.search_tick()
+        self.assertEqual(w.published[-1]['search_phase'], 'looking')
+        count = len(w.published)
+        w.search_tick()   # same phase, same instant: still rate limited
+        self.assertEqual(len(w.published), count)
+        w.tracker.search_phase = 'moving'
+        w.search_tick()
+        self.assertEqual(w.published[-1]['search_phase'], 'moving')
+
     def test_missing_camera_reconciliation_is_bounded_and_does_not_need_a_frame(self):
         w = self.watcher()
         w.privacy_check_thread = None

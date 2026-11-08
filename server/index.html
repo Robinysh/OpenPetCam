@@ -145,6 +145,10 @@
   .peek .media { position:relative; aspect-ratio:16/9; background:#000; color:var(--on-video); }
   .peek img, .peek video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:#000; }
   .peek .bar { display:flex; justify-content:space-between; align-items:center; padding:8px 12px; font-size:14px; }
+  .peek .peek-steps { display:flex; gap:8px; padding:0 12px 10px; }
+  .peek .peek-steps .btn { flex:1; }
+  .peek .peek-steps .btn:disabled { opacity:.4; cursor:default; }
+  .peek .step-note { padding:0 12px 10px; font-size:13px; color:var(--muted); }
   .legend { display:flex; gap:12px; color:var(--muted); font-size:12px; margin-top:6px; }
   .legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:4px; vertical-align:-1px; }
   .feed { display:flex; flex-direction:column; gap:8px; }
@@ -529,6 +533,11 @@
     <div class="peek hidden" id="peek">
       <div class="media"><img id="peek-img" alt=""><video id="peek-video" class="hidden" playsinline controls></video></div>
       <div class="bar"><b id="peek-time"></b><span><button class="btn quiet" id="peek-play" type="button">Play from here</button></span></div>
+      <div class="peek-steps">
+        <button class="btn" id="peek-earlier" type="button">‹ 1 min earlier</button>
+        <button class="btn" id="peek-later" type="button">1 min later ›</button>
+      </div>
+      <div class="step-note hidden" id="peek-note" role="status"></div>
     </div>
   </div>
   <div class="section">
@@ -949,7 +958,12 @@ function petText(l) {
   // Watcher silent >20 s: whatever it last said is stale, so don't claim she's away (report 2026-11-02 20:04).
   if (l.status === "watcher_down") return [`Can't tell where ${PET.name} is right now`, ""];
   // A Follow search is sweeping the room: say so, or the camera seems to move on its own (report 2026-11-03 07:41).
-  if (l.searching) return [`${l.settings && l.settings.follow ? "Follow: l" : "L"}ooking for ${PET.name}…`, ""];
+  // It holds the camera still while it judges a view; "Looking" over a motionless picture read as stuck (report 2026-11-05 22:35).
+  if (l.searching) {
+    const follow = l.settings && l.settings.follow;
+    if (l.search_phase === "looking") return [`${follow ? "Follow: c" : "C"}hecking this view for ${PET.name}…`, ""];
+    return [`${follow ? "Follow: l" : "L"}ooking for ${PET.name}…`, ""];
+  }
   // A dog sound in the last minute says more than "resting" (report 2026-11-04 17:29: "Now bark").
   const bark = l.last_bark, barkAge = bark ? Date.now() / 1000 - bark.t : 1e9;
   if (barkAge < 60) {
@@ -1106,7 +1120,7 @@ $("find-btn").onclick = async () => {
     return;
   }
   findPending = Date.now(); track("find");
-  $("move-note").textContent = "The camera is sweeping the room slowly.";
+  $("move-note").textContent = "Checking this view first, then the camera turns and stops at each view to look.";
   renderFind(live);
   try { await api("/api/find", {}); }
   catch (e) { findPending = 0; $("move-note").textContent = e.message; renderFind(live); }
@@ -1770,18 +1784,52 @@ function tlPick(ev) {
   const [lo, hi] = laneRange;
   const t = new Date(dayString(dayOffset) + "T00:00");
   t.setMinutes(Math.round((lo + f * (hi - lo)) * 10));   // clock time, so DST days map correctly
-  const tl = $("timeline"); tl.querySelectorAll(".cur").forEach((x) => x.remove());
-  const c = document.createElement("i"); c.className = "cur"; c.style.left = `${ev.clientX - r.left}px`; tl.appendChild(c);
   peekAt(Math.min(Date.now() / 1000 - 60, t.getTime() / 1000));
 }
 $("timeline").addEventListener("click", tlPick);
-async function peekAt(ts) {
+function peekShowTime(ts) {
   peekTs = ts;
-  $("peek").classList.remove("hidden"); $("peek-video").classList.add("hidden"); $("peek-img").classList.remove("hidden");
   $("peek-time").textContent = new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   $("peek-play").classList.toggle("hidden", Date.now() / 1000 - ts > 3500);
-  try { const s = await api(`/api/snap?ts=${ts}`); $("peek-img").src = s.snap || "/icon.png"; } catch (e) {}
+  const tl = $("timeline"); tl.querySelectorAll(".cur").forEach((x) => x.remove());
+  const d = new Date(ts * 1000), [lo, hi] = laneRange;
+  const f = ((d.getHours() * 60 + d.getMinutes()) / 10 - lo) / (hi - lo);
+  if (d.toDateString() !== new Date(dayString(dayOffset) + "T00:00").toDateString() || f < 0 || f > 1) return;
+  const c = document.createElement("i"); c.className = "cur"; c.style.left = `calc(56px + (100% - 66px) * ${f.toFixed(4)})`; tl.appendChild(c);
 }
+function peekNote(text) {
+  $("peek-note").textContent = text; $("peek-note").classList.toggle("hidden", !text);
+}
+async function peekAt(ts) {
+  $("peek").classList.remove("hidden"); $("peek-video").pause(); $("peek-video").classList.add("hidden"); $("peek-img").classList.remove("hidden");
+  peekNote(""); $("peek-earlier").disabled = $("peek-later").disabled = false;
+  peekShowTime(ts);
+  try {
+    const s = await api(`/api/snap?ts=${ts}`);
+    $("peek-img").src = s.snap || "/icon.png";
+    if (s.snap && s.ts) peekShowTime(s.ts);
+  } catch (e) {}
+}
+// One saved picture at a time. Minutes with no picture (the camera was searching, or privacy was on) are crossed and named.
+async function peekStep(dir) {
+  const from = peekTs;
+  $("peek-earlier").disabled = $("peek-later").disabled = true;
+  let s = null;
+  try { s = await api(`/api/snap?ts=${from}&step=${dir}`); } catch (e) {}
+  $("peek-earlier").disabled = $("peek-later").disabled = false;
+  if (!s) return peekNote("Couldn't load that picture. Try again.");
+  if (!s.snap) {
+    (dir < 0 ? $("peek-earlier") : $("peek-later")).disabled = true;
+    return peekNote(dir < 0 ? "No earlier pictures nearby." : "This is the latest picture.");
+  }
+  $("peek-video").pause(); $("peek-video").classList.add("hidden"); $("peek-img").classList.remove("hidden");
+  $("peek-img").src = s.snap;
+  peekShowTime(s.ts);
+  const skipped = Math.round(Math.abs(s.ts - Math.floor(from / 60) * 60) / 60) - 1;
+  peekNote(skipped > 0 ? `No pictures for the ${skipped} min in between.` : "");
+}
+$("peek-earlier").onclick = () => peekStep(-1);
+$("peek-later").onclick = () => peekStep(1);
 $("peek-play").onclick = () => {
   const v = $("peek-video"); v.classList.remove("hidden"); $("peek-img").classList.add("hidden");
   const start = new Date(peekTs * 1000).toISOString();

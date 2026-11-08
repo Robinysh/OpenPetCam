@@ -55,6 +55,13 @@ def main():
     text = pet_text({"status": "ok", "present": False, "last_seen": time.time() - 600, "searching": True,
                      "settings": {"follow": True}})
     assert "Follow" in text and "looking" in text.lower(), f"a follow search must be visible: {text!r}"
+    # A search holds the camera still while it judges a view: "Looking for" over a motionless picture
+    # read as a stuck camera. The pill says it is checking this view; a moving camera keeps the old text.
+    asked = {"status": "ok", "present": False, "last_seen": None, "searching": True}
+    assert pet_text(asked | {"search_phase": "looking"}) == "Checking this view for Biscuit…"
+    assert pet_text(asked | {"search_phase": "moving"}) == "Looking for Biscuit…"
+    text = pet_text(asked | {"search_phase": "looking", "settings": {"follow": True}})
+    assert text == "Follow: checking this view for Biscuit…", text
     # Report 20261104-172936: she barked (dog sound 0.74) right after settling, and the pill kept
     # saying "resting 1m". A dog sound in the last minute must show; an old one must not.
     t = time.time()

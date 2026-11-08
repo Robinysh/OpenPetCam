@@ -604,6 +604,8 @@
       $('report-compose').classList.remove('hidden');
       $('report-dialog').classList.add('composing');
       const snap = snapshot(); $('report-compose').snapshot = snap;
+      // Keep the picture being described; without it the report still goes out with the picture at sending.
+      Promise.resolve().then(() => api('/api/report/hold', {})).catch(() => {});
       $('report-shown').textContent = `The app shows: ${snap.shown_status || ''}`;
       $('report-note').focus();
     };

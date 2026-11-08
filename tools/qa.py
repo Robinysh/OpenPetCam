@@ -189,7 +189,7 @@ def _():
 def _():
     gets = ["/api/live", "/api/day", "/api/diary", "/api/snap", "/api/devices", "/api/zones", "/api/reports", "/api/wellbeing",
             "/api/frame.jpg", "/api/push", "/api/state", "/api/live/stream"]
-    posts = ["/api/report", "/api/aim", "/api/nudge", "/api/goto", "/api/recalibrate", "/api/presets", "/api/imaging", "/api/privacy",
+    posts = ["/api/report", "/api/report/hold", "/api/aim", "/api/nudge", "/api/goto", "/api/recalibrate", "/api/presets", "/api/imaging", "/api/privacy",
              "/api/settings", "/api/zones", "/api/invites", "/api/devices/revoke", "/api/talk", "/api/usage", "/api/push/test"]
     bad = []
     for p in gets:

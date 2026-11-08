@@ -1293,7 +1293,11 @@ def set_privacy(on):
     if type(on) is not bool:
         raise ValueError("on must be true or false")
     with _privacy_operation():
-        return _privacy_transition(on)
+        try:
+            return _privacy_transition(on)
+        finally:
+            if on:      # after the intent is on record, so a snapshot still in flight is refused rather than kept
+                _report_held.clear()
 
 
 def ensure_privacy_paused():
@@ -1817,6 +1821,8 @@ def wellbeing(day=None):
 REPORTS_DIR = f"{STATE_DIR}/reports"
 CLIENT_ERRORS = f"{REPORTS_DIR}/client-errors.jsonl"
 _report_last = {}          # device id -> ts of its last report (rate limit)
+_report_held = {}          # device id -> (ts, jpeg): the picture when its report form opened
+REPORT_HOLD_S = 600        # older than this, the form was abandoned rather than still being typed
 _clientlog = {"window": 0.0, "n": 0}
 
 
@@ -1859,6 +1865,41 @@ def _report_clip(d, t):
             f.write(str(e))
 
 
+def hold_report_frame(device_id):
+    """The owner opened the report form: keep the picture they are describing. Typing takes long enough for a
+    running search to reach another view, and a report's picture has to match its note."""
+    _report_held.pop(device_id, None)
+    _report_held[device_id] = (time.time(), live_frame())
+    return {"ok": True}
+
+
+def _save_report_frames(d, rep, device_id, t):
+    """frame.jpg: the picture from when the form opened, or the current one if there is none; frame_sent.jpg: the
+    current one as well, when they differ. A paused camera keeps neither."""
+    held = _report_held.pop(device_id, None)
+    if held and t - held[0] > REPORT_HOLD_S:
+        held = None
+    sent = None
+    try:
+        sent = live_frame()
+    except Busy as e:
+        rep["frame_error"] = str(e)
+        held = None
+    except Exception as e:  # noqa: BLE001
+        rep["frame_error"] = str(e)
+    try:
+        frame = held[1] if held else sent
+        if frame is not None:
+            with open(f"{d}/frame.jpg", "wb") as f:
+                f.write(frame)
+            rep["frame_t"] = held[0] if held else t
+        if held and sent is not None:
+            with open(f"{d}/frame_sent.jpg", "wb") as f:
+                f.write(sent)
+    except OSError as e:
+        rep["frame_error"] = str(e)
+
+
 def file_report(device_id, device_name, body):
     t = time.time()
     if t - _report_last.get(device_id, 0) < 20:
@@ -1877,11 +1918,7 @@ def file_report(device_id, device_name, body):
         "obs_15min": _db_rows("select * from obs where ts > ? order by ts", (t - 900,)),
         "events_3h": _db_rows("select id, ts, kind, detail, label from events where ts > ? order by ts", (t - 10800,)),
     }
-    try:
-        with open(f"{d}/frame.jpg", "wb") as f:
-            f.write(live_frame())
-    except Exception as e:  # noqa: BLE001
-        rep["frame_error"] = str(e)
+    _save_report_frames(d, rep, device_id, t)
     with open(f"{d}/report.json", "w") as f:
         json.dump(rep, f, indent=1, default=str)
     threading.Thread(target=_report_clip, args=(d, t), daemon=True).start()
@@ -1968,14 +2005,22 @@ def log_client_error(body, ua):
         f.write(json.dumps(row) + "\n")
 
 
-def snap_at(ts):
-    """Nearest per-minute snapshot path for a timestamp (snapshots are kept 14 days)."""
+SNAP_STEP_REACH_MIN = 180   # how far one step looks past minutes with no picture (a search or privacy time)
+
+
+def snap_at(ts, step=0):
+    """Per-minute snapshot for a timestamp (snapshots are kept 14 days), with the minute it really shows.
+    step 0: the nearest within 2 minutes. step +1/-1: the next saved picture after/before ts, so stepping
+    crosses minutes with no picture (the watcher saves none during a search) instead of sticking on one."""
     t = time.localtime(float(ts))
-    for delta in (0, -60, 60, -120, 120):
-        tt = time.localtime(float(ts) + delta)
+    minute = int(float(ts) // 60 * 60)
+    step = {"1": 1, "-1": -1}.get(str(step), 0)
+    deltas = [step * 60 * n for n in range(1, SNAP_STEP_REACH_MIN + 1)] if step else (0, -60, 60, -120, 120)
+    for delta in deltas:
+        tt = time.localtime(minute + delta)
         rel = f"{time.strftime('%Y-%m-%d', tt)}/{time.strftime('%H-%M', tt)}.jpg"
         if os.path.exists(f"{STATE_DIR}/snaps/{rel}"):
-            return {"snap": f"/media/snaps/{rel}"}
+            return {"snap": f"/media/snaps/{rel}", "ts": minute + delta}
     return {"snap": None, "asked": time.strftime("%H:%M", t)}
 
 
@@ -2169,7 +2214,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/diary":
             return self.camera_call(diary)
         if path == "/api/snap":
-            return self.camera_call(snap_at, q.get("ts", time.time()))
+            return self.camera_call(snap_at, q.get("ts", time.time()), q.get("step", 0))
         if path == "/api/devices":
             return self.send_json(200, list_devices((self.device() or {}).get("id")))
         if path == "/api/zones":
@@ -2328,6 +2373,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"ok": True})
         routes = {
             "/api/report": lambda: file_report(me or "legacy", (self.device() or {}).get("name", "Someone"), body),
+            "/api/report/hold": lambda: hold_report_frame(me or "legacy"),
             "/api/find": lambda: request_find(),
             "/api/find/cancel": lambda: cancel_find(),
             "/api/aim": lambda: aim(body.get("fx", 0), body.get("fy", 0)),

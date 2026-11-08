@@ -261,7 +261,8 @@ They filed a report from the app. Treat it as feedback from the person you work 
 teach the system from what they said, and fix the cause if you can do that safely. You have the code in this
 directory (a git worktree; README.md and docs/ explain the system) and the case file in {d}:
   summary.md     start here: what the app showed, the watcher's state, presence and events around the report
-  report.json    the same, raw;  journal.txt  server logs;  frame.jpg  the picture at that moment
+  report.json    the same, raw;  journal.txt  server logs;  frame.jpg  the picture when the form opened
+  frame_sent.jpg the picture when it was sent (if present; the camera may have moved while they typed)
   clip.mp4       the 90 s before (if present);  crop_N.jpg + crops.json  every detector proposal near that moment
 Look at the pictures yourself. Read code before blaming it. Earlier reports and their outcomes are in {reports}
 (each has summary.md and, once handled, agent_result.json) and docs/evaluation.md; check whether this is a repeat.

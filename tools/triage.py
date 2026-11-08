@@ -7,7 +7,7 @@
 
 Each pulled report gets:
   report.json   what the app showed, the watcher's live state, last 15 min of detections, last 3 h of events
-  frame.jpg     the camera picture at the moment of the report
+  frame.jpg     the camera picture when the report form opened (frame_sent.jpg: when it was sent)
   clip.mp4      the 90 s before it (+10 s after), when the recording had it
   journal.txt   watcher / app / video relay / alert logs from 15 min before to 5 min after
   summary.md    the above, condensed and in the install's local time: start here
@@ -87,6 +87,8 @@ def summarize(d):
              f"moving_since={local(lv['moving_since']) if lv.get('moving_since') else None} score={lv.get('score')}",
              f"- Phone: video={c.get('video')} webrtc={c.get('webrtc')} tab={c.get('tab')}",
              f"- Files: frame.jpg{', clip.mp4' if os.path.exists(os.path.join(d, 'clip.mp4')) else ' (no clip)'}, journal.txt, report.json",
+             *([f"- Picture: frame.jpg is from {r['ts'] - r['frame_t']:.0f} s before sending, when the form opened; "
+                "frame_sent.jpg is the camera at sending"] if os.path.exists(os.path.join(d, "frame_sent.jpg")) else []),
              "", "## Presence, last 15 min (runs of identical state)", ""]
     lines += runs(r.get("obs_15min") or [])
     lines += ["", "## Events, last 3 h", ""]

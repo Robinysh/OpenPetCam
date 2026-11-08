@@ -183,6 +183,7 @@ class Tracker:
         self.failed_searches = 0      # unprompted searches in a row that found nothing
         self.offcentre_since = None
         self.searching = False
+        self.search_phase = None      # during a search: "looking" (camera still, judging this view) or "moving"
         self.was_paused = False
         self.fast = None              # fasttrack.FastTrack the watcher feeds (or None); told about our own moves
         self.fast_used_t = -1e9       # a frozen motion estimate is not a new sighting on every watcher cycle
@@ -234,6 +235,8 @@ class Tracker:
             if halt:
                 raise SearchHalted(halt)
         fn(*a)
+        if self.searching:
+            self.search_phase = "moving"
         self.n_motor = getattr(self, "n_motor", 0) + 1        # every motor command, for the A/B (a search is many)
         self.own_move_t = self.last_move = self.clock()
         if self.fast is not None:
@@ -687,6 +690,8 @@ class Tracker:
         """Judge fresh frames after the camera settled and return her box only when `need` of up to `frames`
         frames show her in about the same place. One frame can miss a curled-up dog; one frame can also
         mistake a slipper for her at night. Stops as soon as she is confirmed, or can no longer be."""
+        if self.searching:
+            self.search_phase = "looking"
         self.tick()
         hits = []
         self.last_glimpse = None
@@ -916,5 +921,6 @@ class Tracker:
             return str(h)
         finally:
             self.searching = False
+            self.search_phase = None
             self.search_t0 = None
             self.search_hits = None

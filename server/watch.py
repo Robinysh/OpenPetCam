@@ -2447,15 +2447,18 @@ class Watch:
             self.privacy_cycle()
             return
         t = now()
-        if t - self.last_tick < 3:
+        phase = self.tracker.search_phase
+        # A change of phase goes out at once: the app says whether the camera is judging this view or moving.
+        if t - self.last_tick < 3 and phase == getattr(self, "tick_phase", None):
             return
-        self.last_tick = t
+        self.last_tick, self.tick_phase = t, phase
         try:
             with open(HEARTBEAT, "w") as f:
                 f.write(str(t))
         except OSError:
             pass
-        self.publish(status="ok", searching=True, score=0.0, moving=False, box=None, det_t=self.last_detect, motion=0.0, person=0.0)
+        self.publish(status="ok", searching=True, search_phase=phase, score=0.0, moving=False, box=None,
+                     det_t=self.last_detect, motion=0.0, person=0.0)
 
     def publish_tick(self, frame_t, motion):
         """A new frame arrived (FrameSource.on_frame): the status is now current as of this frame. Rewrite it when
