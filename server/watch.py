@@ -40,6 +40,7 @@ from fasttrack import FastTrack  # noqa: E402
 from tracker import Tracker  # noqa: E402
 import tracker as T  # noqa: E402
 from roommap import TILES, RoomMap  # noqa: E402
+import soundfind  # noqa: E402
 
 STATE = petconf.STATE
 DB = f"{STATE}/petcam.db"
@@ -75,6 +76,8 @@ ZONE_POSE_TOL = (40, 25)                            # pan/tilt steps: camera cou
 ZONE_GAP = 20                                       # s without her in the zone that ends a visit
 YAMNET_CLASSES = "/opt/petcam/models/yamnet_class_map.csv"
 DOG_SOUND_THRESHOLD = 0.55    # PROVISIONAL, see SoundModel; refit on the 👍/👎 labels from the app
+SOUNDFIND_SPEECH_MAX = 0.2    # a non-dog sound with any speech/music class this sure is never kept (privacy)
+SOUNDFIND = None              # soundfind.SoundFind, made by the watcher (find by sound)
 LOUD_NON_DOG_DB = -28.0       # non-dog sounds become a moment only when this loud (a crash, an alarm)
 DOG_SOUND_KINDS = set(petconf.DOG_SOUND_KINDS)
 HOUSEHOLD_SOUND_LABELS = {"Door", "Doorbell", "Knock", "Walk, footsteps", "Water",
@@ -736,7 +739,8 @@ class SoundModel:
         ranked = [k for k in np.argsort(best)[::-1] if self.names[k] not in ("Silence", "Inside, small room")]
         top = int(ranked[0])
         return {"dog": round(float(best[dog_i]), 2), "dog_label": self.names[dog_i],
-                "dog_kind": self.DOG_CLASSES[dog_i], "top": self.names[top], "top_score": round(float(best[top]), 2)}
+                "dog_kind": self.DOG_CLASSES[dog_i], "top": self.names[top], "top_score": round(float(best[top]), 2),
+                "speech": round(soundfind.speech_score(best), 2)}
 
 
 class Audio(threading.Thread):
@@ -899,6 +903,7 @@ class Audio(threading.Thread):
                 y = None
             if y is not None:
                 detail["yamnet"] = y
+                self.soundprint(audio, t0, y)
                 if y["dog"] >= DOG_SOUND_THRESHOLD:
                     kind = y["dog_kind"]
                 elif peak >= LOUD_NON_DOG_DB:
@@ -913,6 +918,23 @@ class Audio(threading.Thread):
         if kind == "loud sound" and longest < 3:
             return
         self.emit(kind, detail, t0)
+
+    def soundprint(self, audio, t0, y):
+        """Find by sound: keep the snippet and its fingerprint for a dog sound, or for any sound in which YAMNet
+        heard no speech, singing, music, TV or radio (server/soundfind.py). Never raises."""
+        try:
+            dog = y["dog"] >= DOG_SOUND_THRESHOLD
+            if privacy_flag() or (not dog and y.get("speech", 1.0) >= SOUNDFIND_SPEECH_MAX):
+                return
+            fp = soundfind.fingerprint(audio)
+            if fp is None:
+                return
+            kind = y["dog_kind"] if dog else "sound"
+            path = SOUNDFIND.keep_snippet(audio, t0, kind, {"yamnet": y}) if SOUNDFIND else None
+            self.events.put(("soundprint", {"fp": fp, "dog": dog, "kind": kind, "top": y.get("top"), "snippet": path,
+                                            "dur": round(len(audio) / soundfind.SR, 2)}, t0))
+        except Exception as e:  # noqa: BLE001 - listening must never stop for this
+            log("soundfind:", e)
 
     def emit(self, kind, detail, t0):
         if privacy_flag():
@@ -1117,6 +1139,11 @@ def housekeeping():
     prune_dirs(SNAPS, RETAIN["snaps_days"])
     prune_dirs(CANDIDATES, RETAIN["clips_days"])
     prune_dirs(SEARCHES, RETAIN["searches_days"])
+    if SOUNDFIND is not None:
+        try:
+            SOUNDFIND.prune()
+        except OSError as e:
+            log("soundfind prune:", e)
     prune_dirs(CLIPS, RETAIN["clips_days"])
     prune_clips_by_size(RETAIN["clips_gb"])
     # Bug reports (frame + 100 s clip each), named YYYYMMDD-HHMMSS: kept 60 days.
@@ -1201,6 +1228,14 @@ class Watch:
         self.last_candidate_save = 0.0
         self.events = queue.Queue()
         self.audio = Audio(self.events)
+        global SOUNDFIND
+        try:
+            SOUNDFIND = soundfind.SoundFind(STATE, log=lambda *a: log(*a))
+        except Exception as e:  # noqa: BLE001 - find by sound is optional
+            SOUNDFIND = None
+            log("soundfind unavailable:", e)
+        self.sound_views = collections.deque(maxlen=40)   # (t, box, pose, person): verified boxes at settled poses
+        self.sound_gate_t = 0.0
         self.last_audio_fix = 0.0
         self.audio_watch_from = now()
         self.clips = Clips()
@@ -1614,6 +1649,7 @@ class Watch:
         # Record before Follow can move the camera or spend minutes searching: the cached pose
         # and move stamps here belong to this captured frame's context, not the later view.
         self.record_pose_observation(con, t, jpg, score)
+        self.note_sound_view(t, best if score >= PRESENT_SCORE else None, person)
         self.update_pet(con, t, score, moving, jpg, best["box"] if best else None)
         if not privacy and self.find_requested(t):
             # "already in view" only from THIS cycle's detector run: between runs `best` repeats an older answer
@@ -1663,6 +1699,7 @@ class Watch:
                     log("follow:", act)
                     if act.startswith("search"):
                         add_event(con, "search", {"result": act})
+                        self.sound_search_label(act)
                         self.save_search_evidence(act, asked=False)
             except Exception as e:  # noqa: BLE001 - following must never stop the watcher
                 log("follow failed:", e)
@@ -1744,6 +1781,7 @@ class Watch:
         settled = bool(pose and pose_t is not None and capture_t is not None
                        and 0 <= capture_t - pose_t <= 30 and pose_t >= moved_t
                        and capture_t - moved_t >= T.POST_MOVE_IGNORE)
+        self.last_pose_settled = (t, settled, tuple(pose) if pose else None)
         try:
             con.execute("INSERT OR REPLACE INTO pose_observation VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (t, capture_t, getattr(self, "frame_mode", None),
@@ -2062,6 +2100,7 @@ class Watch:
                 meta.append({k: v for k, v in fr.items() if k != "jpg"} | {"file": name})
             with open(f"{d}/search.json", "w") as f:
                 json.dump({"t0": round(t0, 2), "t1": round(now(), 2), "result": result, "asked": asked,
+                       "sound": getattr(self.tracker, "search_plan", None),
                            "found": "found her" in result, "night": infrared(rec["frames"][0]["jpg"]) if rec["frames"] else None,
                            "confirm": f"{T.CONFIRM_FRAMES} of {T.LOOK_FRAMES}", "frames": meta}, f)
         except Exception as e:  # noqa: BLE001
@@ -2190,6 +2229,78 @@ class Watch:
             if self.rest_since is None:
                 self.rest_since = t
 
+    # ------------------------------------------------------------ find by sound (server/soundfind.py)
+
+    def note_sound_view(self, t, best, person):
+        """Remember where she is while she is in view at a settled pose: a sound heard now is labelled with it."""
+        try:
+            ps = getattr(self, "last_pose_settled", None)
+            if best is not None and self.last_detect == t and ps and ps[0] == t and ps[1] and ps[2]:
+                if not hasattr(self, "sound_views"):
+                    self.sound_views = collections.deque(maxlen=40)
+                self.sound_views.append((t, list(best["box"]), ps[2], person))
+            if SOUNDFIND is not None and t - getattr(self, "sound_gate_t", 0.0) >= 60:
+                self.sound_gate_t = t
+                use = SOUNDFIND.use_guess(self.setting("sound_find", "auto"))
+                if use != T.SOUND_FIND_USE:
+                    log("soundfind:", "using the sound's guess" if use else "not using the sound's guess", SOUNDFIND.gate()[1])
+                T.SOUND_FIND_USE = use
+        except Exception as e:  # noqa: BLE001
+            log("soundfind gate:", e)
+
+    def sound_frame(self):
+        return (camapi.PAN_STEPS_PER_FRAME, camapi.TILT_STEPS_PER_FRAME)
+
+    def sound_baseline(self):
+        try:
+            return [(p["x"], p["y"]) for p in self.tracker.baseline_stops()[:3]]
+        except Exception:  # noqa: BLE001
+            return []
+
+    def sound_print(self, d, ts):
+        """A sound's fingerprint: a label when she was in view (and no person) within 4 s, else a hint for the next
+        search."""
+        if SOUNDFIND is None or self.privacy_on():
+            return
+        try:
+            meta = {"kind": d.get("kind"), "dog": d.get("dog"), "top": d.get("top"), "snippet": d.get("snippet")}
+            near = [v for v in getattr(self, "sound_views", ()) if -4 <= v[0] - ts <= d.get("dur", 0) + 4]
+            if near:
+                v = min(near, key=lambda v: abs(v[0] - ts))
+                if all(n[3] < 0.5 for n in near):           # a person in view may have made the sound
+                    aim = soundfind.aim_pose(v[2], v[1], self.sound_frame())
+                    SOUNDFIND.learn(d["fp"], aim, "view", self.sound_frame(), self.sound_baseline(), {**meta, "pose": list(v[2])})
+                return
+            if self.last_seen and now() - self.last_seen < 10:
+                return                                       # in view, just not at a settled pose: not a hint
+            guess = SOUNDFIND.guess(d["fp"], self.sound_frame())
+            self.tracker.sound_hint = {"t": ts, "fp": d["fp"], "guess": guess, "baseline": self.sound_baseline(),
+                                       "pose": list(self.pose) if getattr(self, "pose", None) else None, **meta}
+            if guess:
+                log("soundfind: heard her out of view, guess", [g["pose"] for g in guess[:2]], "baseline", self.tracker.sound_hint["baseline"][:2])
+        except Exception as e:  # noqa: BLE001
+            log("soundfind:", e)
+
+    def sound_search_label(self, act):
+        """A search that found her soon after an unseen sound labels that sound with where she was."""
+        if SOUNDFIND is None:
+            return
+        try:
+            hint = self.tracker.sound_hint
+            t0 = getattr(self.tracker, "last_search", None)
+            if not hint or t0 is None or not (0 <= t0 - hint["t"] <= soundfind.SEARCH_LINK):
+                return
+            self.tracker.sound_hint = None
+            if "found her" not in act:
+                return
+            _, x, y = camapi.motor_status()
+            plan = getattr(self.tracker, "search_plan", None) or {}
+            SOUNDFIND.learn(hint["fp"], (x, y), "search", self.sound_frame(), hint.get("baseline") or [],
+                            {"kind": hint.get("kind"), "dog": hint.get("dog"), "snippet": hint.get("snippet"),
+                             "used": plan.get("used", False), "result": act[:120], "pose_at_sound": hint.get("pose")})
+        except Exception as e:  # noqa: BLE001
+            log("soundfind label:", e)
+
     def drain_events(self, con, jpg):
         while True:
             if self.privacy_on():
@@ -2198,6 +2309,9 @@ class Watch:
                 kind, detail, ts = self.events.get_nowait()
             except queue.Empty:
                 return
+            if kind == "soundprint":
+                self.sound_print(detail, ts)
+                continue
             if kind == "sound":
                 detail["pet_visible"] = self.present
                 detail["pet_in_frame"] = bool(self.last_seen) and ts - self.last_seen < 5
@@ -2323,6 +2437,7 @@ class Watch:
             return
         log("find:", act)
         add_event(con, "search", {"result": act, "asked": True})
+        self.sound_search_label(act)
         self.save_search_evidence(act, asked=True)
         self.find_result = {"t": now(), "result": act, "found": "found her" in act or "already in view" in act}
 

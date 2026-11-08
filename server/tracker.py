@@ -64,6 +64,9 @@ FAST_FOLLOW = True     # follow her between detector runs with the per-frame mot
 FAST_MIN_MOVE = 0.05   # the motion estimate replaces the detector's box only once it has moved this far from it
 FAST_LOST_MAX = 8.0    # ...and stands in for a missing box at most this long after the last verified one
 ROOM_MAP = None        # roommap.RoomMap (models/room_map.json from sim/world/find_map.py), or None: search as before
+SOUND_FIND_USE = False  # look first where her sound came from (server/soundfind.py; the watcher sets this from its gate)
+SOUND_HINT_MAX_AGE = 90.0   # s: a sound older than this says nothing about where she is now
+SOUND_FIRST = 2         # at most this many views from the sound go before the room map's
 
 
 def hour_of(t):
@@ -157,6 +160,8 @@ class Tracker:
         # a 2-min sweep they asked for could not be stopped). Checked wherever user_paused() is.
         self.cancelled = cancelled or (lambda since: False)
         self.search_t0 = None
+        self.sound_hint = None        # {"t", "guess": [{"pose": [x, y], "score"}], ...}: where her last unseen sound came from
+        self.search_plan = None       # what the last search_stops() chose and what the sound would have chosen
         self.hist = collections.deque()
         self.last_seen_t = clock()     # starting up counts as "just lost": an unseen pet still gets searched for
         self.last_seen_c = None
@@ -615,10 +620,10 @@ class Tracker:
             return None
         return (max(0, int(min(ok) - fw / 2)), min(xm, int(max(ok) + fw / 2)))
 
-    def search_stops(self):
-        """Where to stop and look, best first: the room map's views for this hour (most probable place of her
-        first), then the learned stops or saved views that add a view the map's do not cover; views that show no
-        floor are dropped."""
+    def baseline_stops(self):
+        """Where to stop and look without the sound, best first: the room map's views for this hour (most probable
+        place of her first), then the learned stops or saved views that add a view the map's do not cover; views
+        that show no floor are dropped."""
         base = [(x, y) for x, y in SEARCH_STOPS] or [(p["x"], p["y"]) for p in self.cam.presets()]
         if ROOM_MAP is None:
             return [{"x": x, "y": y} for x, y in base]
@@ -626,6 +631,28 @@ class Tracker:
         first = ROOM_MAP.stops(hour_of(self.clock()))
         order = [s for s in merge_stops(first, base, fw, fh) if ROOM_MAP.has_floor(*s)]
         return [{"x": x, "y": y, "map": any((x, y) == f[:2] for f in first)} for x, y in order]
+
+    def search_stops(self):
+        """baseline_stops(), with up to SOUND_FIRST views where her recent unseen sound came from put first when
+        SOUND_FIND_USE is on. Either way the sound's guess is kept in search_plan, so every search measures it."""
+        order = self.baseline_stops()
+        hint = self.sound_hint
+        fresh = hint is not None and 0 <= self.clock() - hint["t"] <= SOUND_HINT_MAX_AGE and hint.get("guess")
+        self.search_plan = None
+        if not fresh:
+            return order
+        xm, ym = self.cam.limits()
+        guess = [(int(min(xm, max(0, g["pose"][0]))), int(min(ym - 40, max(40, g["pose"][1]))))
+                 for g in hint["guess"][:SOUND_FIRST]]
+        self.search_plan = {"sound_t": round(hint["t"], 2), "guess": [list(g) for g in guess],
+                            "scores": [g["score"] for g in hint["guess"][:SOUND_FIRST]],
+                            "baseline": [[p["x"], p["y"]] for p in order[:3]], "used": bool(SOUND_FIND_USE)}
+        if not SOUND_FIND_USE:
+            return order
+        fw, fh = self.cam.frame_steps()
+        merged = merge_stops(guess, [(p["x"], p["y"]) for p in order], fw, fh)
+        flags = {(p["x"], p["y"]): p for p in order}
+        return [{"x": x, "y": y, "sound": (x, y) in guess, "map": flags.get((x, y), {}).get("map", False)} for x, y in merged]
 
     def not_found_note(self):
         """After a failed search: what the room model and her history say instead of a flat 'not found'."""
@@ -854,7 +881,8 @@ class Tracker:
                     return halt
                 self.sleep(SETTLE)
                 box = self.look()
-                kind = "the room map's stop" if p.get("map") else ("the learned stop" if SEARCH_STOPS else "the saved view")
+                kind = ("the view her sound came from" if p.get("sound") else "the room map's stop" if p.get("map")
+                        else ("the learned stop" if SEARCH_STOPS else "the saved view"))
                 where = f"at {kind} ({p['x']}, {p['y']})"
                 if box is not None:
                     return self._found(box, t0, where, reason)

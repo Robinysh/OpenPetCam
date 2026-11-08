@@ -16,11 +16,30 @@
 
 Data on the server: `/var/lib/petcam/` (`petcam.db` SQLite, `snaps/` one per minute ×14 days,
 `clips/` 30 s event clips ×30 days / 4 GB cap, `timelapse/` one per day ×365 days,
-`highlights/` nightly reel of up to 8 clips ×90 days),
+`highlights/` nightly reel of up to 8 clips ×90 days, `sounds/` find-by-sound snippets ×30 days / 400 MB cap,
+`soundfind/` what find by sound learned and its ledger),
 `/var/lib/mediamtx/recordings/` (rolling 6 h). Per-minute stats in `minute` are kept forever.
 
 Secrets (never in git): `/etc/petcam/app.env` (password hash, session secret, camera web login),
 `/etc/petcam/camera.env` (RTSP source URL), `/etc/petcam/vapid_*` (push keys).
+
+## Find by sound (learns itself, no calibration)
+
+`server/soundfind.py`. When she is heard but not seen, a search can look first where that kind of sound came from.
+- **Learn.** A sound heard while she is in view at a settled pose (and no person in the frame) is stored with the
+  motor pose that centres her. A search that finds her within 90 s of an unseen sound stores the same.
+- **Fingerprint.** The room's early reflections put a fixed ripple on the spectrum of any sound made at one spot:
+  log power minus its 300 Hz-smoothed envelope (250-7500 Hz), plus a coarse 12-band colour. Loudness drops out.
+- **Guess.** The poses of the 7 most similar stored sounds, grouped by view; nothing until 12 labels exist.
+- **Verify.** Before each label is stored, the ledger (`soundfind/ledger.jsonl`) records whether the guess, and the
+  room map's stops for that hour (the free baseline), would have pointed at her view.
+- **Switch.** Setting `sound_find` (default `auto`) uses the guess only while the 20 most recent *search* labels show
+  it beating the baseline: at least 15 of them, at least 3 more hits in the top two views, and at least 40% hits
+  (declared 2026-11-08 before any data). In-view labels never decide this: with her in view the camera already points
+  at her, so a guess could learn "where the camera points". `shadow` only logs; `on` always uses it. Every search
+  records the guess in `search.json` (`sound`), used or not.
+- **Kept audio.** Snippets of at most 6 s, 16 kHz, under `sounds/`: dog sounds always, other sounds only when YAMNet
+  heard no speech, singing, music, TV or radio (score < 0.2). Nothing is recorded while privacy mode is on.
 
 ## Is it really your pet? (two-stage detection + repeatable bootstrap)
 

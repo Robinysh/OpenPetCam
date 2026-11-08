@@ -107,7 +107,7 @@ elif [ -f "$SRC/models/yolox_nano.onnx" ] && [ -d /opt/petcam/models/room ]; the
 fi
 
 render $SRC/mediamtx.yml > /etc/mediamtx/mediamtx.yml && chmod 644 /etc/mediamtx/mediamtx.yml
-install -m 644 $SRC/petconf.py $SRC/agentdb.py $SRC/goalmonitor.py $SRC/startupmetrics.py $SRC/reportstate.py $SRC/requestboard.py $SRC/requests.js $SRC/requests.css $SRC/clipmedia.py $SRC/followmetrics.py $SRC/viewstats.py $SRC/tracker.py $SRC/roommap.py $SRC/roomcam.py $SRC/roomapi.py $SRC/roomfollow.py $SRC/fasttrack.py $SRC/scheduled_sweep.py $SRC/room.js $SRC/follow_obs.py $SRC/ppo_follow.py $SRC/app.py $SRC/watch.py $SRC/detector.py $SRC/alert.py $SRC/update.py $SRC/index.html $SRC/agent.html $SRC/login.html $SRC/join.html \
+install -m 644 $SRC/petconf.py $SRC/agentdb.py $SRC/goalmonitor.py $SRC/startupmetrics.py $SRC/reportstate.py $SRC/requestboard.py $SRC/requests.js $SRC/requests.css $SRC/clipmedia.py $SRC/followmetrics.py $SRC/viewstats.py $SRC/tracker.py $SRC/roommap.py $SRC/soundfind.py $SRC/roomcam.py $SRC/roomapi.py $SRC/roomfollow.py $SRC/fasttrack.py $SRC/scheduled_sweep.py $SRC/room.js $SRC/follow_obs.py $SRC/ppo_follow.py $SRC/app.py $SRC/watch.py $SRC/detector.py $SRC/alert.py $SRC/update.py $SRC/index.html $SRC/agent.html $SRC/login.html $SRC/join.html \
   $SRC/manifest.webmanifest $SRC/icon.png $SRC/apple-touch-icon.png $SRC/favicon.png $SRC/favicon.svg $SRC/icon-maskable.png $SRC/badge.png $SRC/logo.png $SRC/logo-light.png $SRC/themes.css $SRC/theme-controller.js $SRC/theme-data.js $SRC/theme-app.js $SRC/sw.js /opt/petcam/
 install -d -m 755 /opt/petcam/vendor && install -m 644 $SRC/vendor/three.module.min.js $SRC/vendor/OrbitControls.js /opt/petcam/vendor/
 render $SRC/Caddyfile > /etc/caddy/Caddyfile && chmod 644 /etc/caddy/Caddyfile
