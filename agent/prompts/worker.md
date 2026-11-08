@@ -22,7 +22,7 @@ commit or ssh to change anything: the harness decides what ships. Read-only chec
 python3 tools/qa.py or tools/*.py read-only commands. The judge's own data is not yours: never open, search or run
 anything under agent/evals/ or the eval_*.json / router_eval*.json files in eval/superagent/ (a meta worker was rejected
 for it on 2026-11-03); judge your own change by its reasoning and tests. If the right change needs the owners (money, hardware, more motor
-moves or sounds near the dog, privacy), propose it instead.
+moves or sounds near the dog, privacy), build the part that does not need them and ask only for the rest (agent/steer.md, 2026-11-08: do not leave work waiting on the owners).
 
 Write {out}, exactly:
 {{"summary": "what you found, with numbers", "baseline": "metric before, how measured", "fixed": true|false,

@@ -141,14 +141,17 @@ log = run(w, tr, 120)
 assert any("found her" in a for _, a in log), log
 print("owner moved the camera: paused 3 min, then searched and found her")
 
-# 7. Resting, cut off at the side of the picture: centred once after 20 s, not repeatedly (when enabled);
-#    while CENTRE_RESTING_ON is off (owner: no automatic moves while she rests until noise is measured): never moves.
-w = World(X=1850, pet=1850 - 0.38 * 733); tr = tracker_for(w)
+# 7. Resting off-centre (report 20261105-201331: lying top right, half the picture floor): centred once after 20 s,
+#    not repeatedly; nothing while CENTRE_RESTING_ON is off.
+w = World(X=1850, pet=1850 - 0.25 * 733); tr = tracker_for(w)
 log = run(w, tr, 60)
 c = [a for _, a in log if "centre" in a]
 if T.CENTRE_RESTING_ON:
     assert len(c) == 1 and abs(w.fx()) < 0.1, (log, w.fx())
-    print("resting at the edge:", c[0])
+    w.pet += 0.3 * 733                                   # she shifts in her sleep: still the same rest, no second move
+    log2 = run(w, tr, 60)
+    assert not [a for _, a in log2 if "centre" in a], log2
+    print("resting off-centre:", c[0], "; once per rest")
 else:
     assert not c and not w.moves, (log, w.moves)
     print("resting at the edge: left alone (automatic moves near a resting dog are off)")
@@ -206,7 +209,10 @@ starts = [a for a in chases if "motion at the edge" in a]
 backs = [a for a in chases if "back to where it was looking" in a]   # a fruitless chase returns (2026-11-05)
 turns = [a for a in chases if a not in backs]
 assert len(starts) <= 2 and len(turns) <= 6 and len(backs) <= len(starts), (len(starts), len(chases), chases)
-# ...but once she is seen, motion may start a chase again right away
+# ...but once she is seen, motion may start a chase again right away (MOTION_CHASE_QUIET is re-armed by a sighting).
+# Repeated "not found" chases are a separate hold that a sighting does NOT end (report 20261107-095133: she reappeared
+# between each of 8 missed chases), so this check starts with no recent misses.
+tr.chase_misses.clear()
 w.pet = w.X; tr.step(w.box(), moving=False); w.pet = 99999; w.advance(T.REST_MISS_HOLD + 1.0)
 assert (tr.step(None, moving=False, motion=(w.t - 0.2, 0.45, 0.0)) or "").startswith("chase: motion"), "chase not re-armed"
 print(f"people moving about while she sleeps out of view: {len(chases)} chase moves in 4 min")

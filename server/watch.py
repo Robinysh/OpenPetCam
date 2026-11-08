@@ -76,6 +76,12 @@ ZONE_POSE_TOL = (40, 25)                            # pan/tilt steps: camera cou
 ZONE_GAP = 20                                       # s without her in the zone that ends a visit
 YAMNET_CLASSES = "/opt/petcam/models/yamnet_class_map.csv"
 DOG_SOUND_THRESHOLD = 0.55    # PROVISIONAL, see SoundModel; refit on the 👍/👎 labels from the app
+STILL_HOLD_MAX = 1800.0       # s: a still sighting can keep her present this long without a new detection
+STILL_HOLD_DIFF = 6.0         # mean |grey difference| (0-255, means removed) of her patch above which she moved. Fitted
+                              # 2026-11-08 on 3 days of minute snapshots at an unchanged pose: she stayed and was
+                              # detected again, 452 pairs, median 1.1, 75th pct 2.6; the detector lost her for 3+ min,
+                              # 12 pairs: 3 at 0.6-1.2 (still there, missed), one 5.5, eight >= 10.7 (gone)
+LOOK_AFTER_PRIVACY_S = 3.0    # after privacy ends, the still look runs once the live stream is back (at most 2 min)
 SOUNDFIND_SPEECH_MAX = 0.2    # a non-dog sound with any speech/music class this sure is never kept (privacy)
 SOUNDFIND = None              # soundfind.SoundFind, made by the watcher (find by sound)
 LOUD_NON_DOG_DB = -28.0       # non-dog sounds become a moment only when this loud (a crash, an alarm)
@@ -631,6 +637,22 @@ def imaging_state():
 
 
 # ---------------------------------------------------------------- audio
+
+def _patch(img, box, n=24):
+    """Her box's patch as n x n grey levels with the mean removed (so a slow exposure drift does not count)."""
+    w, h = img.size
+    x0, y0, x1, y1 = (int(round(v)) for v in (box[0] * w, box[1] * h, box[2] * w, box[3] * h))
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return None
+    a = np.asarray(img.convert("L").crop((x0, y0, x1, y1)).resize((n, n)), dtype=np.float32)
+    return a - a.mean()
+
+
+def _patch_diff(a, b):
+    if a is None or b is None or a.shape != b.shape:
+        return None
+    return float(np.abs(a - b).mean())
+
 
 def privacy_flag():
     requested = getattr(camapi, "privacy_requested", None)
@@ -1519,6 +1541,10 @@ class Watch:
         if getattr(self, "ppo", None) is not None:
             self.ppo.reset()
         self.frames.wake_decoder.set()
+        # Report 20261107-100906: right after privacy ended the detector checked the still picture twice, missed her
+        # resting on the rug and the app said "isn't in view"; Find's first step (several frames, no move) saw her in
+        # 3 s. So the same look runs once by itself, as soon as the live stream is back.
+        self.look_here_at = t + LOOK_AFTER_PRIVACY_S
 
     def cycle(self):
         if self.privacy_on():
@@ -1650,7 +1676,13 @@ class Watch:
         # and move stamps here belong to this captured frame's context, not the later view.
         self.record_pose_observation(con, t, jpg, score)
         self.note_sound_view(t, best if score >= PRESENT_SCORE else None, person)
-        self.update_pet(con, t, score, moving, jpg, best["box"] if best else None)
+        if not privacy:
+            self.look_after_privacy(con, t, jpg, score)
+        held = self.still_hold(t, img, best if score >= PRESENT_SCORE else None, moving)
+        if held is not None and score < PRESENT_SCORE:
+            self.update_pet(con, t, PRESENT_SCORE, False, jpg, held)
+        else:
+            self.update_pet(con, t, score, moving, jpg, best["box"] if best else None)
         if not privacy and self.find_requested(t):
             # "already in view" only from THIS cycle's detector run: between runs `best` repeats an older answer
             # (review 2026-11-04: a 20 s old box answered the owner's Find without any detection)
@@ -2229,6 +2261,60 @@ class Watch:
             if self.rest_since is None:
                 self.rest_since = t
 
+    def still_hold(self, t, img, seen, moving):
+        """Reports 20261105-205458 and 20261106-092218: she lay in plain view, partly hidden, and the detector recognised
+        her in 3 of 15 checks, so the app said out of sight and logged her leaving. After a verified, still sighting,
+        the patch of picture where she lay is kept; while the camera has not moved and that patch has not changed, she
+        has not gone anywhere: returns her box to keep her present (resting). Anything that changes the patch (getting
+        up, someone passing, the light switching to infrared) ends the hold. At most STILL_HOLD_MAX s per sighting."""
+        try:
+            if img is None:
+                return None
+            pose = tuple(self.pose) if getattr(self, "pose", None) else None
+            if seen is not None:
+                if moving:
+                    self.still_ref = None
+                else:
+                    self.still_ref = {"t": t, "box": list(seen["box"]), "pose": pose, "patch": _patch(img, seen["box"])}
+                return None
+            ref = getattr(self, "still_ref", None)
+            if ref is None:
+                return None
+            moved = self.camera_moved_near(t, before=t - ref["t"], after=0) if hasattr(self, "camera_moved_near") else False
+            if t - ref["t"] > STILL_HOLD_MAX or pose != ref["pose"] or moved or ref["patch"] is None:
+                self.still_ref = None
+                return None
+            diff = _patch_diff(ref["patch"], _patch(img, ref["box"]))
+            if diff is None or diff > STILL_HOLD_DIFF:
+                self.still_ref = None
+                return None
+            return ref["box"]
+        except Exception as e:  # noqa: BLE001 - presence must never stop for this
+            log("still hold:", e)
+            self.still_ref = None
+            return None
+
+    def look_after_privacy(self, con, t, jpg, score):
+        """Once after privacy ends: Find's first step (several frames of this view, no motor move, no sound)."""
+        due = getattr(self, "look_here_at", None)
+        if due is None or t < due:
+            return
+        if score >= PRESENT_SCORE or self.present or t > due + 120:
+            self.look_here_at = None                     # already seen, or the stream never came back in time
+            return
+        if self.source != "stream":
+            return                                       # wait for live frames: snapshots are too slow to judge
+        self.look_here_at = None
+        try:
+            box = self.tracker.look(frames=2 * T.LOOK_FRAMES)
+        except Exception as e:  # noqa: BLE001
+            log("look after privacy:", e)
+            return
+        if box is not None and not self.privacy_on():
+            self.tracker.last_seen_t = now()
+            self.update_pet(con, now(), PRESENT_SCORE, False, jpg, box)
+            log("after privacy: she is in view (look here, no move)")
+
     # ------------------------------------------------------------ find by sound (server/soundfind.py)
 
     def note_sound_view(self, t, best, person):
@@ -2459,6 +2545,28 @@ class Watch:
             pass
         self.publish(status="ok", searching=True, search_phase=phase, score=0.0, moving=False, box=None,
                      det_t=self.last_detect, motion=0.0, person=0.0)
+        self.search_snap(t)
+
+    def search_snap(self, t):
+        """Report 20261106-184614: minutes spent searching had no picture, so stepping back through the day skipped
+        exactly the minutes after she left. While a search holds the loop, keep that minute's picture too (whatever the
+        camera is pointing at). Never raises; never overwrites a picture the normal cycle saved."""
+        try:
+            img = self.frames.latest()
+            if img is None:
+                return
+            day = time.strftime("%Y-%m-%d", time.localtime(t))
+            path = f"{SNAPS}/{day}/{time.strftime('%H-%M', time.localtime(t))}.jpg"
+            if os.path.exists(path):
+                return
+            os.makedirs(f"{SNAPS}/{day}", exist_ok=True)
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, "JPEG", quality=80)
+            with open(path + ".tmp", "wb") as f:
+                f.write(buf.getvalue())
+            os.replace(path + ".tmp", path)
+        except Exception as e:  # noqa: BLE001
+            log("search snapshot:", e)
 
     def publish_tick(self, frame_t, motion):
         """A new frame arrived (FrameSource.on_frame): the status is now current as of this frame. Rewrite it when

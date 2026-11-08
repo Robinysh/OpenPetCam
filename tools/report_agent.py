@@ -99,10 +99,18 @@ def save_state(st):
 
 # ---------------------------------------------------------------- server side
 
+STALE_LOOKING_S = 40 * 60   # a "looking" reply this old means the run died (laptop asleep, killed): try again
+
+
 def unanswered():
-    """Report ids with no reply.json, oldest first; touches the heartbeat in the same call."""
+    """Report ids with no reply.json, or whose reply is a "looking" left by a run that died, oldest first; touches the
+    heartbeat in the same call. (2026-11-08: two reports sat at "looking" for 2.5 days because only missing replies
+    were retried.)"""
     out = ssh(f"sudo touch /var/lib/petcam/report_agent_ok; cd {REMOTE} 2>/dev/null && "
-              "for d in 2*; do [ -f $d/report.json ] && [ ! -f $d/reply.json ] && echo $d; done; true")
+              f"for d in 2*; do [ -f $d/report.json ] || continue; "
+              f"if [ ! -f $d/reply.json ]; then echo $d; "
+              f"elif grep -q '\"status\": \"looking\"' $d/reply.json && "
+              f"[ $(( $(date +%s) - $(stat -c %Y $d/reply.json) )) -gt {STALE_LOOKING_S} ]; then echo $d; fi; done; true")
     if out.returncode != 0:
         raise RuntimeError(f"listing reports failed: {out.stderr[-300:]}")
     return sorted(x for x in out.stdout.split() if x[:8].isdigit())
@@ -203,6 +211,51 @@ def write_reply(rid, status, text="", fix=None):
         raise RuntimeError(f"writing reply failed: {r.stderr[-200:]}")
 
 
+def resolution_from(res, status, commit, dropped=()):
+    """The report's resolution (server/reportstate.py shape) from the agent's components and what actually shipped.
+    A component the agent called done counts as done only if its fix went live; otherwise it is in progress."""
+    parts, seen = [], set()
+    for i, c in enumerate(res.get("components") or []):
+        if not isinstance(c, dict):
+            continue
+        ident = str(c.get("id") or f"part{i}").strip()[:60] or f"part{i}"
+        if ident in seen:
+            ident = f"{ident}_{i}"
+        seen.add(ident)
+        state = c.get("state") if c.get("state") in ("done", "monitoring", "in_progress", "not_started", "needs_hardware") else "not_started"
+        evidence = [str(e)[:400] for e in (c.get("evidence") or []) if str(e).strip()]
+        if state in ("done", "monitoring") and status != "live":
+            state, why = "in_progress", f"the fix has not gone live ({status})"
+        else:
+            why = str(c.get("reason") or "")[:400]
+        if state == "done" and commit:
+            evidence.append(f"live in commit {commit}")
+        if state == "done" and not evidence:
+            state = "in_progress"
+        part = {"id": ident, "title": str(c.get("title") or ident)[:160], "state": state, "evidence": evidence}
+        if why:
+            part["reason"] = why
+        parts.append(part)
+    if res.get("needs_owner"):
+        parts.append({"id": "owner_decision", "title": "A decision only the owner can make", "state": "needs_review",
+                      "evidence": [str(res.get("diagnosis") or "")[:400]],
+                      "review": {"question": str(res["needs_owner"])[:500], "evidence": [str(res.get("diagnosis") or "")[:400]]}})
+    if dropped:
+        parts.append({"id": "held_files", "title": "Part of the fix touched files only the owner's process changes", "state": "not_started",
+                      "evidence": [], "reason": "held back: " + ", ".join(dropped)[:300]})
+    return {"components": parts, "by": "report_agent", "ts": time.time()} if parts else None
+
+
+def write_resolution(rid, res, status, commit, dropped=()):
+    body = resolution_from(res, status, commit, dropped)
+    if body is None or DRY:
+        return
+    q = json.dumps(body).replace("'", "'\\''")
+    r = ssh(f"echo '{q}' | sudo tee {REMOTE}/{rid}/resolution.json >/dev/null && sudo chmod 644 {REMOTE}/{rid}/resolution.json")
+    if r.returncode != 0:
+        log(rid, "writing resolution failed:", r.stderr[-200:])
+
+
 def notify(device, title, body):
     if DRY or not device:
         return
@@ -275,17 +328,26 @@ Do, in order:
    ("this is a toy" -> the crop the app treated as the pet is "toy"; "you are looking at her" -> the crop of her is
    "pet"). Labels: pet, toy, other_animal, person, nothing. Only label crops you are sure about.
 2. Diagnosis: what happened and why, in a few sentences, citing evidence (times, scores, log lines, code lines).
-3. Fix, only if the cause is clear and the change is small: edit the code here, and add or extend a test that fails
-   without the fix (tests/server/tracker_test.py is a simulator; there may be others). Run the tests with python3.
-   Never touch config/, secrets, models/, or anything that sends data elsewhere. Never deploy, ssh, push or commit:
-   the harness decides what ships. If the right fix needs the owner's decision or is large, describe it instead.
-   Things that stress the dog (sounds, frequent motor moves) need the owner's say: propose, don't ship.
+3. Fix it. The owner's standing instruction (2026-11-08): reports must not wait for their decisions. When there are
+   options, choose the one you would defend, implement it bounded and reversible (a constant with a cap, a rate
+   limit, a setting with a safe default), and add or extend a test that fails without it (tests/server/tracker_test.py
+   is a simulator; there may be others). Run the tests with python3. A feature request is a request: build the
+   smallest version that does the job. Motor moves and sounds near the dog are allowed when bounded by an explicit
+   rate limit in the code and justified by this report's evidence; say what the limit is.
+   Only ask the owner (needs_owner) when the choice is theirs alone: privacy or security, spending money, a physical
+   action at home, or reversing a rule they set in an earlier report. Even then, implement the part that does not
+   depend on the answer. Never touch config/, secrets, models/, or anything that sends data elsewhere. Never deploy,
+   ssh, push or commit: the harness decides what ships. Too large for one run: build the first step and say what's left.
 4. Write {d}/agent_result.json, exactly this shape:
    {{"labels": [{{"n": 0, "label": "toy"}}], "diagnosis": "...", "fixed": true|false,
     "fix_summary": "one sentence or empty", "tests_run": "command and result or empty",
     "public_summary": "if fixed: 2-4 sentences for an open-source pull request read by strangers: the general problem and what changed. No names, times, places, or anything about this home",
     "reply": "to the owner, at most 280 characters, plain words, no jargon: what happened and what you did or propose",
-    "needs_owner": "a decision you need from them, or empty"}}
+    "needs_owner": "a decision only they can make (see 3), or empty",
+    "components": [{{"id": "short_id", "title": "what the owner asked for or what was wrong", "state": "done|monitoring|in_progress|not_started|needs_hardware",
+                    "evidence": ["what proves it: the test, the frame, the log line"], "reason": "why, if not done"}}]}}
+   One component per thing the owner asked for or that went wrong. "done" means your change fixes it and a test shows
+   it; "monitoring" means fixed but only real use can confirm; "not_started" means nothing was changed for it yet.
 """
 
 
@@ -339,7 +401,7 @@ def apply_labels(rid, d, res):
 
 # ---------------------------------------------------------------- fix -> gated deploy
 
-ALLOWED = ("server/", "tools/", "tests/", "docs/", "README.md")
+ALLOWED = ("server/", "tools/", "tests/", "docs/", "README.md", "CHANGELOG.md")
 # The evaluator stays out of the proposer's reach (DGM faked its test logs; METR saw models edit scoring code): the gates,
 # goal metrics, QA, the agent itself, goals, steering and policies change only through the owner.
 NEVER = ("tools/report_agent.py", "tools/contribute.py", "tools/superagent.py", "tools/qa.py", "tools/check_public.sh", "tools/noise_study.py", "tools/replay.py",
@@ -354,6 +416,26 @@ def assert_count(root):
             if f.endswith(".py"):
                 n += open(os.path.join(dirpath, f), errors="replace").read().count("assert ")
     return n
+
+
+def drop_forbidden(wt):
+    """Revert the files the agent may not ship and keep the rest, so one forbidden line (a CHANGELOG entry, a QA tool)
+    no longer throws away a whole fix (2026-11-05/06: three good fixes failed this way). The kept change still has to
+    pass every gate on its own. Returns the dropped paths."""
+    git("add", "-A", cwd=wt)
+    changed = git("diff", "--cached", "--name-only", cwd=wt).split()
+    dropped = [f for f in changed if not f.startswith(ALLOWED) or f in NEVER or f.startswith(NEVER_PREFIX)]
+    for f in dropped:
+        exists = run(["git", "cat-file", "-e", f"HEAD:{f}"], cwd=wt).returncode == 0
+        if exists:
+            git("checkout", "HEAD", "--", f, cwd=wt)
+        else:
+            git("rm", "-q", "--cached", "--", f, cwd=wt)
+            try:
+                os.remove(os.path.join(wt, f))
+            except OSError:
+                pass
+    return dropped
 
 
 def gates(wt, prompts_only=False):
@@ -403,10 +485,20 @@ def healthy(t_deploy):
     return ok, r.stdout.strip().replace("\n", " ")
 
 
+SHIP_PATHS = ("server/", "models/", "deploy.sh")   # what ./deploy.sh sends to the server (config/ is git-ignored)
+
+
+def main_busy():
+    """Uncommitted edits in the main checkout that a deploy would ship. Edits elsewhere (the simulator, the blog, the
+    acoustics research) do not reach the server and no longer hold every fix (2026-11-05..08: other sessions kept files
+    under sim/ and site/ edited, so every fix waited with 'the code is being edited' and nothing shipped)."""
+    return git("status", "--porcelain", "--", *SHIP_PATHS)
+
+
 def prepare_candidate(wt, branch):
     """Rebase and check before replay, returning the exact base/candidate binding."""
-    if git("status", "--porcelain"):
-        return "queued", "the code is being edited on the computer right now; the draft waits", None
+    if main_busy():
+        return "queued", "the server code is being edited on the computer right now; the draft waits", None
     if git('status', '--porcelain', cwd=wt):
         return 'queued', 'the candidate worktree has uncommitted edits; review is required', None
     head = git("rev-parse", "HEAD")
@@ -484,6 +576,9 @@ def handle(rid, st):
     res = run_agent(rid, d, wt, rep)
     n_labels = apply_labels(rid, d, res)
     status, detail, commit = "no_change", "", None
+    dropped = drop_forbidden(wt) if git("status", "--porcelain", cwd=wt) else []
+    if dropped:
+        log(rid, "dropped files the agent may not ship:", dropped)
     if git("status", "--porcelain", cwd=wt):
         ok, why = gates(wt)
         if ok:
@@ -520,6 +615,7 @@ def handle(rid, st):
     outcome = {"status": status, "commit": commit, "labels": n_labels, "detail": detail[:300],
                "needs_owner": res.get("needs_owner") or "", "summary": res.get("fix_summary") or ""}
     write_reply(rid, "answered", (reply + tail)[:600], outcome)
+    write_resolution(rid, res, status, commit, dropped)
     notify(rep.get("device"), "About your report", reply + tail)
     log(rid, "->", status, f"labels={n_labels}", detail[:200])
     if status not in ("queued",):

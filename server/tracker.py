@@ -26,15 +26,27 @@ TRACK_WINDOW = 4.0      # seconds of detections used for the velocity estimate
 LEAD = 1.0              # aim where she will be this many seconds ahead
 EDGE = 0.20             # re-aim when the predicted centre is this far from the middle (frame = 1.0 wide)
 MOVE_EVERY = 2.5        # seconds between tracking moves
-CENTRE_RESTING = 0.36   # a resting pet this far off-centre (partly cut off) for RESTING_WAIT s gets centred once
+CENTRE_RESTING = 0.22   # a resting pet this far off-centre for RESTING_WAIT s gets centred, once per rest. Report
+                        # 20261105-201331: lying top right (centre offset +0.19, -0.25), half the picture floor;
+                        # 0.36 only caught a pet already cut off at the edge.
 RESTING_WAIT = 20.0
-CENTRE_RESTING_ON = False   # owner, 2026-11-02: no automatic moves while she rests until the motor noise is measured
+CENTRE_RESTING_ON = False   # owner steering 2026-11-02 (agent/steer.md): no automatic moves near a resting dog until
+                        # the motor noise is measured FULL BAND (tools/noise_study.py loudness, 8-20 kHz included). The
+                        # 2026-11-02 20:02 run predates the band split. When enabled: one small quiet move per rest.
                             # (tools/qa.py --hardware noise); re-enable from the measurement, not by guess
 CHASE_WINDOW = (1.0, 8.0)   # chase if she was last seen this many seconds ago...
 CHASE_EDGE = 0.20       # ...off-centre toward an edge (or heading out of the frame), and was moving
+CHASE_MISS_LIMIT = 2    # this many chases ending "not found, back" within CHASE_MISS_WINDOW s: stop chasing for that long
+CHASE_MISS_WINDOW = 600.0   # Report 20261107-095133: 8 chases in 16 min, all missed: she was behind the sofa, and each
+                        # chase took the camera away from where she reappeared. The week's 64 chases (2026-11-01..08) ended
+                        # "not found" 67-77% of the time; a distance cut-off cannot tell this from a real exit (report
+                        # 2026-11-05 17:47 needed the chase at the same distance), repeated misses can.
 SEARCH_AFTER = 45.0     # out of sight this long (after having been followed) -> search
 SEARCH_EVERY = 600.0    # at most one unprompted search per 10 min
 SOUND_SEARCH_EVERY = 180.0  # a dog sound while she is not visible may search every 3 min
+AFTER_FIND_MAX = 3      # after a search that FOUND her, a loss SEARCH_AFTER s later may search again, at most this many
+AFTER_FIND_WINDOW = 600.0   # ...times in this window (reports 2026-11-02/04/05/08: she was found, walked off, and the
+                        # 10-min SEARCH_EVERY wait meant no search for minutes while she was plainly home and moving)
 GIVE_UP_AFTER = 2       # this many unprompted searches in a row found nothing: stop searching on a timer
                         # until something moves in the picture or a dog sound is heard (2026-11-02: the
                         # camera swept the empty flat every 10 min for an hour while she was out on a walk)
@@ -160,6 +172,9 @@ class Tracker:
         # a 2-min sweep they asked for could not be stopped). Checked wherever user_paused() is.
         self.cancelled = cancelled or (lambda since: False)
         self.search_t0 = None
+        self.last_search_found = False
+        self.chase_misses = collections.deque()  # times chases ended "not found, back"
+        self.after_find = collections.deque()    # times of searches started by the after-find rule
         self.sound_hint = None        # {"t", "guess": [{"pose": [x, y], "score"}], ...}: where her last unseen sound came from
         self.search_plan = None       # what the last search_stops() chose and what the sound would have chosen
         self.hist = collections.deque()
@@ -412,10 +427,14 @@ class Tracker:
                 return f"frame upper edge: tilt ({fy:+.2f}), {self.top_edge_nudges}/2"
         # Lying down but cut off at the side of the picture: centre her once, but only if she is mostly
         # out of the picture. A motor next to a sleeping dog startles her (owner, 2026-11-02).
-        if CENTRE_RESTING_ON and not moving and max(abs(cx), abs(cy)) > CENTRE_RESTING:
+        if moving:
+            self.centred_this_rest = False
+        if CENTRE_RESTING_ON and not moving and not getattr(self, "centred_this_rest", False) \
+                and max(abs(cx), abs(cy)) > CENTRE_RESTING:
             self.offcentre_since = self.offcentre_since or t
             if t - self.offcentre_since >= RESTING_WAIT:
                 self.offcentre_since = None
+                self.centred_this_rest = True
                 self._move(self.cam.aim, cx * 0.9, cy * 0.8)
                 return f"centre resting pet ({cx:+.2f}, {cy:+.2f})"
         else:
@@ -480,6 +499,13 @@ class Tracker:
             return (cx, cy), False
         return (cx, cy), True
 
+    def _chases_missing(self, t):
+        """True while CHASE_MISS_LIMIT chases ended "not found" within CHASE_MISS_WINDOW: she is probably behind
+        something in view, so holding still is where she reappears."""
+        while self.chase_misses and t - self.chase_misses[0] > CHASE_MISS_WINDOW:
+            self.chase_misses.popleft()
+        return len(self.chase_misses) >= CHASE_MISS_LIMIT
+
     def _chase(self, fx, fy, why):
         origin, ok = self._chase_target(fx, fy)
         if self.chase_steps == 0 or getattr(self, "chase_origin", None) is None:
@@ -503,6 +529,7 @@ class Tracker:
         if here is not None and abs(here[0] - o[0]) + abs(here[1] - o[1]) < 20:
             return f"chase: stopped, {why}"
         self._move(self.cam.goto, *o)
+        self.chase_misses.append(self.clock())
         return f"chase: not found, {why}; back to where it was looking ({o[0]:.0f}, {o[1]:.0f})"
 
     def _lost(self, t, sound, motion=None, activity_sound=False):
@@ -521,7 +548,7 @@ class Tracker:
                 and not resting_here:
             mx, my = motion[1], motion[2]
             if max(abs(mx), abs(my) * 1.2) > 0.3 and t - self.last_move > MOVE_EVERY and \
-                    t - self.motion_chase_t >= MOTION_CHASE_QUIET:
+                    t - self.motion_chase_t >= MOTION_CHASE_QUIET and not self._chases_missing(t):
                 self.chased_for, self.chase_steps, self.motion_chase_t = motion[0], 0, t
                 fx, fy = (math.copysign(0.75, mx), 0.0) if abs(mx) >= abs(my) * 1.2 else (0.0, math.copysign(0.6, my))
                 return self._chase(fx, fy, f"motion at the edge ({mx:+.2f}, {my:+.2f}) and no pet in view")
@@ -533,7 +560,7 @@ class Tracker:
             vx, vy = self.last_vel
             look = min(gone, 3.0)
             ex, ey = cx + vx * look, cy + vy * look         # where she is likely to be by now
-            if max(abs(ex), abs(ey)) > CHASE_EDGE:
+            if max(abs(ex), abs(ey)) > CHASE_EDGE and not self._chases_missing(t):
                 self.chased_for, self.chase_steps = self.last_seen_t, 0
                 if abs(ex) >= abs(ey):
                     fx, fy = math.copysign(0.75, ex), 0.0
@@ -545,9 +572,15 @@ class Tracker:
         stirred = bool(motion) and motion[0] > max(self.last_search, self.own_move_t) + 2.0
         timer_ok = self.failed_searches < GIVE_UP_AFTER or stirred
         household = bool(activity_sound) and not self.activity_search_used and gone > SEARCH_AFTER
+        while self.after_find and t - self.after_find[0] > AFTER_FIND_WINDOW:
+            self.after_find.popleft()
+        # The last search found her and she has been seen since: she is home and moving, so a new loss gets a new
+        # search after SEARCH_AFTER instead of waiting out SEARCH_EVERY (bounded by AFTER_FIND_MAX per window).
+        after_find = (gone > SEARCH_AFTER and self.last_search_found and self.last_seen_t > self.last_search
+                      and t - self.last_search > SEARCH_AFTER and len(self.after_find) < AFTER_FIND_MAX)
         due = (gone > SEARCH_AFTER and t - self.last_search > SEARCH_EVERY and timer_ok) or \
               (sound and t - self.last_search > SOUND_SEARCH_EVERY) or \
-              (household and t - self.last_search > SEARCH_EVERY)
+              (household and t - self.last_search > SEARCH_EVERY) or after_find
         # Report 2026-11-02 18:31: after a restart the watcher ran 3.5 min on camera snapshots; the search
         # panned all 3 rows with no frames to check, "found nothing" past her on the rug by the TV, and
         # counted as an empty search. Sweeping blind is only motor noise: wait for the live stream.
@@ -556,6 +589,8 @@ class Tracker:
         if due:
             if household:
                 self.activity_search_used = True
+            if after_find and not (gone > SEARCH_AFTER and t - self.last_search > SEARCH_EVERY):
+                self.after_find.append(t)
             reason = "household sound while out of sight" if household else (
                 "dog sound while out of sight" if sound and gone <= SEARCH_AFTER else f"out of sight {gone:.0f} s")
             res = self.search(reason=reason)
@@ -755,6 +790,7 @@ class Tracker:
         if centre and max(abs(cx), abs(cy)) > 0.15:
             self._move(self.cam.aim, cx * 0.9, cy * 0.8)
         self.last_seen_t, self.last_seen_c = self.clock(), (0.0, 0.0)
+        self.last_search_found = True
         self.failed_searches = 0
         self.activity_search_used = False
         self._save_memory()
@@ -850,6 +886,7 @@ class Tracker:
         ~0.7 s, so she is now behind the centre) and confirms on fresh frames before aiming."""
         t0 = self.clock()
         self.last_search = t0
+        self.last_search_found = False             # _found() sets it: any search, the owner's Find included
         self._save_memory()
         self.search_t0 = t0
         self.searching = True

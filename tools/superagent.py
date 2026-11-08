@@ -322,7 +322,7 @@ def save_queue(path, value):
 
 def retry_queued():
     """Fixes that waited because the code moved on: rebase, replay against held-out data, ship (one per tick)."""
-    if ra.git("status", "--porcelain") or running_workers():
+    if ra.main_busy() or running_workers():
         return
     for f in sorted(x for x in os.listdir(RUN) if x.startswith("queued_") and x.endswith('.json')):
         with open(os.path.join(RUN, f)) as queue_file:
@@ -483,7 +483,8 @@ How to work: measure first (the current value and how you measured it, with grou
 then change, then measure the same way again. Small change, with a test that fails without it. Never deploy, push,
 commit or ssh to change anything: the harness decides what ships. Read-only checks on the server are fine through
 python3 tools/qa.py or tools/*.py read-only commands. If the right change needs the owners (money, hardware, more motor
-moves or sounds near the dog, privacy), propose it instead.
+moves or sounds near the dog, privacy), build the part that does not need them and ask only for the rest (agent/steer.md,
+2026-11-08: do not leave work waiting on the owners).
 
 Write {out}, exactly:
 {{"summary": "what you found, with numbers", "baseline": "metric before, how measured", "fixed": true|false,
@@ -842,7 +843,7 @@ def judge_prompts(wt, branch, thread, res):
         return "replay_worse", f"router cases: current {cur['score']}/{cur['n']}, candidate {cand['score']}/{cand['n']}"
     ra.git("commit", "-q", "-m", f"Agent {thread}: prompt change\n\n{res.get('summary', '')[:1200]}\nRouter cases: {cur['score']} -> {cand['score']} of {cand['n']}\n\n"
            "Made by the super-agent's meta worker.\n\nCo-Authored-By: Claude <noreply@anthropic.com>", cwd=wt)
-    if ra.git("status", "--porcelain") or ra.git("merge-base", "HEAD", branch) != ra.git("rev-parse", "HEAD"):
+    if ra.git("status", "--porcelain", "--", "agent/") or ra.git("merge-base", "HEAD", branch) != ra.git("rev-parse", "HEAD"):
         return "queued", "main is busy; the prompt change waits"
     ra.git("merge", "--ff-only", branch)              # prompts run on this computer: no deploy needed
     return "live", f"router cases {cur['score']} -> {cand['score']} of {cand['n']}"
