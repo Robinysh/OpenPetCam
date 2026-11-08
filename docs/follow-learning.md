@@ -155,6 +155,14 @@ top. `sim/follow_delay.py` tested that on both simulators, before any reinforcem
   across 77 -> 76%, walks past a lookalike 73 -> 79% and 1.6 -> 0.1 s on the toy) and on the walk's logged decisions
   would have made 25 of the 35 aims with 24% less travel (10.4 -> 7.9 frame widths) and 11 instead of 17 swings across
   her. It changes nothing in either simulator, which don't model ambling.
+- **Which simulator to trust (re-run 2026-11-08, `sim/home_gate.py`, 6 held-out days):** the schematic room still
+  predicts the real days better than the 3D room model: 31 of 42 real metrics inside its range (mean error 1.54
+  tolerances) vs 23 of 42 (2.61). The gap closed on the two newest days (1.96 vs 2.12, 1.95 vs 2.00). Neither models
+  ambling around a person or the detector's flicker on a lying dog, which is where the live walk found the losses.
+- **Detection, not control, is most of what is left.** On 40 of the watcher's own minute pictures labelled blind to
+  the detector, today's 256x416 pass found her in 19 of 28 frames with her (6 of 10 lying in plain view). A second
+  look at the frame's native size (`NATIVE_RECHECK` in `server/watch.py`, on since 2026-11-08) finds 25 of 28, with
+  0 of 12 empty frames accepted; it runs only on a miss within 2 min of a sighting, 32 ms on the server.
 - **Live measure:** `python3 tools/follow_live.py EXPORT.json --since/--until`: aims, reversals, travel and the
   share of cycles she is verified, per active hour (6 days before: 13.5 aims, 2 reversals, 3.8 frames, 36.6% seen).
 
