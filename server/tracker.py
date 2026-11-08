@@ -30,10 +30,10 @@ CENTRE_RESTING = 0.22   # a resting pet this far off-centre for RESTING_WAIT s g
                         # 20261105-201331: lying top right (centre offset +0.19, -0.25), half the picture floor;
                         # 0.36 only caught a pet already cut off at the edge.
 RESTING_WAIT = 20.0
-CENTRE_RESTING_ON = False   # owner steering 2026-11-02 (agent/steer.md): no automatic moves near a resting dog until
-                        # the motor noise is measured FULL BAND (tools/noise_study.py loudness, 8-20 kHz included). The
-                        # 2026-11-02 20:02 run predates the band split. When enabled: one small quiet move per rest.
-                            # (tools/qa.py --hardware noise); re-enable from the measurement, not by guess
+CENTRE_RESTING_ON = True    # owner steering 2026-11-02: no automatic moves near a resting dog until the motor noise was
+                        # measured full band. Measured 2026-11-08 11:31 (tools/noise_study.py loudness): at QUIET_SPEED 250,
+                        # 8-20 kHz +0.3 dB mean / +0.9 peak over the room, 1-8 kHz +6.3 / +14.8 (as every follow move).
+                        # One small quiet move per rest.
 CHASE_WINDOW = (1.0, 8.0)   # chase if she was last seen this many seconds ago...
 CHASE_EDGE = 0.20       # ...off-centre toward an edge (or heading out of the frame), and was moving
 CHASE_MISS_LIMIT = 2    # this many chases ending "not found, back" within CHASE_MISS_WINDOW s: stop chasing for that long

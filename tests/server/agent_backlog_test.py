@@ -195,7 +195,10 @@ class RecoveryTests(unittest.TestCase):
         old = record(reply_status='looking')
         broken = record(1)
         broken['reply'] = []
-        self.assertEqual(sa.reconcile_reports([old, broken])['new'], 2)
+        # a stalled report is first retried by collect() (STALL_RETRIES times), then queued for review
+        self.assertEqual(sa.reconcile_reports([old, broken])['new'], 1)
+        sa.stall_retries(old['id'], set_to=sa.STALL_RETRIES)
+        self.assertEqual(sa.reconcile_reports([old, broken])['new'], 1)
         self.assertEqual(sa.ra.report_backlog([old], now=5000)[0]['state'], 'stalled')
 
     def test_queue_is_not_duplicated_but_missing_worktree_is_recoverable(self):
