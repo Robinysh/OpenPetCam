@@ -121,6 +121,9 @@ def build(ctx, scale):
     ctx._cache["depthpano_spread"] = spread
     np.savez_compressed(os.path.join(ctx.model, "depth_evidence.npz"), views=n.astype(np.int16), spread=spread.astype(np.float32))
     rng = guided(ctx, rng)
+    # the clean metric range: learned depth in metres, before any snapping to modelled planes or object cuts.
+    # The initial acoustic room (acoustic_room.py) is built from this, so it never inherits a modelled wall.
+    np.where(np.isfinite(rng) & (rng > 0.05) & (rng < 60), rng, 0).astype(np.float32).tofile(os.path.join(ctx.model, "range_pano_metric.f32"))
     # snap: floor
     dy = dirs[..., 1]
     floor_r = np.where(dy < -0.02, h / -np.where(dy < -0.02, dy, -1), np.inf)
@@ -169,7 +172,7 @@ def build(ctx, scale):
     path = os.path.join(ctx.model, "range_pano.f32")
     out.tofile(path)
     seen = out > 0
-    stats = {"width": W, "height": H, "file": "range_pano.f32", "seen_share": round(float(seen.mean()), 3),
+    stats = {"width": W, "height": H, "file": "range_pano.f32", "metric_file": "range_pano_metric.f32", "seen_share": round(float(seen.mean()), 3),
              "floor_share": round(float((on_floor & seen).sum() / max(seen.sum(), 1)), 3),
              "wall_snapped_share": round(float((snapped & seen).sum() / max(seen.sum(), 1)), 3),
              "views_median": float(np.median(n[seen])) if seen.any() else 0,

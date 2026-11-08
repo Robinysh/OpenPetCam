@@ -2,8 +2,9 @@
 
 Vision gives directions precisely and distances poorly; sound gives distances and no direction. So: the floor height
 comes from the acoustic floor echo (cross-checked against the owner's tape measure when given), and each wall is placed
-where its floor junction, read from the calibrated panorama, meets that floor. The countertop overhang above the lens is
-placed at the nearest acoustic echo. predict_echoes() then runs the forward model (first-order specular, monostatic)
+where its floor junction, read from the calibrated panorama, meets that floor. A mounting surface is included only
+when its clearance from the reference lens is explicitly declared with a source. A nearby acoustic peak is retained
+as an unclassified observation, never promoted into that surface. predict_echoes() runs the forward model (first-order specular, monostatic)
 for every sonar direction so the viewer can show measured against predicted.
 
 Ceiling height is not observed (the sweep tops out below it): CEILING_M is an assumption and is labelled as one."""
@@ -107,8 +108,12 @@ class Room:
 
 
 def acoustic_estimates(echo_layer):
-    """Floor height and overhang height from the sonar: the strongest echo in 0.70-0.95 m (floor) and the nearest
-    strong echo (overhang), medians across recordings."""
+    """Return the floor candidate and an unclassified near-echo proxy, plus their samples.
+
+    The legacy near proxy is delay after an aligned response feature, converted
+    with c*dt/2. Its nearest accepted peak does not identify a mounting surface
+    or equal the lens-to-surface clearance of a separated speaker/microphone.
+    """
     floor, near = [], []
     for it in echo_layer.data["items"]:
         e = it["echoes"]
@@ -121,9 +126,24 @@ def acoustic_estimates(echo_layer):
     return (float(np.median(floor)) if floor else None, float(np.median(near)) if near else None, floor, near)
 
 
-def fuse(ctx, echo_layer, tape_m=None):
+def fuse(ctx, echo_layer, tape_m=None, *, mount_clearance_m=None, mount_clearance_source=None):
+    """Build the room, keeping acoustic features separate from mechanical geometry.
+
+    ``mount_clearance_m`` is an explicitly declared +Y distance from the fixed
+    reference level lens origin to its mounting surface, not from the moving
+    lens at each pose. Its source is mandatory. Without it the mounting plane
+    stays unknown; the nearest echo is diagnostic evidence only.
+    """
     import hashlib
     import os
+    if mount_clearance_m is not None:
+        if isinstance(mount_clearance_m, (bool, np.bool_)):
+            raise ValueError("mount clearance must be a finite positive distance, not a boolean")
+        mount_clearance_m = float(mount_clearance_m)
+        if not np.isfinite(mount_clearance_m) or mount_clearance_m <= 0:
+            raise ValueError("mount clearance must be a finite positive distance")
+        if not isinstance(mount_clearance_source, str) or not mount_clearance_source.strip():
+            raise ValueError("a source is required for declared mount geometry")
     picks = json.load(open(ctx.path("picks.json")))
     rb = ctx.path("picks_rebased.json")
     cur_sha = hashlib.sha256(open(ctx.path("calib.json"), "rb").read()).hexdigest()[:16]
@@ -136,6 +156,13 @@ def fuse(ctx, echo_layer, tape_m=None):
         h, src = fh, f"acoustic floor echo, median of {[round(x, 2) for x in floors]} m"
     else:
         h, src = 0.85, "assumed 0.85 m"
-    prov = {"floor_height": src, "overhead": f"nearest strong echo, median of {[round(x, 2) for x in nears]} m",
+    prov = {"floor_height": src,
+            "overhead": (f"declared reference-lens-to-mount clearance {mount_clearance_m} m; {mount_clearance_source.strip()}"
+                         if mount_clearance_m is not None else "unknown: no mechanical reference-lens-to-mount datum supplied"),
+            "overhead_status": "declared_mount_geometry" if mount_clearance_m is not None else "unknown_mount_geometry",
+            "mount_clearance_datum": "fixed reference level lens origin; +Y toward mounting surface",
+            "unclassified_near_echo_proxy_m": round(near, 3) if near is not None else None,
+            "near_echo_proxy_samples_m": nears,
+            "near_echo_proxy_status": "unclassified acoustic feature; not mounting-surface geometry",
             "walls": picks["note"], "ceiling": f"assumed {CEILING_M} m, not observed"}
-    return Room(picks, h, round(near, 3) if near else None, prov)
+    return Room(picks, h, mount_clearance_m, prov)

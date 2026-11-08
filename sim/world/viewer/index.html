@@ -70,8 +70,20 @@ canvas.gl { display: block; width: 100%; height: 100%; }
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
+export function qualifyInfraredLayer(layer) {
+  if (layer.id === "infrared.nir_excess") return { ...layer,
+    title: "Filter response (qualitative)",
+    method: "Qualitative image change between IR-cut states; exposure, processing and spectrum can differ. This is not a material identity or reflectivity measurement.",
+    band: { ...layer.band, note: "Filter-state comparison; reflected light, not temperature." } };
+  if (layer.id === "infrared.led" && layer.data?.schema_version !== 2) return { ...layer,
+    title: "LED brightness change (qualitative)",
+    method: "Legacy JPEG difference without verified fixed exposure, gain, processing or camera response. This is not a reflectivity measurement.",
+    band: { ...layer.band, note: "Uncontrolled reflected-light observation, not thermal imaging." } };
+  return layer;
+}
+
 const M = await (await fetch("manifest.json")).json();
-const L = Object.fromEntries(M.layers.map(l => [l.id, l]));
+const L = Object.fromEntries(M.layers.map(l => [l.id, qualifyInfraredLayer(l)]));
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const H = M.room.floor_height_m, CEIL = M.room.ceiling_m;
 
@@ -393,7 +405,7 @@ const S = { "visible.sweep": true, "visible.hourly": false, "infrared.night": fa
             "presence.dog": false, "presence.heat": true, "radio.rssi": false, sky: false, "visible.da3": false, "fused.surface": true, planes: false };
 const BANDS = [
   ["visible", "Visible light", "--visible", [["visible.sweep", "Calibrated sweep panorama"], ["visible.hourly", "That hour's snapshots over the sweep (follows the playhead)"], ["frames", "Snapshot at the playhead, projected", "visible.frames"], ["visible.da3", "Learned depth point cloud (Depth Anything 3)"]]],
-  ["infrared", "Near-infrared", "--infrared", [["infrared.night", "Night composite"], ["infrared.nir_excess", "Near-IR minus visible: materials (overlay)"], ["infrared.led", "The camera's own IR light (overlay)"]]],
+  ["infrared", "Near-infrared", "--infrared", [["infrared.night", "Night composite"], ["infrared.nir_excess", "Filter response: qualitative (overlay)"], ["infrared.led", "LED brightness difference (see capture quality)"]]],
   ["acoustic", "Sound", "--acoustic", [["acoustic.echoes", "Echo range shells by head direction"], ["acoustic.coda", "Room fingerprint", null, true], ["acoustic.noise", "Sound level over time", null, true], ["acoustic.spectrum", "Raw microphone spectrum", null, true], ["acoustic.passive_test", "Passive echo test", null, true]]],
   ["radio", "Radio (WiFi)", "--radio", [["radio.rssi", "Camera link signal ring"], ["radio.scan", "Networks in range", null, true]]],
   ["derived", "Fused and derived", "--dog", [["fused.surface", "Fused surface: learned shape, sound scale, photo"], ["planes", "Plane model (walls read from the panorama)"], ["presence.heat", "Where the dog spends her time (heatmap)", "presence.dog"], ["presence.dog", "Individual detections", "presence.dog"], ["room", "Room geometry and provenance", null, true], ["sky", "Backdrop sphere (unmodelled directions)"]]],
@@ -479,18 +491,27 @@ function apply() {
 // ---------- colour the room by any fused attribute; click a surface to see everything known about it ----------
 const SF = L["fused.surfels"]?.data;
 const COLOURS = [["photo", "Photo (visible light)"], ["uncertainty", "Uncertainty: where the model is weakest"], ["class", "Class: floor / wall / object"], ["normals", "Surface direction (normals)"],
-  ["nir_excess", "Near-IR material"], ["nir_reflectance", "Near-IR reflectance (active minus passive)"], ["echo_support", "Sound: echo support"],
+  ["nir_excess", "Filter response (qualitative)"], ["nir_led_difference", "LED brightness change (qualitative)"], ["nir_led_signal", "IR light added (controlled linear response)"],
+  ["nir_response", "IR response (approximate geometry correction)"], ["nir_reflectance", "Relative IR reflectivity (calibrated illumination)"], ["echo_support", "Sound: echo support"],
   ["echo_coverage", "Sound: directions covering it"], ["dwell", "Dog: time spent"], ["floor_residual", "Check: floor vs sound-set plane"],
   ["light_range", "Daylight change over the day"], ["source", "Source: vision / sound (above) / assumed floor (below)"], ["radio", "Radio: WiFi signal by head direction (2.4 GHz RSSI)"]];
 const cb = document.getElementById("colourby");
-for (const [k, t] of COLOURS) if (k === "photo" || SF?.textures?.[k]) { const o = document.createElement("option"); o.value = k; o.textContent = t; cb.appendChild(o); }
+for (const [k, t] of COLOURS) if ((k === "photo" || SF?.textures?.[k])
+  && (k !== "nir_reflectance" || SF?.infrared?.reflectivity_valid === true)
+  && (k !== "nir_response" || SF?.infrared?.response_valid === true)
+  && (k !== "nir_led_difference" || (SF?.infrared?.qualitative_observations ?? SF?.infrared?.legacy_observations ?? 0) > 0)
+  && (k !== "nir_led_signal" || SF?.infrared?.quantitative_observations > 0)) { const o = document.createElement("option"); o.value = k; o.textContent = t; cb.appendChild(o); }
 let colourBy = "photo";
 cb.onchange = () => { colourBy = cb.value; apply(); showColourInfo(); };
 function showColourInfo() {
   if (colourBy === "photo") return;
   const t = COLOURS.find(c => c[0] === colourBy)[1];
   const legend = { class: "blue floor · green wall/other · amber object", normals: "red-green-blue = x-y-z of the surface's facing",
-    nir_excess: "magenta reflects more near-IR than visible · teal less", nir_reflectance: "magenta brighter in near-IR than the median surface · teal darker (one dawn experiment: few directions)",
+    nir_excess: "qualitative image change between IR-cut filter states; exposure and processing may differ, so this is not a material identity or reflectivity measurement",
+    nir_led_difference: "LEDs on minus time-interpolated off frames in encoded JPEG levels (DN); exposure and processing were not verified, so brightness is qualitative, not reflectivity or temperature",
+    nir_led_signal: "LEDs on minus off in linear response units, with the night mode, filter and camera controls held fixed; this is reflected light, not temperature",
+    nir_response: "response corrected for approximate light distance and surface angle, relative to typical; an uncalibrated lamp beam or sensor shading can still change it",
+    nir_reflectance: "relative reflectivity with calibrated illumination and camera response; approximate room geometry, shadows and shiny surfaces still limit the estimate",
     echo_support: "bright = the echo at this surface's distance stands out in the directions that cover it", echo_coverage: "bright = more sound directions point here",
     dwell: "bright = more minutes spent (log scale)", floor_residual: "grey = learned depth agrees with the sound-set floor · magenta below it · teal above",
     light_range: "bright = the light on this patch changes most through the day",
@@ -517,7 +538,7 @@ renderer.domElement.addEventListener("click", e => {
   info.innerHTML = `<h3>${obj || cls} · az ${az.toFixed(0)}°, el ${el.toFixed(0)}°</h3><table>
     <tr><th>shape</th><td>${f(v("range_m"), 2, " m")} from the lens · facing (${f(v("nx"), 1)}, ${f(v("ny"), 1)}, ${f(v("nz"), 1)})</td></tr>
     <tr><th>floor check</th><td>${Number.isFinite(v("floor_residual_m")) ? f(100 * v("floor_residual_m"), 1, " cm") + " vs the sound-set floor (before snapping)" : "–"}</td></tr>
-    <tr><th>near-IR</th><td>material ${f(v("nir_excess"))} · reflectance ${f(v("nir_reflectance"))}</td></tr>
+    <tr><th>near-IR</th><td>filter response ${f(v("nir_excess"))}${(SF?.infrared?.qualitative_observations ?? SF?.infrared?.legacy_observations ?? 0) > 0 ? ` · LED brightness change ${f(v("nir_led_difference"), 1, " DN")} (qualitative)` : ""} · LED added ${f(v("nir_led_signal"))} · geometry-corrected response ${f(v("nir_response"))}${SF?.infrared?.reflectivity_valid === true ? ` · relative reflectivity ${f(v("nir_reflectance"))}` : ""}</td></tr>
     <tr><th>sound</th><td>${f(v("echo_coverage"), 0)} directions · support ${f(v("echo_support"))}</td></tr>
     <tr><th>dog</th><td>${Number.isFinite(v("dwell_min")) ? f(v("dwell_min"), 1, " min spent here") : "never seen standing here"}</td></tr>
     <tr><th>uncertainty</th><td>${Number.isFinite(v("uncertainty")) ? f(100 * v("uncertainty"), 0, "% of range") + " · driven by " + (SF.uncertainty_terms?.[v("uncertainty_driver")] || "–") : "unseen"}</td></tr></table>

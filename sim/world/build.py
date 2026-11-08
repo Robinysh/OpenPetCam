@@ -106,7 +106,7 @@ def build(world, tape=None, collect=False, acoustic_fit=False):
         manifest["layers"].append(Layer("fused.surfels", "fused", Band("visible", 400e-9, 1000e-9, "all modalities per direction"),
                                         "surfels", "Every modality, per patch of room",
                                         "One record per viewing direction carrying shape (fused depth, normals, class, object), "
-                                        "visible colour and its 24-hour light curve, near-IR material and reflectance, sound "
+                                        "visible colour and its 24-hour light curve, qualified IR signal and response, sound "
                                         "coverage and support, the dog's dwell and free floor, and the floor check. Empty where "
                                         "a modality has nothing to say.", None, None, summ).to_json())
     json.dump(manifest, open(os.path.join(ctx.model, "manifest.json"), "w"), default=float)

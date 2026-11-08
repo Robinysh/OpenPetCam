@@ -1,14 +1,16 @@
 """Wave simulation of the camera's near field, compared with every sound recording, direction by direction.
 
-Geometry (metres, world frame of camera.py: lens at the origin, y up):
+Geometry (metres, world frame of camera.py: reference-pose lens at the origin, y up):
   room       every fused surfel nearer than the domain edge becomes a rigid voxel (+1 voxel thick), plus the floor
              plane at the sound-measured height; the camera hangs from the counter slab, so the slab underside sits
              at the top of the camera's base ring (FCC ZCB-D1: shell 73.4 x 101.9 mm, lens ~87 mm from the base face)
   camera     body: a 73.4 mm cylinder about the pan axis from the slab down to the body seam; head: a ~58 mm ball on
-             the tilt axis; the lens on the ball's front, the pan axis ~29 mm behind the lens (horizontal)
+             the tilt axis; at the reference pose the lens is on the ball's front, the fixed pan axis ~29 mm behind it
   speaker    on the BACK of the pan body at the grille's height (FCC manual label and photos)
   mic        on the head, beside the lens: ~12 mm from it toward the base (the camera hangs inverted)
-For each recording the camera is posed at its logged pan/tilt (the room stays put), a band-limited pulse is emitted at
+Dimensions and acoustic centres are assumptions, not measured calibration. The pan pivot stays fixed; speaker is on
+the pan body and does not tilt, while lens and mic rotate around the head pivot. For each recording the camera is
+posed at its logged pan/tilt (the room stays put), a band-limited pulse is emitted at
 the speaker and pressure is recorded at the mic. Simulated and measured responses are both band-limited to the same
 band, aligned on their direct arrival, and compared by the envelope correlation over 0.12-1.5 m of one-way range.
 Acceptance (AUDIT ACO-5): the matched-direction score must beat a direction-shuffle null.
@@ -22,6 +24,7 @@ import sys
 import numpy as np
 
 from .fdtd import C, Grid
+from ..acoustics.geometry import Rig, ray_plane_ranges
 
 DX = 0.0076                 # 10 points per wavelength at 4.5 kHz
 F_LO, F_HI = 2100.0, 4500.0
@@ -64,28 +67,33 @@ def room_solid(surfel_range, D, floor_h):
     return s, slab
 
 
-def camera_solid(shape, head, slab_j):
-    """Body cylinder + head ball for a head direction (unit vector in world). Returns solid mask and speaker/mic points."""
+def camera_solid(shape, head, slab_j, rig=None):
+    """Approximate body + head and acoustic centres around a FIXED pan pivot.
+
+    ``rig`` defaults to assumed reference-camera dimensions, not measured
+    acoustic calibration. The room's origin is the lens at the reference pose;
+    the lens/mic move as the head turns, while the pan axis stays fixed. The
+    legacy ``slab_j`` argument is retained for callers; body height remains the
+    shell assumption LENS_FROM_BASE, as before.
+    """
     nx, ny, nz = shape
-    fwd = np.array([head[0], 0, head[2]]); fwd /= np.linalg.norm(fwd) + 1e-9
-    ball_c = -BALL_R * head                                # the lens sits on the ball's surface along the view direction
+    head = np.asarray(head, float)
+    if head.shape != (3,) or not np.isfinite(head).all() or np.linalg.norm(head) < 1e-12:
+        raise ValueError("head must be a finite nonzero direction")
+    head = head / np.linalg.norm(head)
+    rig = rig or Rig()
+    pose = rig.pose(math.atan2(head[0], head[2]), math.asin(np.clip(head[1], -1., 1.)))
+    ball_c = pose.tilt_origin_m
     xs = (np.arange(nx) * DX - X_HALF)[:, None, None]; ys = (np.arange(ny) * DX + Y_BOT)[None, :, None]
     zs = (np.arange(nz) * DX - X_HALF)[None, None, :]
-    pa = np.array([ball_c[0], 0, ball_c[2]])
+    pa = pose.pan_origin_m
     rr = np.sqrt((xs - pa[0]) ** 2 + (zs - pa[2]) ** 2)
-    y_base = LENS_FROM_BASE                               # slab underside: the base face, 87 mm above the lens
+    y_base = pa[1] + LENS_FROM_BASE                       # approximate base face above the reference lens
     y_seam = y_base - BODY_TO_SEAM
     body = (rr <= BASE_R) & (ys <= y_base + DX) & (ys >= y_seam)
     ball = (xs - ball_c[0]) ** 2 + (ys - ball_c[1]) ** 2 + (zs - ball_c[2]) ** 2 <= BALL_R ** 2
     solid = body | ball
-    back = -fwd
-    spk = np.array([pa[0], y_base - SPK_FROM_BASE, pa[2]]) + back * (BASE_R + 1.5 * DX)
-    up_head = np.cross(np.cross(head, [0, 1.0, 0]), head)
-    up_head = up_head / (np.linalg.norm(up_head) + 1e-9)
-    if up_head[1] < 0:
-        up_head = -up_head
-    mic = head * 1.5 * DX + up_head * MIC_FROM_LENS
-    return solid, spk, mic
+    return solid, pose.source_m, pose.receiver_m
 
 
 def measured(item, raw_dir):
@@ -146,9 +154,8 @@ def face_override(R, D, d, az_win=(130, 230), el_win=(-70, 15)):
     a = (az % 360)
     win = (a >= az_win[0]) & (a <= az_win[1]) & (el >= el_win[0]) & (el <= el_win[1])
     a_c = math.radians((az_win[0] + az_win[1]) / 2)
-    nrm = -np.array([math.sin(a_c), 0, math.cos(a_c)])                    # plane facing the lens, at the window's centre
-    den = D @ nrm
-    t = np.where(den > 0.05, d / np.where(den > 0.05, den, 1), np.nan)
+    nrm = np.array([math.sin(a_c), 0, math.cos(a_c)])    # plane n dot x = d, in the window's direction
+    t = ray_plane_ranges(D, nrm, d)
     out = R.copy()
     out[win] = t[win]
     return out

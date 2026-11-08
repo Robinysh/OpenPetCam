@@ -23,6 +23,13 @@ timeout 600 python3 tests/sim/sim_test.py
 timeout 300 python3 tests/sim/sysid_recovery_test.py
 timeout 300 python3 tests/sim/ab_report_test.py
 timeout 120 python3 tests/sim/world_test.py
+timeout 120 python3 tests/sim/camera_calibration_test.py
+timeout 120 python3 tests/sim/calibration_validation_test.py
+timeout 120 python3 tests/sim/nir_reflectance_test.py
+timeout 120 python3 tests/sim/nir_capture_test.py
+timeout 120 python3 tests/sim/nir_fusion_test.py
+timeout 120 python3 tests/sim/nir_sensor_test.py
+timeout 120 python3 tests/sim/nir_ui_test.py
 timeout 120 python3 tests/sim/search_routes_test.py
 timeout 120 python3 tests/sim/search_prior_test.py
 timeout 120 python3 tests/sim/search_scene_test.py
@@ -43,4 +50,19 @@ timeout 120 python3 tests/sim/acoustic_phase_localization_test.py
 timeout 120 python3 tests/sim/acoustic_wave_room_test.py
 timeout 120 python3 tests/sim/acoustic_wave_experiment_test.py
 timeout 120 python3 tests/sim/acoustic_wave_report_test.py
+timeout 120 python3 tests/sim/acoustic_geometry_test.py
+timeout 120 python3 tests/sim/acoustic_waveforms_test.py
+timeout 120 python3 tests/sim/acoustic_fit_test.py
+timeout 120 python3 tests/sim/acoustic_probes_test.py
+timeout 120 python3 tests/sim/acoustic_native_rate_test.py
+timeout 120 python3 tests/sim/acoustic_acquisition_rate_policy_test.py
+timeout 120 python3 tests/sim/acoustic_shot_qc_test.py
+timeout 120 python3 tests/sim/acoustic_survey_test.py
+timeout 120 python3 tests/sim/acoustic_capture_test.py
+timeout 120 python3 tests/sim/acoustic_adapter_test.py
+timeout 120 python3 tests/sim/acoustic_gathers_test.py
+timeout 120 python3 tests/sim/acoustic_volume_test.py
+timeout 120 python3 tests/sim/acoustic_device_native_test.py
+timeout 120 python3 tests/sim/acoustic_device_io_test.py
+timeout 120 python3 tests/sim/acoustic_device_decode_test.py
 echo "all offline tests passed"

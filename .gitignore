@@ -17,3 +17,6 @@ sim/policy*.json
 # Mined nightly from eval/superagent/archive.jsonl (report times from your home): per install, never in git.
 # It was tracked and rewritten nightly, so the checkout was never clean and the agent refused to retry or ship.
 agent/lessons.md
+
+# browser-automation logs
+.playwright-mcp/

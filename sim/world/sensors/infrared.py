@@ -1,7 +1,8 @@
-"""The camera at night: near-infrared (~850 nm) from its own illuminator, IR-cut filter out, monochrome picture.
+"""Qualitative night-sensitive pictures, inferred from monochrome snapshots.
 
-Detected per snapshot (a monochrome picture means night mode). Same geometry as visible light; the room reads
-differently (fabrics and the dog's coat reflect IR strongly, screens and some plastics go dark)."""
+Night mode can include reflected visible and near-infrared light. Grayscale
+alone does not verify LED state, spectrum, exposure, or a material property.
+"""
 import os
 
 from PIL import Image
@@ -14,7 +15,8 @@ from .visible import frames_layer, snapshots
 
 class NightInfrared(Sensor):
     name = "infrared"
-    band = Band("infrared", 800e-9, 900e-9, "850 nm LED illuminator, IR-cut filter out (inferred from monochrome frames)")
+    band = Band("infrared", 800e-9, 1000e-9,
+                "night-sensitive mode inferred from grayscale; LED state and spectrum unverified")
 
     def layers(self):
         ctx = self.ctx
@@ -24,6 +26,7 @@ class NightInfrared(Sensor):
         im, n = stitch_mean(ctx.camera, [(p, pan, tilt) for _t, pan, tilt, p in snaps])
         Image.fromarray(im).save(os.path.join(ctx.model, "pano_infrared.jpg"), quality=88)
         return [Layer("infrared.night", self.name, self.band, "panorama", "Near-infrared: every night snapshot",
-                      f"{len(snaps)} night-mode snapshots averaged at the poses the camera held. Moving things blur.",
+                      f"{len(snaps)} inferred night-mode snapshots averaged at their camera poses. Moving things blur; "
+                      "brightness is qualitative, not calibrated infrared reflectivity or temperature.",
                       snaps[0][0], snaps[-1][0], {"image": "pano_infrared.jpg", "seen_share": round(float((n > 0).mean()), 3)}),
                 frames_layer(ctx, "infrared.frames", self.name, self.band, "Near-infrared: minute snapshots", snaps)]

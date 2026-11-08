@@ -5,14 +5,18 @@ sensor that can be pointed (visible, near-IR, sound) or placed (the dog on the f
 Attributes (equirectangular W x H, written as model/surfels.npz and model/surfel_*.png for the viewer):
   range_m, normal (3), class (0 unseen, 1 floor, 2 wall/other, 3 object), object_id
   rgb (sweep), light (24 hourly brightness values: how the light on this patch moves through the day)
-  nir_excess       near-IR minus visible (material cue)
-  nir_reflectance  LED light x r^2 / cos(incidence), normalised: the patch's near-IR reflectance (active minus passive)
+  nir_excess       qualitative filter-switch code-value difference, not a material identity
+  nir_led_difference qualitative on/off difference in encoded JPEG levels
+  nir_led_signal   controlled, linearized LED-added response (never reconstructed from a display image)
+  nir_response     approximate distance/incidence-corrected response; unknown beam/shading remain
   echo_coverage    how many sound directions point within 35 deg of this patch (speaker on the back: axis reversed)
   echo_support     the measured echo envelope at this patch's range in those directions, relative to the envelope's
                    median: > 1 means sound sees something at this distance in this direction
   dwell_min        minutes the dog spent on the floor cell this ray lands on (floor surfels only)
   checks: floor_residual (range vs the sound-scaled floor plane, floor surfels), dog_free (dog stood here: free floor)
 Every attribute is NaN where its modality has nothing to say; nothing is filled in silently."""
+import hashlib
+import json
 import math
 import os
 
@@ -39,6 +43,98 @@ def normals_from_range(R, D):
     flip = np.sum(n * D, -1) > 0                               # normals face the lens
     n[flip] *= -1
     return n
+
+
+def infrared_fields(ctx, layers, ranges, normals, directions_world):
+    """Fuse only numeric IR measurements whose acquisition evidence qualifies.
+
+    Old JPEG overlays remain display-only; their colours cannot be inverted to
+    recover a radiometric measurement. No strict reflectivity is inferred from
+    an uncalibrated LED beam or camera shading.
+    """
+    from .nir import geometry_response
+    h, w = ranges.shape
+    source = layers.get("infrared.led", {}).get("data", {})
+    info = {"status": "unavailable", "reflectivity_valid": False, "response_valid": False,
+            "quantitative_observations": 0, "legacy_observations": int(source.get("legacy_observations", 0)),
+            "qualitative_observations": int(source.get("qualitative_observations", source.get("legacy_observations", 0))),
+            "source": None, "limitations": list(source.get("limitations", []))}
+    out = {}
+    name = source.get("numeric_file")
+    if source.get("schema_version") != 2 or not name:
+        if "infrared.led" in layers or os.path.exists(os.path.join(ctx.model, "pano_led_light.jpg")):
+            info.update(status="qualitative_only")
+            info["limitations"].append("legacy display images lack qualified numeric measurements")
+        return out, info
+    try:
+        if os.path.basename(name) != name:
+            raise ValueError("IR measurement must be a model-local filename")
+        if not source.get("numeric_sha256") or not source.get("calibration_sha256"):
+            raise ValueError("IR numeric measurement or calibration provenance is missing")
+        with open(os.path.join(ctx.model, name), "rb") as measurement:
+            if hashlib.sha256(measurement.read()).hexdigest() != source["numeric_sha256"]:
+                raise ValueError("IR numeric measurement hash mismatch")
+        calibration_sha = hashlib.sha256(json.dumps(ctx.camera.c, sort_keys=True).encode()).hexdigest()
+        if calibration_sha != source["calibration_sha256"]:
+            raise ValueError("IR panorama uses a different camera calibration")
+        with np.load(os.path.join(ctx.model, name), allow_pickle=False) as z:
+            if int(z["schema_version"]) != 2:
+                raise ValueError("unknown IR numeric schema")
+            shape = z["led_signal"].shape
+            if len(shape) != 2 or shape != (source.get("height"), source.get("width")):
+                raise ValueError("IR numeric grid does not match metadata")
+            sy = np.minimum(np.arange(h) * shape[0] // h, shape[0] - 1)
+            sx = np.minimum(np.arange(w) * shape[1] // w, shape[1] - 1)
+            def sample(key):
+                a = z[key]
+                if a.shape != shape:
+                    raise ValueError(f"IR {key} shape mismatch")
+                return a[sy[:, None], sx[None, :]]
+            if "infrared.nir_excess" in layers and "filter_delta" in z:
+                filt = sample("filter_delta")
+                if np.isfinite(filt).any():
+                    out["nir_excess"] = filt
+            if info["qualitative_observations"] > 0 and "encoded_delta" in z:
+                delta = sample("encoded_delta")
+                if np.isfinite(delta).any():
+                    out["nir_led_difference"] = delta
+            if source.get("quantitative_observations", 0) <= 0 or source.get("response_valid") is not True:
+                info["status"] = "qualitative_only"
+                return out, info
+            signal, valid = sample("led_signal"), sample("valid").astype(bool)
+            valid &= np.isfinite(signal) & (signal > 0)
+            out["nir_led_signal"] = np.where(valid, signal, np.nan)
+    except (OSError, ValueError, KeyError) as error:
+        info["limitations"].append(str(error))
+        return out, info
+    # Depth boundaries make finite-difference normals unreliable. Reject them,
+    # rather than hiding grazing/edge uncertainty with a cosine floor.
+    geometry_valid = np.isfinite(ranges) & (ranges > 0)
+    for axis, shift in ((0, 1), (0, -1), (1, 1), (1, -1)):
+        neighbor = np.roll(ranges, shift, axis)
+        geometry_valid &= np.isfinite(neighbor) & (neighbor > 0) & (np.abs(neighbor - ranges) <= .15 * ranges)
+    geometry_valid[[0, -1]] = False
+    spread = None
+    evidence = os.path.join(ctx.model, "depth_evidence.npz")
+    if os.path.exists(evidence):
+        with np.load(evidence) as depth:
+            if depth["spread"].shape == ranges.shape and depth["views"].shape == ranges.shape:
+                spread = depth["spread"].copy()
+                geometry_valid &= depth["views"] >= 2
+            else:
+                geometry_valid[:] = False
+                info["limitations"].append("depth evidence grid mismatch")
+    else:
+        info["limitations"].append("range uncertainty is unavailable")
+    response = geometry_response(signal, ranges, normals, directions_world,
+                                 valid=valid & geometry_valid, range_spread=spread)
+    if response["valid"].any():
+        out["nir_response"] = response["response"]
+    info.update(status="geometry_corrected_response" if "nir_response" in out else "controlled_linear_signal",
+                response_valid="nir_response" in out, quantitative_observations=int(source["quantitative_observations"]),
+                source=name, response_normalization=response["normalization"])
+    info["limitations"] += response["assumptions"]
+    return out, info
 
 
 def build(ctx, manifest):
@@ -86,21 +182,8 @@ def build(ctx, manifest):
         if a is not None:
             light[..., int(hh)] = a.mean(-1)
     out["light"] = light
-    # near-IR: material and reflectance (from the overlay panoramas; their encoding is a diverging map around grey 110)
-    def overlay_value(name):
-        a = _sample_pano(os.path.join(ctx.model, name), W, H)
-        if a is None:
-            return None
-        return ((a[..., 0] - 110) / 145 - (a[..., 1] - 110) / 60) / 2   # inverse of the encoding: + more, - less
-    nx = overlay_value("pano_nir_excess.jpg")
-    if nx is not None:
-        out["nir_excess"] = nx
-    led = overlay_value("pano_led_light.jpg")
-    if led is not None:
-        cosi = np.clip(-np.sum(n * D, -1), 0.15, 1)
-        refl = led * R ** 2 / cosi
-        med = np.nanmedian(refl[np.isfinite(refl) & (refl > 0)]) if np.isfinite(refl).any() else 1
-        out["nir_reflectance"] = refl / (med or 1)
+    infrared, infrared_info = infrared_fields(ctx, L, R, n, D)
+    out.update(infrared)
     # sound: coverage and support per direction (speaker on the back of the pan body; the mic hears the room both ways)
     items = L["acoustic.echoes"]["data"]["items"]
     cov = np.zeros((H, W), np.float32)
@@ -152,6 +235,12 @@ def build(ctx, manifest):
     tex("class", np.where(cls > 0, cls.astype(float), np.nan), 1, 3, classes)
     if "nir_reflectance" in out:
         tex("nir_reflectance", np.log(np.clip(out["nir_reflectance"], 1e-3, None)), -1.5, 1.5, div)
+    if "nir_response" in out:
+        tex("nir_response", np.log(out["nir_response"]), -1.5, 1.5, div)
+    if "nir_led_signal" in out:
+        tex("nir_led_signal", out["nir_led_signal"], -.1, .1, div)
+    if "nir_led_difference" in out:
+        tex("nir_led_difference", out["nir_led_difference"], -16, 16, div)
     if "nir_excess" in out:
         tex("nir_excess", out["nir_excess"], -1, 1, div)
     tex("echo_support", out["echo_support"], 0, 3, seq)
@@ -172,6 +261,8 @@ def build(ctx, manifest):
     chans = [("range_m", out["range_m"]), ("nx", nn[..., 0]), ("ny", nn[..., 1]), ("nz", nn[..., 2]),
              ("class", np.where(cls > 0, cls, np.nan).astype(np.float32)), ("object_id", np.where(obj_id >= 0, obj_id, np.nan).astype(np.float32)),
              ("nir_excess", out.get("nir_excess", np.full((H, W), np.nan))), ("nir_reflectance", out.get("nir_reflectance", np.full((H, W), np.nan))),
+             ("nir_response", out.get("nir_response", np.full((H, W), np.nan))), ("nir_led_signal", out.get("nir_led_signal", np.full((H, W), np.nan))),
+             ("nir_led_difference", out.get("nir_led_difference", np.full((H, W), np.nan))),
              ("echo_coverage", out["echo_coverage"]), ("echo_support", out["echo_support"]), ("dwell_min", out["dwell_min"]),
              ("floor_residual_m", out["floor_residual_m"]), ("uncertainty", unc),
              ("uncertainty_driver", np.where(np.isfinite(unc), driver, np.nan).astype(np.float32))] + [(f"light_{k:02d}", light[..., k]) for k in range(24)]
@@ -184,6 +275,7 @@ def build(ctx, manifest):
         "floor_residual_cm_median_abs": round(100 * float(np.nanmedian(np.abs(out["floor_residual_m"]))), 1),
         "echo_covered_share": round(float(np.isfinite(out["echo_coverage"]).mean() / max(seen.mean(), 1e-9)), 3),
         "nir_reflectance_share": round(float(np.isfinite(out.get("nir_reflectance", np.full((1,), np.nan))).mean() / max(seen.mean(), 1e-9)), 3) if "nir_reflectance" in out else 0,
+        "infrared": infrared_info,
         "floor_with_dog": round(float(np.nansum(out["dog_free"]) / max(floor.sum(), 1)), 3),
         "attributes": sorted(k for k, v in out.items() if v is not None),
         "uncertainty_terms": term_names,
@@ -195,6 +287,9 @@ def build(ctx, manifest):
                      "echo_coverage": "surfel_echo_coverage.png", "dwell": "surfel_dwell.png",
                      "floor_residual": "surfel_floor_residual.png", "light_range": "surfel_light_range.png",
                      **({"nir_reflectance": "surfel_nir_reflectance.png"} if "nir_reflectance" in out else {}),
+                     **({"nir_response": "surfel_nir_response.png"} if "nir_response" in out else {}),
+                     **({"nir_led_signal": "surfel_nir_led_signal.png"} if "nir_led_signal" in out else {}),
+                     **({"nir_led_difference": "surfel_nir_led_difference.png"} if "nir_led_difference" in out else {}),
                      **({"nir_excess": "surfel_nir_excess.png"} if "nir_excess" in out else {})},
     }
     return summary, out

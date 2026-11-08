@@ -1,8 +1,9 @@
 """Sound (2-7.6 kHz active, ~20 Hz-20 kHz passive; wavelengths 1.7 cm to 17 m).
 
 ActiveSonar: the camera's speaker plays a sweep and its microphone records it; deconvolution gives the impulse
-response at that head direction (speaker and mic turn with the head). Distances are one-way, read from the delay after
-the direct (speaker-to-mic) arrival, so they come out short by about half the speaker-mic spacing. The band is cut with
+response at that head direction. The speaker follows pan; the microphone also follows head tilt. The legacy range
+axis is c*delay/2 after the largest response feature, not a measured lens-to-surface distance or a verified direct-arrival
+clock. Separate source/receiver positions and reflector identity are needed to interpret it. The band is cut with
 a smooth taper: a hard band edge invents a peak near 0.15 m (checked on a synthetic echo-free room).
 The late part of each response (the coda) is kept as a fingerprint: same-pose repeats correlate, a changed room does not.
 
@@ -29,7 +30,7 @@ def load_wav(path):
 
 
 def responses(x, probe, tail=0.06, band=(2100, 7400)):
-    """Impulse responses (one per sweep found in x), aligned to their direct arrival, band-limited with a Tukey taper."""
+    """Legacy responses aligned to their largest analytic response, not a verified direct arrival."""
     env = np.abs(signal.hilbert(signal.correlate(x, probe, mode="valid", method="fft")))
     peaks, _ = signal.find_peaks(env, distance=int(1.2 * FS), height=env.max() * 0.3)
     out = []
@@ -51,7 +52,7 @@ def responses(x, probe, tail=0.06, band=(2100, 7400)):
 
 class ActiveSonar(Sensor):
     name = "acoustic.active"
-    band = Band("acoustic", C / 7400, C / 2100, "camera speaker sweep 2.1-7.4 kHz, camera microphone, monostatic")
+    band = Band("acoustic", C / 7400, C / 2100, "camera sweep 2.1-7.4 kHz; separated speaker/mic; relative-delay proxy")
 
     def layers(self):
         ctx = self.ctx
@@ -98,7 +99,7 @@ class ActiveSonar(Sensor):
         t0 = min(i["t"] for i in items)
         return [Layer("acoustic.echoes", self.name, self.band, "echoes", "Sound: echo profiles by head direction",
                       "Sweep played by the camera speaker, recorded by its microphone, deconvolved with a smooth band "
-                      "taper and averaged over the sweeps. One-way range from the delay after the direct arrival.",
+                      "taper and averaged over the sweeps. c*delay/2 after the largest response feature; not identified surface clearance.",
                       t0, max(i["t"] for i in items), {"items": items}),
                 Layer("acoustic.coda", self.name, self.band, "matrix", "Sound: room fingerprint (coda correlation)",
                       "Correlation of the late response (0.5-3 m of path) between recordings. Same pose, same room: "

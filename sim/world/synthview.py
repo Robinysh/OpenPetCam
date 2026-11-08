@@ -16,19 +16,31 @@ import numpy as np
 W, H = 640, 360
 
 
-def load(world):
+def load(world, dog_free=False):
+    """dog_free: the panorama with the pet removed (dogfree.py; FileNotFoundError until it is built)."""
     from PIL import Image
     from .sensors.base import Context
     ctx = Context(world)
-    pano = np.asarray(Image.open(os.path.join(ctx.model, "pano_visible_sweep.jpg")).convert("RGB"), np.float32) / 255
+    name = "pano_visible_sweep_dogfree.jpg" if dog_free else "pano_visible_sweep.jpg"
+    p = os.path.join(ctx.model, name)
+    if not os.path.exists(p):
+        raise FileNotFoundError(p)
+    pano = np.asarray(Image.open(p).convert("RGB"), np.float32) / 255
     return ctx, pano
 
 
-def render(ctx, pano, pan, tilt, off=(0.0, 0.0, 0.0), w=W, h=H):
+def render(ctx, pano, pan, tilt, off=(0.0, 0.0, 0.0), w=W, h=H, smooth=False):
+    """smooth: bilinear between panorama pixels instead of nearest (no blocky stretch where the panorama is coarse)."""
     yy, xx = np.mgrid[0:h, 0:w]
     d = ctx.camera.rays(pan, tilt, (xx + 0.5) * 1920 / w, (yy + 0.5) * 1080 / h, off=off)
     az = np.degrees(np.arctan2(d[..., 0], d[..., 2])); el = np.degrees(np.arcsin(np.clip(d[..., 1], -1, 1)))
     PH, PW = pano.shape[:2]
+    if smooth:
+        u = (az + 180) / 360 * PW - 0.5; v = np.clip((90 - el) / 180 * PH - 0.5, 0, PH - 1.001)
+        i0 = np.floor(u).astype(int); j0 = v.astype(int)
+        fx, fy = (u - i0)[..., None], (v - j0)[..., None]
+        i0 %= PW; i1 = (i0 + 1) % PW
+        return (pano[j0, i0] * (1 - fx) + pano[j0, i1] * fx) * (1 - fy) + (pano[j0 + 1, i0] * (1 - fx) + pano[j0 + 1, i1] * fx) * fy
     i = ((az + 180) / 360 * PW).astype(int) % PW
     j = np.clip(((90 - el) / 180 * PH).astype(int), 0, PH - 1)
     return pano[j, i]

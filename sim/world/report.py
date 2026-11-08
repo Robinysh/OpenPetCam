@@ -45,6 +45,72 @@ def save(fig, out, name):
     return name
 
 
+def _views_4b(room, trace, headings, ctx, pano, data, cuts, cut_dir, judge, faithful, sv_render, n=4):
+    """Up to n moments of the simulated hour with her truly in view: the synthetic view, with a real cutout of her pasted
+    into the simulated body's box (per-pixel hidden where the room is nearer), and the real judge's verdict."""
+    from PIL import Image
+    from scipy import ndimage
+    ks = [k for k in range(len(trace)) if trace[k][4]]
+    seen_ks = []
+    for k in ks:
+        t, x, z, st_, iv, dt_, X, Y = trace[k]
+        room.heading = headings[k]
+        seen, box, _c = room._view(X, Y, x, z, st_)
+        if seen and box and (box[2] - box[0]) * 640 >= 24:
+            seen_ks.append((k, box))
+    # spread over the hour, and prefer different poses
+    picks, used = [], set()
+    for k, box in seen_ks[:: max(1, len(seen_ks) // (3 * n))]:
+        key = (round(trace[k][6] / 60), round(trace[k][7] / 30))
+        if key not in used:
+            picks.append((k, box)); used.add(key)
+    picks = picks[:: max(1, len(picks) // n)][:n]
+    out = []
+    for k, box in picks:
+        t, x, z, st_, iv, dt_, X, Y = trace[k]
+        off = room.drift_now()
+        img = (sv_render(ctx, pano, X, Y, off=off, smooth=True) * 255).astype(np.uint8)
+        pasted, found, verdict, cut_note = False, [], "no cutout (realism check not run)", ""
+        if cuts:
+            bw, bh = (box[2] - box[0]) * 640, (box[3] - box[1]) * 360
+            want_move = st_ == "move"
+
+            def edges(b_):                                 # which frame edges cut the box
+                return (b_[0] < 0.01, b_[1] < 0.01, b_[2] > 0.99, b_[3] > 0.97)
+
+            def cost(r):                                   # same state first, then the same edge cuts, then box shape
+                cb = r["box"]
+                a = ((cb[2] - cb[0]) * 640) / max(1.0, (cb[3] - cb[1]) * 360)
+                return ((r.get("moving", False) != want_move) * 2 + sum(p_ != q_ for p_, q_ in zip(edges(cb), edges(box)))
+                        + abs(math.log(a / max(bw / bh, 1e-3))) + 4 * r.get("leak", 0))
+            r = min(cuts, key=cost)
+            if r.get("moving", False) != want_move:
+                cut_note = f" (a {'walking' if r.get('moving') else 'lying'} cutout: none for her state)"
+            c = Image.open(os.path.join(cut_dir, r["cutout"])).convert("RGBA")
+            x0, y0 = int(round(box[0] * 640)), int(round(box[1] * 360))
+            w_, h_ = max(2, int(round(bw))), max(2, int(round(bh)))
+            c = np.asarray(c.resize((w_, h_), Image.LANCZOS), np.float32)
+            a_ = ndimage.gaussian_filter(c[..., 3] / 255, 0.8)
+            x1, y1 = min(640, x0 + w_), min(360, y0 + h_)
+            c, a_ = c[: y1 - y0, : x1 - x0], a_[: y1 - y0, : x1 - x0]
+            # hidden where the measured room is nearer than her body (furniture in front of her)
+            yy, xx = np.mgrid[y0:y1, x0:x1]
+            d = ctx.camera.rays(X, Y, (xx + 0.5) * 3, (yy + 0.5) * 3, off=off)
+            rr = data.range_at(d)
+            r_dog = float(np.linalg.norm([x, -data.floor_h + 0.3, z]))
+            a_ = a_ * ~(np.isfinite(rr) & (rr > 0) & (rr < r_dog * 0.85))
+            reg = img[y0:y1, x0:x1].astype(np.float32)
+            img[y0:y1, x0:x1] = (c[..., :3] * a_[..., None] + reg * (1 - a_[..., None])).clip(0, 255).astype(np.uint8)
+            pasted = True
+            found = judge(img)
+            from world.synthdog import iou
+            hit = [f for f in found if iou(f[1], box) >= 0.3]
+            verdict = f"judge sees her (p={hit[0][0]:.2f})" if hit else ("judge: a box elsewhere" if found else "judge misses her")
+        out.append({"img": img, "box": box, "found": found, "pasted": pasted, "verdict": verdict, "cut_note": cut_note, "t": t, "X": X, "Y": Y,
+                    "state": st_, "dist": math.hypot(x, z)})
+    return out
+
+
 def main(world):
     sys.path.insert(0, os.path.join(ROOT, "sim")); sys.path.insert(0, os.path.join(ROOT, "server"))
     from zoneinfo import ZoneInfo
@@ -109,7 +175,7 @@ def main(world):
     Room.HARD_CORRELATED = True
     T = gate1.load_tracker()
     room = HomeRoom(seed=4242, params=P, free=free, home=data, start_hour=12)
-    trace = []
+    trace, headings = [], []
     tr = T.Tracker(room, room.find_pet, clock=lambda: room.t, log=lambda m: None, sleep=room.sleep, find_now=room.find_now)
     last_detect, result, last_motion = -1e9, (None, False, []), -1e9
     acts = []
@@ -122,6 +188,7 @@ def main(world):
             result, last_detect = room.frame(), room.t
         box, moving, weak = result
         trace.append((room.t, room.px, room.py, room._state, room.in_view(), box is not None, room.X, room.Y))
+        headings.append(room.heading)
         a = tr.step(box, moving=bool(moving and box), sound=False, motion=motion, weak=(weak if fresh else []) or None, box_t=last_detect)
         if a:
             acts.append((room.t, a.split(":")[0]))
@@ -151,23 +218,92 @@ def main(world):
               f"{len(room.moves)} motor moves, {sum(1 for _, k in acts if k == 'chase')} chases, {sum(1 for _, k in acts if k == 'search')} searches. "
               f"<b>Check:</b> does her path look like her? Does the camera follow her the way it does at home?</p>"))
 
-    # 4b. what the simulated camera sees: synthetic views with her projected body
+    # 4b. what the simulated camera sees: the room without her, and a real cutout of her where the simulator puts her
     from world.synthview import load as sv_load, render as sv_render
-    ctx, pano = sv_load(world)
-    fig, axs = plt.subplots(1, 3, figsize=(13, 2.8))
-    picks = [k for k in range(len(trace)) if trace[k][4]][:: max(1, sum(1 for r in trace if r[4]) // 3)][:3]
-    for ax, k in zip(axs, picks):
-        t, x, z, st_, iv, dt_, X, Y = trace[k]
-        img = sv_render(ctx, pano, X, Y)
-        seen, box, _c = room._view(X, Y, x, z, st_)
-        ax.imshow(img); ax.set_xticks([]); ax.set_yticks([])
-        if box and seen:
-            ax.add_patch(plt.Rectangle((box[0] * 640, box[1] * 360), (box[2] - box[0]) * 640, (box[3] - box[1]) * 360, fill=False, ec=DOG, lw=2))
-        ax.set_title(f"minute {t / 60:.0f}: pose ({X:.0f}, {Y:.0f}), {st_}", fontsize=9)
+    try:
+        ctx, pano = sv_load(world, dog_free=True); pano_name = "the dog-free panorama"
+    except FileNotFoundError:
+        ctx, pano = sv_load(world); pano_name = "the sweep panorama (she may be in it: run sim.world.dogfree)"
+    sd = _load("synthdog_check.json")
+    # an insertion counts as validated only when the gate passed on backgrounds a person checked by eye (the judge
+    # cannot vouch for backgrounds chosen because it missed her) AND on the synthetic renders it is pasted into here
+    audited = bool(sd and sd.get("audited"))
+    faithful = bool(sd and sd.get("faithful") and audited and sd.get("faithful_on_render"))
+    cut_dir = os.path.join(RL, "synthdog_cutouts")
+    clean = set((sd or {}).get("clean_cluster_keys") or [])
+    from world.synthdog import cluster_key
+    cuts = [r for r in (sd or {}).get("rows", []) if r.get("cutout") and os.path.exists(os.path.join(cut_dir, r["cutout"]))
+            and r.get("composite") and r.get("transplant", True) and 0.3 <= r.get("fill", 0.5) <= 0.85 and r.get("solidity", 1) >= 0.7
+            and r.get("leak", 0) <= 0.15 and (not clean or cluster_key(r) in clean)]
+    if sd:
+        r_ = sd.get("on_render") or {}
+        tp = sd.get("transplant") or {}
+        au = sd.get("audited") or {}
+        ci_c = sd.get("difference_95ci_by_cluster")
+        sk = sd.get("skipped") or {}
+        check_txt = (f"<b>Realism check: {'passed' if faithful else 'NOT passed'}.</b> Each of her real sightings is cut out against a "
+                     f"background of the same view from the same recording at moments she was not in that spot (found by the pictures, "
+                     f"since the pose log is stale after the mount moved; median of up to 9 frames), and pasted back onto it. "
+                     f"{sd.get('sightings_considered')} sightings tried; {(sd.get('all_rows') or sd)['n']} had such a background "
+                     f"({sk.get('few_backgrounds', 0)} had too few: the camera follows her, so a view without her in her spot is rare). ")
+        if au and not sd["n"]:
+            a_ = sd["all_rows"]
+            check_txt += (f"<b>Checked by eye, {au['rows_with_pet_in_background_by_eye']:.0%} of those backgrounds still contain her</b> "
+                          f"(the judge saw her in {a_['background_alone_detected']:.0%}: it cannot vouch for frames chosen because it "
+                          f"missed her), so no row is left to test. Before the eye check: originals {a_['original_detected']:.0%}, "
+                          f"composites {a_['composite_detected']:.0%} detected (CI {a_['difference_95ci']}), from {a_['clusters']} episodes; "
+                          f"the gate needs at least 30 rows from 5 episodes with pet-free backgrounds. "
+                          "Next: record with Follow off while she walks in and out of a fixed view, or use sweep frames of the same "
+                          "pose taken at another time. ")
+        if sd["n"]:
+            check_txt += (f"Detected: originals {sd['original_detected']:.0%}, composites {sd['composite_detected']:.0%} "
+                          f"(paired difference 95% CI {sd['difference_95ci'][0]:+.3f} to {sd['difference_95ci'][1]:+.3f}"
+                          + (f"; resampling whole episodes {ci_c[0]:+.3f} to {ci_c[1]:+.3f}" if ci_c else "") +
+                          f"), backgrounds alone {sd['background_alone_detected']:.0%} by the judge, from {sd.get('clusters', '?')} "
+                          f"episodes ({sd.get('moving_rows', 0)} sightings while walking). ")
+            if tp.get("n"):
+                check_txt += (f"Transplanted onto another view's background: {tp['detected']:.0%} detected, against {tp['null_detected']:.0%} "
+                              f"for the same matte shape filled with background. ")
+            check_txt += (f"By eye, {au['rows_with_pet_in_background_by_eye']:.0%} of the rows had her in the 'background' "
+                          f"({au['rows_kept']} of {au['rows']} kept). " if au else "<b>The backgrounds have not been checked by eye yet.</b> ")
+            check_txt += (f"On the <i>synthetic</i> render of the same view: {r_.get('composite_detected')} detected vs "
+                          f"{r_.get('original_detected')} (n={r_.get('n')}). {r_.get('note', '')}. ")
+    else:
+        check_txt = "<b>Realism check not run</b> (python3 -m sim.world.synthdog ...): no cutouts, so no dog is drawn. "
+    if not cuts and sd:                                      # show what an insertion looks like, clearly labelled
+        cuts = [r for r in sd.get("rows", []) if r.get("cutout") and os.path.exists(os.path.join(cut_dir, r["cutout"]))
+                and 0.3 <= r.get("fill", 0.5) <= 0.85 and r.get("solidity", 1) >= 0.7]
+    judge = None
+    if cuts:
+        from world.synthdog import load_judge
+        judge = load_judge(ROOT)
+    s4b_views = _views_4b(room, trace, headings, ctx, pano, data, cuts, cut_dir, judge, faithful, sv_render)
+    fig, axs = plt.subplots(2, 2, figsize=(13, 7.6))
+    for ax, v in zip(axs.ravel(), s4b_views):
+        ax.imshow(v["img"]); ax.set_xticks([]); ax.set_yticks([]); ax.set_xlim(0, 640); ax.set_ylim(360, 0)
+        b = v["box"]
+        if b:
+            ax.add_patch(plt.Rectangle((b[0] * 640, b[1] * 360), (b[2] - b[0]) * 640, (b[3] - b[1]) * 360, fill=False, ec=DOG, lw=1, ls="--"))
+        for p_, fb in v["found"]:
+            ax.add_patch(plt.Rectangle((fb[0] * 640, fb[1] * 360), (fb[2] - fb[0]) * 640, (fb[3] - fb[1]) * 360, fill=False, ec=ACC, lw=1.6))
+        if v["pasted"]:
+            ax.text(8, 350, ("inserted real cutout" if faithful else "NOT YET VALIDATED insertion") + v["cut_note"],
+                    color=FG if faithful else WARN, fontsize=8 if faithful else 10, weight="normal" if faithful else "bold",
+                    bbox=dict(facecolor=BG, alpha=0.7, lw=0, pad=2))
+        ax.set_title(f"minute {v['t'] / 60:.0f}, pose ({v['X']:.0f}, {v['Y']:.0f}), {v['state']}, {v['dist']:.1f} m: {v['verdict']}", fontsize=9)
+    for ax in axs.ravel()[len(s4b_views):]:
+        ax.axis("off")
     S.append(("4b. What the simulated camera sees", f"<img src='{save(fig, out, 's4b_views.png')}'>"
-              "<p>The camera's view at the simulated pose, rendered from the room model, with her simulated body's visible box (green): "
-              "this box is what the simulated detector judges. <b>Check:</b> is the box where a dog standing there would appear, "
-              "and the size a dog would be?</p>"))
+              f"<p>The camera's view at the simulated pose, rendered from {pano_name}: she was lying in view during the panorama "
+              f"sweep, so her region was refilled from sweep frames taken at another time (<code>sim/world/dogfree.py</code>). "
+              f"Into each view a real cutout of her (from the recordings, chosen for her state and box shape) is pasted into the "
+              f"simulated body's box (green dashed: the box the simulated detector judges), hidden where the measured room is nearer "
+              f"than her. The title gives the <b>real</b> detector and verifier's verdict on the composite (blue: its verified box). "
+              f"{check_txt}"
+              f"{'Insertions are faithful to the detector at the original pose; ' if faithful else '<b>Until the check passes the inserted dogs are illustrations, not evidence.</b> '}"
+              "Still not real: lighting is the sweep's, not the hour's; the cutout keeps its own lighting and pose; "
+              "some seams remain where frames were exposed differently. <b>Check:</b> is the box where a dog standing there "
+              "would appear, and the size a dog would be?</p>"))
 
     # 5. simulator vs reality (held out by day)
     gates = [("v1", _load("home_gate_v1.json")), ("v2 (partial)", _load("home_gate_v2_partial.json")), ("v3", _load("home_gate.json"))]

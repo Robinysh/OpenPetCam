@@ -1,13 +1,9 @@
-"""Near-infrared, active vs passive (raw/ir/exp*/ from the IR experiment runner: sim/world/ir_exp.py on the server).
+"""Active near-IR with explicit acquisition quality and numeric measurements.
 
-At one pose the camera takes: A visible (IR-cut filter in, LEDs off), B passive (filter out, LEDs off), C active
-(filter out, its 940 nm LEDs on), B2 passive again. Two products, both projected into the panorama:
-  near-IR excess (B - A, exposure-normalised on neutral surfaces): what reflects near-infrared more than visible light.
-    Plants (chlorophyll), many dyed fabrics, fur: bright. Screens, black plastics: dark. A material cue no photo gives.
-  LED light (C - B, exposure-normalised on surfaces beyond 3 m, which the LEDs barely reach): the camera's own light
-    only, ~ reflectance x cos(incidence) / range^2. With the fused range it gives near-IR reflectance per pixel; its
-    fall-off with range is a physical check on the learned depth (the camera is the light source, at the lens).
-Silicon at 850-940 nm does not see room-temperature heat: 'passive IR' here is reflected ambient near-IR, not thermal."""
+Legacy filter/LED JPEG experiments remain qualitative. Only verified controls
+and linearized samples enter the numeric LED signal used by room fusion.
+"""
+import hashlib
 import json
 import os
 
@@ -16,12 +12,81 @@ from PIL import Image
 
 from ..geometry import directions
 from ..layers import Band, Layer
+from ..nir import difference_signal
 from .base import Sensor
+
+
+def _image(root, name):
+    with Image.open(os.path.join(root, name)) as image:
+        return np.asarray(image.convert("RGB"), float)
+
+
+def _groups(root, log):
+    """Consecutive fixed-LED bursts, or the historical uncontrolled triplet."""
+    groups = []
+    for frame in log.get("frames", []):
+        if "phase" not in frame:
+            continue
+        key = (frame["phase"], frame.get("led"))
+        if not groups or groups[-1]["key"] != key:
+            groups.append({"key": key, "led": frame.get("led"), "frames": []})
+        groups[-1]["frames"].append(frame)
+    if groups:
+        result = []
+        for group in groups:
+            frames = group["frames"]
+            failures = []
+            if len(frames) % 2 == 0:
+                failures.append("even encoded burst cannot be median-linearized without radiometric bias")
+            for frame in frames:
+                for key in ("controls", "controls_after"):
+                    if frame.get(key, {}).get("led") != frame["led"]:
+                        failures.append("per-frame LED readback missing or changed")
+                path = os.path.join(root, frame["file"])
+                with open(path, "rb") as source:
+                    digest = hashlib.sha256(source.read()).hexdigest()
+                if digest != frame.get("sha256"):
+                    failures.append("captured image hash missing or mismatched")
+            images = np.stack([_image(root, f["file"]) for f in frames])
+            result.append({"image": np.median(images, axis=0),
+                           "t": float(np.median([f["t"] for f in frames])),
+                           "led": group["led"],
+                           "controls": [state for f in frames for state in (f.get("controls", {}), f.get("controls_after", {}))],
+                           "quality_failures": list(dict.fromkeys(failures)),
+                           "motion": np.max(np.ptp(images, axis=0), axis=-1) > 8.})
+        return result
+    lookup = {f["file"]: f for f in log.get("frames", [])}
+    result = []
+    for i, name in enumerate(("B_passive_1.jpg", "C_active_1.jpg", "B2_passive_1.jpg")):
+        image = _image(root, name)
+        result.append({"image": image, "t": float(lookup.get(name, {}).get("t", i)),
+                       "led": "on" if i == 1 else "off", "controls": [],
+                       "quality_failures": ["legacy acquisition has no verified radiometry"],
+                       "motion": np.zeros(image.shape[:2], bool)})
+    return result
+
+
+def _signature(metadata):
+    """Never merge observations on different radiometric/exposure scales."""
+    state = metadata["controls_readbacks"][0]
+    keys = ("exposure_us", "analog_gain", "digital_gain", "processing_signature")
+    return json.dumps({"controls": {k: state[k] for k in keys}, "radiometry": metadata["radiometry"]}, sort_keys=True)
+
+
+def _overlay(arr, path, span):
+    seen = np.isfinite(arr)
+    value = np.clip(np.nan_to_num(arr) / span, -1, 1)
+    pos, neg = np.clip(value, 0, 1), np.clip(-value, 0, 1)
+    rgb = np.stack([110 + 145 * pos - 80 * neg, 110 - 80 * pos + 60 * neg,
+                    110 + 120 * pos + 100 * neg], axis=-1).clip(1, 255).astype(np.uint8)
+    rgb[~seen] = 0
+    Image.fromarray(rgb).save(path, quality=92)
 
 
 class ActivePassiveNIR(Sensor):
     name = "infrared.active"
-    band = Band("infrared", 800e-9, 1000e-9, "940 nm LEDs at the lens (active) vs ambient near-IR (passive), IR-cut filter out")
+    band = Band("infrared", 800e-9, 1000e-9,
+                "reflected night-mode illumination; driver label ir940, spectrum not measured")
     needs_room = True
 
     def layers(self):
@@ -29,69 +94,115 @@ class ActivePassiveNIR(Sensor):
         root = ctx.path("raw", "ir")
         if not os.path.isdir(root):
             return []
-        rp = os.path.join(ctx.model, "range_pano.f32")
-        PW, PH = 1024, 512
-        D = directions(PW, PH)
-        nir_acc = np.zeros((PH, PW)); led_acc = np.zeros((PH, PW)); n = np.zeros((PH, PW))
-        stats = []
+        pw, ph = 1024, 512
+        directions_world = directions(pw, ph)
+        acc = {k: np.zeros((ph, pw)) for k in ("signal", "noise", "encoded", "filter")}
+        counts = {k: np.zeros((ph, pw), np.uint16) for k in ("signal", "encoded", "filter")}
+        stats, common_signature, input_logs = [], None, set()
         for exp in sorted(os.listdir(root)):
-            lp = os.path.join(root, exp, "log.json")
-            if not os.path.exists(lp):
+            folder = os.path.join(root, exp)
+            logpath = os.path.join(folder, "log.json")
+            if not os.path.isfile(logpath):
                 continue
-            L = json.load(open(lp))
-            ld = lambda f: np.asarray(Image.open(os.path.join(root, exp, f + ".jpg")).convert("RGB"), np.float32).mean(-1)
             try:
-                A, B, C, B2 = ld("A_visible_1"), ld("B_passive_1"), ld("C_active_1"), ld("B2_passive_1")
-            except FileNotFoundError:
-                continue
-            Bm = (B + B2) / 2
-            pan, tilt = L["pos"]
-            h, w = A.shape
-            u, v, ok = ctx.camera.project(pan, tilt, D, w, h)
-            ok &= ~((v < 0.06 * h) & (u < 0.36 * w))
-            ui, vi = u.astype(int).clip(0, w - 1), v.astype(int).clip(0, h - 1)
-            a, b, c = A[vi, ui], Bm[vi, ui], C[vi, ui]
-            sat = (a > 245) | (b > 245) | (c > 245)
-            good = ok & ~sat
-            k = np.median(a[good]) / max(np.median(b[good]), 1)
-            nir = b * k - a
-            R = np.fromfile(rp, np.float32).reshape(384, 768) if os.path.exists(rp) else None
-            r = R[(np.arange(PH)[:, None] * 384 // PH).repeat(PW, 1), (np.arange(PW)[None] * 768 // PW).repeat(PH, 0)] if R is not None else np.full((PH, PW), 0)
-            far = good & (r > 3.0)
-            g = np.median(c[far]) / max(np.median(b[far]), 1) if far.sum() > 500 else 1.0
-            led = c - g * b
-            nir_acc[good] += nir[good]; led_acc[good] += led[good]; n[good] += 1
-            rows = []
-            for lo, hi in ((0.8, 1.5), (1.5, 2.5), (2.5, 4.0), (4.0, 8.0)):
-                s = good & (r >= lo) & (r < hi)
-                if s.sum() > 200:
-                    rows.append({"range_m": [lo, hi], "led_added": round(float(np.median(led[s])), 2),
-                                 "led_x_r2": round(float(np.median(led[s] * r[s] ** 2)), 2), "pixels": int(s.sum())})
-            stats.append({"experiment": exp, "pan": pan, "tilt": tilt, "exposure_ratio": round(float(g), 3), "falloff": rows})
+                with open(logpath, "rb") as source:
+                    logbytes = source.read()
+                log_sha = hashlib.sha256(logbytes).hexdigest()
+                if log_sha in input_logs:
+                    stats.append({"experiment": exp, "rejected": "duplicate capture log; not an independent observation"})
+                    continue
+                input_logs.add(log_sha)
+                log = json.loads(logbytes)
+                groups = _groups(folder, log)
+                pan, tilt = log.get("pos", [log.get("pan"), log.get("tilt")])
+                if pan is None or tilt is None or not groups:
+                    raise ValueError("capture pose or frames missing")
+                h, w = groups[0]["image"].shape[:2]
+                u, v, visible = ctx.camera.project(pan, tilt, directions_world, w, h,
+                                                  off=log.get("pose_offset_deg", (0, 0, 0)))
+                visible &= ~((v < .06 * h) & (u < .36 * w))
+                ui, vi = np.clip(u.astype(int), 0, w - 1), np.clip(v.astype(int), 0, h - 1)
+                observations = []
+                for i in range(1, len(groups) - 1):
+                    before, on, after = groups[i - 1:i + 2]
+                    if (before["led"], on["led"], after["led"]) != ("off", "on", "off"):
+                        continue
+                    metadata = dict(log)
+                    metadata["controls_readbacks"] = before["controls"] + on["controls"] + after["controls"]
+                    metadata["quality_failures"] = before["quality_failures"] + on["quality_failures"] + after["quality_failures"]
+                    result = difference_signal(before["image"], on["image"], after["image"], metadata,
+                                               times=(before["t"], on["t"], after["t"]),
+                                               motion_mask=before["motion"] | on["motion"] | after["motion"])
+                    qualitative = result["encoded_delta"][vi, ui]
+                    good = visible & np.isfinite(qualitative)
+                    acc["encoded"][good] += qualitative[good]
+                    counts["encoded"][good] += 1
+                    quality = result["quality"]
+                    if quality["quantitative"]:
+                        signature = _signature(metadata)
+                        if common_signature is None:
+                            common_signature = signature
+                        if signature != common_signature:
+                            quality = dict(quality, quantitative=False, status="incompatible_radiometric_scale",
+                                           reasons=["exposure/gain/processing/response differs from reference capture"])
+                        else:
+                            valid = visible & result["valid"][vi, ui]
+                            acc["signal"][valid] += result["signal"][vi, ui][valid]
+                            acc["noise"][valid] += result["noise"][vi, ui][valid]
+                            counts["signal"][valid] += 1
+                    observations.append({"on_time": on["t"], "quality": quality,
+                                         "median_encoded_added": float(np.median(qualitative[good])) if good.any() else None,
+                                         "median_off_change": float(np.median(np.abs(after["image"] - before["image"])))})
+                # Filter switching changes spectrum and often processing, too.
+                # Keep the old A/B observation without a material interpretation.
+                if all(os.path.isfile(os.path.join(folder, name)) for name in ("A_visible_1.jpg", "B_passive_1.jpg")):
+                    filt = (_image(folder, "B_passive_1.jpg") - _image(folder, "A_visible_1.jpg")).mean(-1)[vi, ui] / 255
+                    good = visible & np.isfinite(filt)
+                    acc["filter"][good] += filt[good]
+                    counts["filter"][good] += 1
+                stats.append({"experiment": exp, "pan": pan, "tilt": tilt, "observations": observations,
+                              "log_sha256": log_sha})
+            except (OSError, ValueError, KeyError, IndexError) as error:
+                stats.append({"experiment": exp, "rejected": str(error)})
         if not stats:
             return []
-        with np.errstate(invalid="ignore"):
-            nm, lm = nir_acc / n, led_acc / n
-        seen = n > 0
 
-        def save(arr, name, gain):
-            rgb = np.zeros((PH, PW, 3), np.uint8)
-            v = np.clip(arr * gain, -1, 1)
-            # diverging: magenta = more near-IR than visible, teal = less; grey midpoint (never black, which means unseen)
-            pos, neg = np.clip(v, 0, 1), np.clip(-v, 0, 1)
-            rgb[..., 0] = (110 + 145 * pos - 80 * neg).clip(1, 255)
-            rgb[..., 1] = (110 - 80 * pos + 60 * neg).clip(1, 255)
-            rgb[..., 2] = (110 + 120 * pos + 100 * neg).clip(1, 255)
-            rgb[~seen] = 0
-            Image.fromarray(rgb).save(os.path.join(ctx.model, name), quality=90)
-        save(nm, "pano_nir_excess.jpg", 1 / 40)
-        save(lm, "pano_led_light.jpg", 1 / 8)
-        return [Layer("infrared.nir_excess", self.name, self.band, "panorama", "Near-IR minus visible (materials)",
-                      "Frame with the IR-cut filter out minus the visible frame, exposure-normalised: magenta reflects more "
-                      "near-infrared than visible (plants, many fabrics, fur), teal less (screens, black plastics).",
-                      None, None, {"image": "pano_nir_excess.jpg", "overlay": True, "experiments": stats}),
-                Layer("infrared.led", self.name, self.band, "panorama", "The camera's own IR light (active minus passive)",
-                      "LEDs on minus LEDs off, normalised on surfaces beyond 3 m. Should fall off as 1/range^2 from the lens: "
-                      + "; ".join(f"{r['range_m'][0]}-{r['range_m'][1]} m: +{r['led_added']} (x r^2 {r['led_x_r2']})" for r in stats[0]["falloff"])
-                      + ". Taken at dawn, so the signal is a few grey levels; at night it dominates.",
-                      None, None, {"image": "pano_led_light.jpg", "overlay": True, "experiments": stats})]
+        def mean(key, count):
+            return np.divide(acc[key], counts[count], out=np.full((ph, pw), np.nan), where=counts[count] > 0)
+        signal, noise = mean("signal", "signal"), mean("noise", "signal")
+        encoded, filt = mean("encoded", "encoded"), mean("filter", "filter")
+        quantitative = int(sum(o["quality"]["quantitative"] for s in stats for o in s.get("observations", [])))
+        legacy = int(sum(not o["quality"]["quantitative"] for s in stats for o in s.get("observations", [])))
+        np.savez_compressed(os.path.join(ctx.model, "nir_signal.npz"), schema_version=np.array(2),
+                            led_signal=signal.astype(np.float32), noise=noise.astype(np.float32),
+                            valid=counts["signal"] > 0, observations=counts["signal"],
+                            encoded_delta=encoded.astype(np.float32), filter_delta=filt.astype(np.float32))
+        with open(os.path.join(ctx.model, "nir_signal.npz"), "rb") as source:
+            numeric_sha = hashlib.sha256(source.read()).hexdigest()
+        info = {"schema_version": 2, "width": pw, "height": ph, "numeric_file": "nir_signal.npz",
+                "numeric_sha256": numeric_sha,
+                "calibration_sha256": hashlib.sha256(json.dumps(ctx.camera.c, sort_keys=True).encode()).hexdigest(),
+                "quantitative_observations": quantitative, "legacy_observations": legacy,
+                "qualitative_observations": legacy,
+                "reflectivity_valid": False, "response_valid": bool(np.isfinite(signal).any()),
+                "status": "controlled_linear_signal" if quantitative else "qualitative_only",
+                "radiometric_signature": common_signature,
+                "limitations": ["uncalibrated LED beam, source offset and camera shading",
+                                "geometry correction is an approximate response proxy; LED power assumed stable",
+                                "reflected illumination, not temperature or material identity"], "experiments": stats}
+        with open(os.path.join(ctx.model, "nir_signal.json"), "w") as destination:
+            json.dump(info, destination, indent=2)
+        _overlay(encoded, os.path.join(ctx.model, "pano_led_light.jpg"), 16.)
+        layers = [Layer("infrared.led", self.name, self.band, "panorama",
+                        "LED brightness change (qualitative preview)",
+                        "LEDs on minus time-interpolated off frames in the same night/filter state. Numeric measurements "
+                        "require verified fixed controls and linearized response; legacy JPEG differences are display-only.",
+                        None, None, {**info, "image": "pano_led_light.jpg", "overlay": True,
+                                     "display_qualitative": True, "display_units": "encoded JPEG levels"})]
+        if counts["filter"].any():
+            _overlay(filt, os.path.join(ctx.model, "pano_nir_excess.jpg"), .2)
+            layers.append(Layer("infrared.nir_excess", self.name, self.band, "panorama", "Filter response (qualitative)",
+                                "Historical filter-out minus filter-in JPEG code values. Exposure, processing and spectrum "
+                                "differ; this is not isolated near-IR reflectivity or a material classifier.",
+                                None, None, {"image": "pano_nir_excess.jpg", "overlay": True, "qualitative": True}))
+        return layers

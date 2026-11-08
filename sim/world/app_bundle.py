@@ -132,6 +132,17 @@ def build(world, out):
            "radio": ((L.get("radio.rssi") or {}).get("data") or {}).get("by_direction"),
            "legends": legends, "infrared": infrared}
     json.dump(doc, open(os.path.join(out, "room.json"), "w"))
+    # the initial acoustic room (acoustic_room.py): the metric range simplified to walls, floor and ceiling.
+    # Imaged = where the unfilled fused surface has a range (blind-spot fills are not measurements).
+    # Built from the clean metric range (pano-depth, before snapping to modelled walls); a world built before
+    # that file existed must be rebuilt (`python3 -m sim.world.build <world>`), never fed the snapped range.
+    from .acoustic_room import from_world
+    try:
+        ac = from_world(world)
+        json.dump(ac, open(os.path.join(model, "acoustic_room.json"), "w"), indent=1)
+        json.dump(ac, open(os.path.join(out, "acoustic_room.json"), "w"), indent=1)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"acoustic room not built: {e}", file=sys.stderr)
     return doc
 
 
