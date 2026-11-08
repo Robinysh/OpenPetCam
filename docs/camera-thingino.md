@@ -1,8 +1,13 @@
 # Camera notes: Thingino on a Cinnado D1
 
-The reference camera is a Cinnado D1 (Ingenic T23N SoC, AltoBeam ATBM6012B Wi-Fi, SC2336 sensor,
+The reference camera is a Cinnado D1 (Ingenic T23N SoC, AltoBeam ATBM6012BX Wi-Fi, SC2331 sensor,
 8 MB flash) running [Thingino](https://thingino.com). Most of this applies to any Thingino pan/tilt camera.
 Main stream 1080p 25 fps VBR <= 1600 kbit/s, sub stream 640x360.
+
+The archived camera inventory identifies the installed image as
+`cinnado_d1_t23n_sc2331_atbm6012bx`; startup logs also record successful SC2331
+chip detection. Cinnado D1 cameras have several hardware variants, including
+SC2336 models, so the product name alone does not identify the board.
 
 
 - **Thingino's CGIs only parse compact JSON.** `{"username": "root"}` (with spaces, Python's

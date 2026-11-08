@@ -4,6 +4,47 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-08
+
+### Camera firmware
+- Picture-clock fix for prudynt on the Ingenic T23 (`tools/firmware/prudynt-timestamps/`). The SDK gives a keyframe's
+  SPS, PPS and IDR one timestamp with `frameEnd` true/false/true; prudynt took the SPS as a whole picture and added
+  one frame period per keyframe group, so recordings drifted. The patch keeps each picture's capture time, with
+  replay of recorded SDK traces, host regression tests, ABI-matched reproducible builds and an installer that checks
+  the stock binary's hash and keeps a rollback. Checked for 11 minutes on the reference camera.
+- Privacy keeps the camera's capture stopped across reboots and recovery attempts, not only while the server runs.
+
+### Server
+- Find by sound (`server/soundfind.py`): the server learns where her sounds come from, from sounds heard while she is
+  in view and from searches that find her soon after a sound. A sound heard while she is out of view puts its guess
+  first in the next search only after the guess has beaten the usual search order on at least 15 search finds; until
+  then it runs in shadow and records how it would have done. `tools/soundfind_report.sh` shows the tally.
+- A resting pet who settles off-centre is recentred once per rest, at the quiet motor speed. The full-band motor
+  noise test (8-20 kHz +0.3 dB over the room at that speed) cleared the owners' rule for moves near a resting dog.
+- Searching again soon after a find; one still look after privacy ends; a still-hold that keeps her "here" while the
+  picture around her does not change; a pause in chasing after two chases in ten minutes that found nothing.
+- Mark the pet: the next tap on the live view saves where she is as an owner label (rate limited, never moves the
+  camera). The Live badge follows camera health (OFFLINE, FROZEN, NO SERVER, CONNECTING).
+- Clip timelines are validated; view summaries are served without blocking; request tracking, follow and clip
+  playback repairs.
+
+### App and agents
+- In-app requests on a persistent Kanban board; Monitoring for watched behaviour and agent goals, separate from
+  requests that need a decision; report pages show the evidence kept for them.
+- The report agent ships bounded, reversible fixes without waiting on the owners, drops files it may not change
+  instead of failing the fix, retries stalled reports twice, and writes a resolution for every report.
+- `tools/check_public.sh` in a linked worktree uses the main checkout's private config. It used to check nothing
+  there, which let a pet's name into a code comment.
+
+### Research (offline, not used by the app)
+- Paired offline simulations of Find routes; learned visual-obstruction evidence; reviewed hard examples and
+  isolated detector candidates; startup goal percentiles; 3D acoustic propagation and phase-aware localization
+  experiments.
+
+### Docs
+- The reference camera's board is identified from its image name (`cinnado_d1_t23n_sc2331_atbm6012bx`): SC2331
+  sensor and ATBM6012BX Wi-Fi; Cinnado D1 boards vary.
+
 ## [0.3.7] - 2026-11-05
 
 ### Fixed
