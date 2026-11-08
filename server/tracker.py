@@ -68,6 +68,29 @@ SEARCH_STOPS = []      # a learned search order [(pan, tilt), ...] (sim/train_se
 ROOM_FOLLOW = None     # roomfollow.RoomFollow (the room model's geometry), or None: Follow works in picture coordinates
 METRIC_FOLLOW = False  # use ROOM_FOLLOW for Follow: predict her in metres, wait at the exit of hidden areas, frame by size
 STREAM_LAG = 0.7       # s between a frame being taken and the detector seeing it (measured, sim/params.json lag_s)
+# Delay-aware Follow (sim/follow_delay.py), off until it wins on held-out rooms. CAPTURE_TIME stamps her track with
+# when each frame was taken (the detector's time minus STREAM_LAG) and skips the watcher's repeats of a stale box,
+# which otherwise bend the velocity estimate. SETTLE_LEAD predicts her to when the aim will have finished (frame age,
+# motor latency, travel at AIM_RATE steps/s) and keeps LEAD as a residual on top.
+CAPTURE_TIME = False
+SETTLE_LEAD = False
+AIM_RATE = 217.0       # steps/s at QUIET_SPEED (sysid 2026-11-04: 216-218)
+AIM_LATENCY = 0.1      # s from command to first motion (sysid: 50-120 ms)
+# When a person's move pauses Follow and she was last seen lying still elsewhere, the camera stays where they left it
+# and nothing brings it back: no motion, no detection, and the search rule needs a followed pet. In the simulator this
+# is the largest controllable loss (sim/follow_delay.py: in view 0.52 with ~3 hand moves an hour, 0.68 with none).
+RETURN_AFTER_PAUSE = False
+RETURN_MAX_AGE = 1800.0  # s: a resting sighting older than this says too little about where she is now
+RETURN_SEEN_BEFORE = 10.0  # s: return only if she was in view this recently when the person moved the camera
+# Calm Follow (live walk 2026-11-08: 35 aims in 6 min, many undoing the previous one while she ambled around a person
+# at 0.05-0.16 frame/s). Speed alone can't tell ambling from walking (a steady walk across the room is ~0.15 frame/s):
+# direction can. Once the camera aimed the other way within AMBLE_WINDOW s, she is ambling: she must be predicted past
+# EDGE_SLOW before it moves, and an aim brings her back to KEEP from the centre on her own side instead of re-centring
+# her. A steady walk never reverses, so it is followed exactly as before.
+CALM_FOLLOW = True     # live from 2026-11-08 (tools/follow_live.py measures it against the days before)
+AMBLE_WINDOW = 20.0    # s
+EDGE_SLOW = 0.32       # the threshold while ambling (EDGE otherwise)
+KEEP = 0.15            # where an aim leaves her while ambling, from the centre (0 = re-centre)
 HIDDEN_WAIT = 60.0     # s to hold at the exit of a hidden area before the usual lost-pet logic resumes
 WALK_SPEED = 0.3       # m/s: above box jitter on a still dog (90th pct 0.09 m/s) and below her measured gait (median 0.52)
 FAST_FOLLOW = True     # follow her between detector runs with the per-frame motion tracker (fasttrack.py, fed by
@@ -303,9 +326,15 @@ class Tracker:
             self.hist.clear()
             if not self.was_paused:
                 self.was_paused = True
+                a = getattr(self, "rest_anchor", None)
+                self.pause_anchor = a if a is not None and t - self.last_seen_t <= RETURN_SEEN_BEFORE else None
                 return f"paused for {USER_PAUSE / 60:.0f} min (a person moved the camera)"
             return None
-        self.was_paused = False
+        resumed, self.was_paused = self.was_paused, False
+        if resumed and RETURN_AFTER_PAUSE and box is None:
+            back = self._return_to_rest(t)
+            if back:
+                return back
         # Report 2026-11-03 18:17: the detector runs only every few seconds and the watcher passes its last box
         # in between. After our own aim that box shows her where she was BEFORE the turn; read as new, it looked
         # like she had jumped by the aim's size, so Follow aimed again and again (+0.19, +0.20, +0.22 in 7 s)
@@ -326,11 +355,26 @@ class Tracker:
                 self.top_edge_t = self.box_t
                 if box[1] > 0.03:
                     self.top_edge_nudges = 0
-            return self._track(t, box, moving, verified=True)
+            return self._track(t, box, moving, verified=True, t_obs=self.box_t)
         wbox = self._weak_match(t, weak)
         if wbox is not None:
             return self._track(t, wbox, moving)
         return self._lost(t, sound, motion, activity_sound)
+
+    def _return_to_rest(self, t):
+        """After a person's move: one quiet move back to where she was last seen lying still, if that was recent."""
+        a, self.pause_anchor = getattr(self, "pause_anchor", None), None
+        if a is None or t - a[0] > RETURN_MAX_AGE:
+            return None
+        try:
+            here = self.cam.position()
+        except Exception:  # noqa: BLE001
+            return None
+        if abs(here[0] - a[1]) + abs(here[1] - a[2]) < 40:
+            return None
+        self._move(self.cam.goto, a[1], a[2])
+        self.last_aim_t = self.clock()
+        return f"back to where she was ({a[1]:.0f}, {a[2]:.0f}) when a person moved the camera, {(t - a[0]) / 60:.0f} min ago"
 
     def _fast_box(self, t, box, fast):
         """A box at the motion tracker's estimate, when it should replace the detector's: it has followed her since
@@ -376,10 +420,12 @@ class Tracker:
         xs, ys = [h[1] for h in self.hist], [h[2] for h in self.hist]
         return max(xs) - min(xs) <= spread and max(ys) - min(ys) <= spread
 
-    def _track(self, t, box, moving, src=None, verified=False):
+    def _track(self, t, box, moving, src=None, verified=False, t_obs=None):
         cx, cy = (box[0] + box[2]) / 2 - 0.5, (box[1] + box[3]) / 2 - 0.5
-        self.hist.append((t, cx, cy))
-        while self.hist and t - self.hist[0][0] > TRACK_WINDOW:
+        ts = ((t_obs if t_obs is not None else t) - STREAM_LAG) if CAPTURE_TIME else t
+        if not (CAPTURE_TIME and self.hist and ts <= self.hist[-1][0] + 1e-6):   # a repeat of the same answer: no news
+            self.hist.append((ts, cx, cy))
+        while self.hist and ts - self.hist[0][0] > TRACK_WINDOW:
             self.hist.popleft()
         recent = t - self.last_seen_t < 3.0
         self.chase_dir, self.chase_steps, self.chase_origin = None, 0, None
@@ -391,6 +437,13 @@ class Tracker:
             self._save_memory()
         self.last_moving = bool(moving)
         self.last_seen_t, self.last_seen_c = t, (cx, cy)
+        if verified:
+            try:
+                x, y = self.cam.position()
+                fw, fh = self.cam.frame_steps()
+                self.rest_anchor = (t, x - cx * fw, y - cy * fh)     # the pose that centres her where last verified
+            except Exception:  # noqa: BLE001
+                pass
         if len(self.hist) >= 2 and self.hist[-1][0] - self.hist[0][0] >= 0.8:
             vx, vy = self.velocity()
         elif recent:
@@ -404,9 +457,28 @@ class Tracker:
         if metric is not None:
             return self._metric_track(t, moving)
         px, py = cx + vx * LEAD, cy + vy * LEAD
+        if SETTLE_LEAD:
+            fw, fh = self.cam.frame_steps()
+            age = max(0.0, t - (self.hist[-1][0] if self.hist else t))
+            h = age + LEAD
+            for _ in range(2):        # the move's length depends on where she'll be, and that on how long it takes
+                px, py = cx + vx * h, cy + vy * h
+                steps = max(abs(px) * 0.9 * fw, abs(py) * 0.8 * fh)
+                h = age + AIM_LATENCY + steps / max(AIM_RATE, 1.0) + LEAD
+            px, py = cx + vx * h, cy + vy * h
         speed = math.hypot(vx, vy)
-        if (moving or speed > 0.05) and (abs(px) > EDGE or abs(py) > EDGE * 1.25):
-            fx, fy = max(-0.6, min(0.6, px * 0.9)), max(-0.6, min(0.6, py * 0.8))
+        la = getattr(self, "last_aim_x", None)
+        ambling = CALM_FOLLOW and la is not None and t - la[0] <= AMBLE_WINDOW and la[1] * px < 0
+        edge = EDGE_SLOW if ambling else EDGE
+        if (moving or speed > 0.05) and (abs(px) > edge or abs(py) > edge * 1.25):
+            if ambling:         # leave her KEEP inside, on her own side: enough to keep her in, no swing across
+                ax = math.copysign(max(0.0, abs(px) - KEEP), px) if abs(px) > edge else 0.0
+                ay = math.copysign(max(0.0, abs(py) - KEEP), py) if abs(py) > edge * 1.25 else 0.0
+                fx, fy = max(-0.6, min(0.6, ax)), max(-0.6, min(0.6, ay))
+            else:
+                fx, fy = max(-0.6, min(0.6, px * 0.9)), max(-0.6, min(0.6, py * 0.8))
+            if abs(fx) >= 0.05:
+                self.last_aim_x = (t, fx)
             self._move(self.cam.aim, fx, fy, shift=(fx, fy))
             self.last_aim_t = self.clock()
             self.offcentre_since = None

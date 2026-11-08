@@ -333,6 +333,9 @@ for _ in range(2):                                     # cycles between detector
 for _ in range(3):                                     # the detector runs again on the turned view
     w.advance(3.0); log20.append(tr.step(w.box(), moving=False, box_t=w.t))
 aims20 = [m for m in w.moves if m[0] == "aim"]
-assert len(aims20) == 1 and w.box() is not None and abs(w.fx()) < 0.15, (aims20, round(w.fx(), 2), log20)
+if T.CALM_FOLLOW:     # calm Follow leaves a still dog 0.18 off-centre alone: no aim at all, she stays in view
+    assert len(aims20) <= 1 and w.box() is not None and abs(w.fx()) < T.EDGE_SLOW, (aims20, round(w.fx(), 2), log20)
+else:
+    assert len(aims20) == 1 and w.box() is not None and abs(w.fx()) < 0.15, (aims20, round(w.fx(), 2), log20)
 print(f"old box after our own aim: {len(aims20)} aim, she stays in view (offset {w.fx():+.2f})")
 print("tracker ok")

@@ -130,7 +130,35 @@ the learned search, are the live learned arm.
   visibility over all watched time, hour of day by hour of day on hours both arms covered, counts every motor command
   (`track.moves`), and the rotation shifts one block per day. The A/B restarted with these on 2026-11-04.
 
-## What is not yet established
+## 2026-11-08: what a live walk showed that the simulators can't
+
+An outside review proposed predicting her to when an aim will have finished, and learning only a small correction on
+top. `sim/follow_delay.py` tested that on both simulators, before any reinforcement learning:
+
+- **Following a moving dog is nearly solved in simulation.** Of home time, she is out of the frame while moving 0.9%,
+  hidden behind something 8.7%, and lying in the open outside the frame 38.5%. The loss is reacquiring a resting dog.
+- **Counterfactuals, same random draws:** hard lying poses always detected 0.52 -> 0.63 in view; nobody ever turning
+  the camera by hand 0.52 -> 0.58 (most of it inside the 3-minute pause a person's move earns); searching every 2 min
+  instead of 10 makes it worse (0.49).
+- **Delay-aware prediction (`SETTLE_LEAD`), capture-time stamping (`CAPTURE_TIME`) and returning to her after a
+  person's move (`RETURN_AFTER_PAUSE`)** did not beat today's constants on held-out rooms in either simulator, nor after
+  re-tuning both arms the same way (re-tuning on 24 rooms overfits: both tuned arms lost to the deployed constants).
+  They stay in `server/tracker.py`, off.
+- **A supervised live walk (6 min, owner walking the dog)** showed what neither simulator reproduces: 35 tracking aims,
+  many undoing the previous one while she ambled at 0.05-0.16 frame/s 0.2-0.4 from the centre. Stills from the
+  recording at 12 logged misses: 7 had her outside the frame, 3 had her cut off at an edge, 2 lying belly-up in view.
+- **Calm Follow (`CALM_FOLLOW`, on since 2026-11-08):** speed can't tell ambling from walking (a steady walk across
+  the room is ~0.15 frame/s, the walk's ambling 0.05-0.16), direction can. Once the camera aimed the other way within
+  `AMBLE_WINDOW` (20 s) she is ambling: she must be predicted past `EDGE_SLOW` (0.32) before it moves, and an aim leaves
+  her `KEEP` (0.15) from the centre on her own side. A first version gated on speed alone lost the steady-walk
+  benchmark (77% -> 61% in view) and was replaced. The direction version holds every follow benchmark scenario (walks
+  across 77 -> 76%, walks past a lookalike 73 -> 79% and 1.6 -> 0.1 s on the toy) and on the walk's logged decisions
+  would have made 25 of the 35 aims with 24% less travel (10.4 -> 7.9 frame widths) and 11 instead of 17 swings across
+  her. It changes nothing in either simulator, which don't model ambling.
+- **Live measure:** `python3 tools/follow_live.py EXPORT.json --since/--until`: aims, reversals, travel and the
+  share of cycles she is verified, per active hour (6 days before: 13.5 aims, 2 reversals, 3.8 frames, 36.6% seen).
+
+
 
 - **A live verdict.** The corrected A/B needs about three days of blocks before it can decide.
 

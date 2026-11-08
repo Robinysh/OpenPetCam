@@ -54,6 +54,7 @@ class _Seen(list):
 
 
 class Room:
+    OWNER_NOOP = False
     # Detection of hard poses: False = each frame independently with p_hard (the original model); True = the pose is
     # either detectable or not for its whole duration (drawn with p_hard), as the real detector behaves on one pose
     # (2026-11-05: independent per-frame misses produced many short losses re-found within 30 s; real losses are rare)
@@ -97,6 +98,7 @@ class Room:
         self.hidden = False
         self.leaving = False
         self.dog_hist = [(0.0, self.px, self.py, False, self.dog_state, False)]
+        self.truth_detail = []
         self.next_people = self.t + self.rng.exponential(3600 / max(self.F["people_motion_per_h"], 1e-6))
         om = float(self.F.get("owner_moves_per_h") or 0.0)
         self.next_owner = self.t + (self.rng.exponential(3600 / om) if om > 0 else 1e18)
@@ -202,6 +204,8 @@ class Room:
             if self.t >= self.next_owner:                  # someone turns the camera with the joystick
                 p = self._presets[int(self.rng.integers(len(self._presets)))]
                 self.target = (float(p["x"]), float(p["y"]), self.t + 0.1)
+                if self.OWNER_NOOP:                        # counterfactual: the hand move happens (same random draws,
+                    self.target = (self.C, self.Y, self.t + 0.1)   # same pause) but leaves the camera where it was
                 self.moved = self.moved_by_owner = self.t
                 om = float(self.F.get("owner_moves_per_h") or 0.0)
                 self.next_owner = self.t + self.rng.exponential(3600 / om)
@@ -211,7 +215,9 @@ class Room:
             self.t += self.dt
             self.cam_hist.append((self.t, self.X, self.Y))
             self.dog_hist.append((self.t, self.px, self.py, self.dog_state == "move", self.dog_state, self.hidden))
-            self.truth.append((self.t, self.dt, self.in_view(), self.dog_state != "away"))
+            iv = self.in_view()
+            self.truth.append((self.t, self.dt, iv, self.dog_state != "away"))
+            self.truth_detail.append((self.dt, self.dog_state, bool(self.hidden), iv))   # why she was out of view
         if len(self.cam_hist) > 400:
             self.cam_hist = self.cam_hist[-200:]
             self.dog_hist = self.dog_hist[-200:]
