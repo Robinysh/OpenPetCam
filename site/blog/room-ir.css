@@ -1,0 +1,29 @@
+/* Recorded IR input crops and their signed, fixed-scale differences. */
+.room-story .ir-example{max-width:720px;margin:30px auto 40px}
+.ir-example .ir-inputs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.ir-example .ir-results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;max-width:560px;margin:24px auto 0}
+.ir-example .ir-label{display:block;min-height:48px;color:var(--ink);font:15px/1.4 var(--body)}
+.ir-example .ir-label b{display:block;font-weight:400}
+.ir-example .ir-label small{display:block;color:var(--ink-2);font-size:12px}
+.ir-example .ir-image{display:block;position:relative;line-height:0}
+.ir-example .ir-image img{display:block;width:100%;height:auto;margin:0;border-radius:0}
+.ir-example .ir-sample{position:absolute;left:42.2%;top:61.25%;width:13px;height:13px;transform:translate(-50%,-50%);border:2px solid #ffe393;border-radius:50%;box-shadow:0 0 0 1px #17181d;pointer-events:none}
+.ir-example .ir-formula{margin:20px 0 0;color:var(--ink);font:15px/1.7 var(--mono);text-align:center}
+.ir-example .ir-formula span{display:inline-block}
+.ir-example .ir-scale{max-width:560px;margin:16px auto 0;color:var(--ink-2);font:12px/1.4 var(--body)}
+.ir-example .ir-scale-bar{height:9px;background:linear-gradient(90deg,#2187e0,#6d6d6d,#ff2de0)}
+.ir-example .ir-scale-labels{display:flex;justify-content:space-between;margin-top:5px}
+.ir-example .ir-scale-title{margin-top:7px;text-align:center}
+.ir-example .ir-arithmetic{margin:20px 0 0;padding-left:14px;border-left:2px solid var(--gold,var(--blue));color:var(--ink);font:15px/1.6 var(--body)}
+.ir-example .ir-arithmetic code{font-size:13px;white-space:normal;overflow-wrap:anywhere}
+.ir-example .ir-reading{color:var(--ink-2);font:15px/1.6 var(--body);margin:16px 0 0}
+.ir-example .ir-sample-key{display:inline-block;width:10px;height:10px;border:2px solid #c8a442;border-radius:50%;vertical-align:baseline;margin-right:5px}
+.room-story .ir-example figcaption{margin-top:16px}
+.ir-example .ir-image:focus-visible{outline:3px solid var(--blue);outline-offset:4px}
+@media(max-width:540px){.ir-example .ir-inputs{gap:8px}.ir-example .ir-results{gap:16px}.ir-example .ir-label{font-size:14px;min-height:46px}.ir-example .ir-label small{font-size:11px}.ir-example .ir-formula{font-size:13px}.ir-example .ir-sample{width:10px;height:10px}.ir-example .ir-arithmetic{font-size:14px}}
+@media(max-width:540px){.ir-example .ir-inputs .ir-label{min-height:60px}}
+
+/* Night appearance pending a genuinely paired, stationary capture. */
+.room-story .ir-night{max-width:520px;margin:30px auto 40px}
+.ir-night .ir-night-label{margin-bottom:8px;color:var(--ink);font:15px/1.4 var(--body)}
+.ir-night img{display:block;width:100%;height:auto;border-radius:0}

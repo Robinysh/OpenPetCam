@@ -1,0 +1,77 @@
+{
+  "source": "Current Room renderer and qualitative IR products; no original-film footage",
+  "display": "Measured colour patch over untextured room geometry; unseen surfaces grey",
+  "animation": "A camera orbit around fixed measurements, not acquisition time",
+  "renderer_sha256": "287fd3cbb59a852826d02544e541de811b2490d93328a7b4e1ca658c1716120e",
+  "source_range_sha256": "7e4f9c49b601092f0f605781e89d3aea558ad4c3b1efca25a6338875bc7378f2",
+  "qualitative_observations": 1,
+  "quantitative_observations": 0,
+  "reflectivity_valid": false,
+  "width": 720,
+  "height": 640,
+  "fps": 24,
+  "scenes": [
+    {
+      "name": "room-led-difference",
+      "field": "nir_led_difference",
+      "legend": {
+        "kind": "gradient",
+        "stops": [
+          "#2187e0",
+          "#407db2",
+          "#5e7385",
+          "#8b6185",
+          "#c547b3",
+          "#ff2ee0"
+        ],
+        "lo": "-16 DN",
+        "hi": "+16 DN",
+        "title": "LED brightness change; encoded JPEG levels, qualitative"
+      },
+      "source_texture_sha256": "8e43c43bf2fef01459b603bc0f6140a8538557af5add02975dc83c7db445b05a",
+      "frames": 144,
+      "duration_seconds": 6.0,
+      "camera": {
+        "azimuth": -25,
+        "elevation": 38,
+        "distance_factor": 0.75,
+        "orbit": 28
+      },
+      "video_sha256": "796f5a8da8ed1e6a961d47808412961e945c0cec34a00e50fe80c3b9bc861602",
+      "poster_sha256": "28aad58804162643de932fe326ea47c8d7666db9f127d85873dafeb067381d4f",
+      "video_bytes": 293015,
+      "poster_bytes": 35941
+    },
+    {
+      "name": "room-filter-response",
+      "field": "nir_excess",
+      "legend": {
+        "kind": "gradient",
+        "stops": [
+          "#2187e0",
+          "#407db2",
+          "#5e7385",
+          "#8b6185",
+          "#c547b3",
+          "#ff2ee0"
+        ],
+        "lo": "lower response",
+        "hi": "higher response",
+        "title": "filter response (qualitative)"
+      },
+      "source_texture_sha256": "5a5be4da27e39c2b53b79aa994f9a0114e16848cd0b6ac0eb12663c284024002",
+      "frames": 144,
+      "duration_seconds": 6.0,
+      "camera": {
+        "azimuth": -25,
+        "elevation": 38,
+        "distance_factor": 0.75,
+        "orbit": 28
+      },
+      "video_sha256": "e368d8cbd6d8f36409210a4190daaa3e60fb2611a5885efac200928d83b53dee",
+      "poster_sha256": "6d76e0c457967a03a2964e6b137c24df7ba0d5a2674da91e736d4099273de898",
+      "video_bytes": 270756,
+      "poster_bytes": 32498
+    }
+  ]
+}

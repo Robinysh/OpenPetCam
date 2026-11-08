@@ -145,7 +145,7 @@ Cinnado D1 so far, reports from other cams very welcome.)
 
 - **Name:** OpenPetCam
 - **Tagline:** Self-hosted pet camera that finds your dog. No subscription, no vendor cloud.
-- **URL:** https://github.com/crimeacs/OpenPetCam · **Website:** https://crimeacs.github.io/OpenPetCam/
+- **URL:** https://github.com/crimeacs/OpenPetCam · **Website:** https://openpetcam.com/
 - **License:** Apache-2.0 · **Platforms:** Self-hosted (Linux server), web (PWA on iPhone/Android)
 - **Categories / tags:** Home & pets, video surveillance, self-hosted, privacy, computer vision
 - **Alternative to:** Furbo, Petcube, Wyze Cam (with Cam Plus), Ring indoor cam

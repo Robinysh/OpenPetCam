@@ -20,12 +20,13 @@ Key facts:
 - [Contributing](https://github.com/crimeacs/OpenPetCam/blob/main/CONTRIBUTING.md)
 
 ## Guides
-- [Build a pet camera with Thingino firmware](https://crimeacs.github.io/OpenPetCam/guide/thingino-pet-camera.html)
-- [A pet camera without a subscription](https://crimeacs.github.io/OpenPetCam/guide/pet-camera-without-subscription.html)
+- [Build a pet camera with Thingino firmware](https://openpetcam.com/guide/thingino-pet-camera.html)
+- [A pet camera without a subscription](https://openpetcam.com/guide/pet-camera-without-subscription.html)
+- [An open-source alternative to Furbo and Petcube](https://openpetcam.com/guide/open-source-pet-camera.html)
 
 ## Blog
-- [Teaching a $12 pet camera where to look](https://crimeacs.github.io/OpenPetCam/blog/room-in-4d.html): a rough room map from photographs and a candidate floor echo, a history of sightings, an offline search replay, and the next experiment toward full waveform inversion
+- [A 4D model of the room using a stationary $12 camera and wave physics](https://openpetcam.com/blog/room-in-4d.html): a rough 3D room from photographs, a candidate floor echo and neural depth, with observations over time and a proposed loop for self-improvement
 
 ## Optional
 - [Releases](https://github.com/crimeacs/OpenPetCam/releases)
-- [60-second film](https://crimeacs.github.io/OpenPetCam/media/openpetcam-film-720p.mp4)
+- [60-second film](https://openpetcam.com/media/openpetcam-film-720p.mp4)

@@ -4,10 +4,10 @@
 <link rel="alternate" type="application/atom+xml" title="OpenPetCam blog" href="blog/feed.xml">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>OpenPetCam: the open-source pet camera that finds your dog</title>
-<meta name="description" content="Free, open-source, self-hosted pet camera. Live video, a camera that finds your dog, and alerts, on a $5 server you own. No subscription.">
+<title>OpenPetCam (Open Pet Cam): the open-source pet camera that finds your dog</title>
+<meta name="description" content="OpenPetCam (Open Pet Cam) is a free, open-source, self-hosted pet camera: live video, a camera that finds your dog, and alerts, on a $5 server you own. No subscription.">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<link rel="canonical" href="https://crimeacs.github.io/OpenPetCam/">
+<link rel="canonical" href="https://openpetcam.com/">
 <meta name="theme-color" content="#F4EEE3">
 <link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="icon" href="favicon.png" sizes="96x96" type="image/png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -15,14 +15,14 @@
 <meta property="og:site_name" content="OpenPetCam">
 <meta property="og:title" content="OpenPetCam: the pet cam that finds your dog">
 <meta property="og:description" content="Open-source camera software that goes looking when your dog wanders off, and knows her from her toys. Runs on a $5 server you own.">
-<meta property="og:url" content="https://crimeacs.github.io/OpenPetCam/">
-<meta property="og:image" content="https://crimeacs.github.io/OpenPetCam/media/share.png">
+<meta property="og:url" content="https://openpetcam.com/">
+<meta property="og:image" content="https://openpetcam.com/media/share.png">
 <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
-<meta property="og:video" content="https://crimeacs.github.io/OpenPetCam/media/openpetcam-film-720p.mp4">
+<meta property="og:video" content="https://openpetcam.com/media/openpetcam-film-720p.mp4">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="OpenPetCam: the pet cam that finds your dog">
 <meta name="twitter:description" content="Open-source camera software that goes looking when your dog wanders off. Runs on a $5 server you own.">
-<meta name="twitter:image" content="https://crimeacs.github.io/OpenPetCam/media/share.png">
+<meta name="twitter:image" content="https://openpetcam.com/media/share.png">
 <link rel="preload" href="fonts/snout.woff2?v=2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/snout-text.woff2?v=2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/snout-mono.woff2?v=2" as="font" type="font/woff2" crossorigin>
@@ -31,17 +31,19 @@
 <link rel="stylesheet" href="site.css?v=type-2">
 <script type="application/ld+json">
 {"@context":"https://schema.org","@graph":[
- {"@type":"SoftwareApplication","name":"OpenPetCam","url":"https://crimeacs.github.io/OpenPetCam/",
+ {"@type":"WebSite","name":"OpenPetCam","alternateName":["Open Pet Cam","OpenPetCam pet camera"],"url":"https://openpetcam.com/"},
+ {"@type":"SoftwareApplication","name":"OpenPetCam","alternateName":"Open Pet Cam","url":"https://openpetcam.com/",
   "description":"Free, open-source, self-hosted pet camera software for Thingino Wi-Fi pan/tilt cameras: live video on your phone, automatic search for your pet, pet detection that ignores toys, daily activity and alerts, on a small server you own.",
   "applicationCategory":"MultimediaApplication","operatingSystem":"Ubuntu 24.04 server; web app for iPhone, Android and desktop",
   "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://www.apache.org/licenses/LICENSE-2.0",
-  "softwareVersion":"0.2.1","downloadUrl":"https://github.com/crimeacs/OpenPetCam/releases",
-  "codeRepository":"https://github.com/crimeacs/OpenPetCam","image":"https://crimeacs.github.io/OpenPetCam/media/share.png"},
+  "softwareVersion":"0.3.7","downloadUrl":"https://github.com/crimeacs/OpenPetCam/releases",
+  "codeRepository":"https://github.com/crimeacs/OpenPetCam","image":"https://openpetcam.com/media/share.png"},
  {"@type":"VideoObject","name":"OpenPetCam in 60 seconds","description":"The camera searches the room and finds the dog, tells her from her toy, and fixes itself when something is off.",
-  "thumbnailUrl":"https://crimeacs.github.io/OpenPetCam/media/poster.jpg","uploadDate":"2026-11-03","duration":"PT1M1S",
-  "contentUrl":"https://crimeacs.github.io/OpenPetCam/media/openpetcam-film-720p.mp4"},
+  "thumbnailUrl":"https://openpetcam.com/media/poster.jpg","uploadDate":"2026-11-03","duration":"PT1M1S",
+  "contentUrl":"https://openpetcam.com/media/openpetcam-film-720p.mp4"},
  {"@type":"FAQPage","mainEntity":[
   {"@type":"Question","name":"Is there a pet camera without a subscription?","acceptedAnswer":{"@type":"Answer","text":"Yes. OpenPetCam is free and open source. You pay only for a small server you own (an AWS Lightsail nano is about $5 a month) and a Thingino-compatible Wi-Fi camera. There is no subscription and no vendor cloud."}},
+  {"@type":"Question","name":"Is OpenPetCam an alternative to Furbo or Petcube?","acceptedAnswer":{"@type":"Answer","text":"For the core job, yes: live video, alerts and a camera that finds your dog, with no subscription and no vendor cloud. It has no treat toss, and setup needs a terminal."}},
   {"@type":"Question","name":"Which cameras work with OpenPetCam?","acceptedAnswer":{"@type":"Answer","text":"Pan/tilt Wi-Fi cameras supported by the open Thingino firmware. The reference camera is a Cinnado D1 (Ingenic T23N). Other models may need their pan/tilt calibrated."}},
   {"@type":"Question","name":"Does OpenPetCam work on iPhone?","acceptedAnswer":{"@type":"Answer","text":"Yes. It is a web app: open it in Safari and choose Add to Home Screen. It then runs full screen and can send notifications. No App Store and no developer account are needed."}},
   {"@type":"Question","name":"How does it tell my dog from a toy?","acceptedAnswer":{"@type":"Answer","text":"Two stages. A small detector (YOLOX-nano) proposes anything dog-like, then a second model trained on pictures from your own camera decides whether it is your pet. On the reference install it scored a plush toy 0.00 and the dog 0.99 on the same frame."}},
@@ -66,7 +68,7 @@
 <header class="hero" data-section="hero">
   <h1 class="mega felt">The pet cam that<br>finds your dog.</h1>
   <div class="hero-row">
-    <p class="lede">OpenPetCam is free, open-source software for a cheap pan/tilt Wi-Fi camera.
+    <p class="lede">OpenPetCam is a free, open pet cam: open-source software for a cheap pan/tilt Wi-Fi camera.
       When your dog wanders out of view, the camera turns and goes looking for her, and the detector knows her from her toys.
       Everything runs on a $5 server you own, so there's nothing to subscribe to.</p>
     <div class="get">
@@ -211,6 +213,7 @@ cd OpenPetCam
 <section id="faq" class="faq" data-section="faq">
   <p class="mono tag">09 / questions</p>
   <details data-faq><summary>Is there a pet camera without a subscription?</summary><p>Yes, this one. The software is free and open source. You pay for a small server you own (an AWS Lightsail nano is about $5 a month) and a Thingino-compatible camera, once.</p></details>
+  <details data-faq><summary>Is it an alternative to Furbo or Petcube?</summary><p>For the core job, yes: live video, alerts and a camera that finds your dog, with no subscription and no vendor cloud. It has no treat toss, and setup needs a terminal. <a href="guide/open-source-pet-camera.html">The side-by-side comparison</a>.</p></details>
   <details data-faq><summary>Which cameras work?</summary><p>Pan/tilt Wi-Fi cameras supported by <a href="https://thingino.com">Thingino</a>. Ours is a Cinnado D1 (Ingenic T23N). Other models may need their pan and tilt calibrated once with <code>tools/calibrate.py</code>. See the <a href="guide/thingino-pet-camera.html">Thingino guide</a>.</p></details>
   <details data-faq><summary>iPhone or Android?</summary><p>Both. Open the address in Safari or Chrome and choose Add to Home Screen. The app then runs full screen and sends notifications, with no App Store step.</p></details>
   <details data-faq><summary>How does the camera tell my dog from a toy?</summary><p>A small detector (YOLOX-nano) proposes anything dog-like. A second model, trained on pictures from your own camera, decides whether that's your pet. On our camera the verifier gave the plush toy 0.00 and the dog 0.99 in the same frame.</p></details>
@@ -232,7 +235,7 @@ cd OpenPetCam
 
 <footer>
   <p class="mono">OpenPetCam · Apache-2.0 · built on Thingino, MediaMTX, Caddy, WireGuard and YOLOX</p>
-  <p class="mono"><a href="https://github.com/crimeacs/OpenPetCam">GitHub</a> · <a href="https://github.com/crimeacs/OpenPetCam/releases">Releases</a> · <a href="guide/">Guides</a> · <a href="llms.txt">llms.txt</a> · set in Snout, Snout Text and Snout Mono, drawn for this project</p>
+  <p class="mono"><a href="https://github.com/crimeacs/OpenPetCam">GitHub</a> · <a href="https://github.com/crimeacs/OpenPetCam/releases">Releases</a> · <a href="guide/">Guides</a> · <a href="blog/">Blog</a> · <a href="llms.txt">llms.txt</a> · set in Snout, Snout Text and Snout Mono, drawn for this project</p>
 </footer>
 <script>
 (function(){

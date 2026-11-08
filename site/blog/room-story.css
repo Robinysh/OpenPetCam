@@ -1,3 +1,9 @@
+/* Lists follow the same reading column and type as the article paragraphs. */
+.room-story article>ul,.room-story article>ol{max-width:720px;margin:0 auto 1.25em;padding-inline-start:1.4em;font-size:19px;line-height:1.75}
+.room-story article>ul>li,.room-story article>ol>li{padding-inline-start:.2em;margin-bottom:.7em}
+.room-story article>ul>li:last-child,.room-story article>ol>li:last-child{margin-bottom:0}
+@media(max-width:640px){.room-story article>ul,.room-story article>ol{font-size:18px;line-height:1.7}}
+
 /* Article illustrations share the paper, ink and drawn type of the surrounding page. */
 .room-story .motion-figure{max-width:720px;margin:34px auto 42px;clear:both}
 .motion-stage{overflow:hidden;border-radius:14px;background:var(--paper-2)}
@@ -42,3 +48,13 @@
 @keyframes view-window{0%,100%{transform:translateX(0)}50%{transform:translateX(173px)}}
 @keyframes echo-dot{0%,8%{transform:translate(0,0);opacity:0}12%{opacity:1}46%{transform:translate(8.5px,171px);opacity:1}80%{transform:translate(17px,0);opacity:1}86%,100%{transform:translate(17px,0);opacity:0}}
 @media(max-width:600px){.sweep-layout,.echo-layout{grid-template-columns:1fr}.sweep-layout svg+svg{margin-top:-35px}.echo-layout svg{max-width:330px;margin:0 auto}.echo-note{padding:0 24px 28px}.motion-toolbar{gap:6px}.motion-toolbar>span{max-width:54%}}
+
+/* The panorama and both possible scales stay visible together. */
+.scale-stage .scale-heading{margin:0;padding:20px 24px;font-size:23px;line-height:1.3}
+.scale-stage .scale-photo{display:block;aspect-ratio:16/5;overflow:hidden;background:#000}
+.scale-stage .scale-photo img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 75%;border-radius:0}
+.scale-options{display:grid;grid-template-columns:1fr 1fr;padding:24px 24px 0;gap:16px}
+.scale-option .scale-size{margin:0;text-align:center;font:24px/1.3 var(--mono);color:var(--blue)}
+.scale-options svg{max-width:300px;margin:0 auto}
+.scale-stage .scale-note{margin:0;padding:0 24px 24px;text-align:center;font-size:19px;line-height:1.4}
+@media(max-width:600px){.scale-stage .scale-heading{padding:18px 16px;font-size:20px}.scale-options{padding:20px 12px 0;gap:8px}.scale-option .scale-size{font-size:19px}.scale-stage .scale-note{padding:8px 16px 20px;font-size:17px}}
