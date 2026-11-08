@@ -36,10 +36,15 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 - `tools/check_public.sh` in a linked worktree uses the main checkout's private config. It used to check nothing
   there, which let a pet's name into a code comment.
 
-### Research (offline, not used by the app)
+### Room model and acoustics (offline research; the app uses only the Room tab views)
+- Camera self-calibration from the sweep with held-out validation; near-infrared capture with LED on/off differences,
+  and validity flags that hide reflectivity views until illumination is calibrated; dog-free backgrounds; mount
+  geometry from the FCC drawing; an initial acoustic room exported with the Room tab bundle.
+- Acoustic acquisition at the native 48 kHz with shot QC, signed gathers, waveform fitting and single-microphone
+  localization experiments. A framed microphone/reference interposer for prudynt is included but not yet verified on
+  the device. All of it runs in the offline test gate; measured results stay in `eval/`.
 - Paired offline simulations of Find routes; learned visual-obstruction evidence; reviewed hard examples and
-  isolated detector candidates; startup goal percentiles; 3D acoustic propagation and phase-aware localization
-  experiments.
+  isolated detector candidates; startup goal percentiles; 3D acoustic propagation experiments.
 
 ### Docs
 - The reference camera's board is identified from its image name (`cinnado_d1_t23n_sc2331_atbm6012bx`): SC2331
