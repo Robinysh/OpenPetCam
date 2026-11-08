@@ -572,7 +572,9 @@ def handle(rid, st):
     wt = os.path.join(WT_DIR, rid)
     if os.path.exists(wt):
         run(["git", "worktree", "remove", "--force", wt], cwd=ROOT)
-        run(["git", "branch", "-D", branch], cwd=ROOT)
+    # A failed earlier attempt (2026-11-08: disk full mid "worktree add") can leave the branch without its worktree.
+    run(["git", "worktree", "prune"], cwd=ROOT)
+    run(["git", "branch", "-D", branch], cwd=ROOT)
     os.makedirs(WT_DIR, exist_ok=True)
     git("worktree", "add", "-q", "-b", branch, wt, "HEAD")
     # No links into the worktree: on 2026-11-02 a 'models' link got committed with a fix and, merged, replaced the real
