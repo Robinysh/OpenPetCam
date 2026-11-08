@@ -31,9 +31,12 @@ def build(output, target="mipsel"):
     compile_libc = ["-lc"] if target == "mipsel" else []
     commands = [cc + flags + compile_libc + ["-fPIC", "-c", str(here / "tap.c"), "-o", str(out / "tap.o")],
                 cc + [str(out / "tap.o"), *shared, "-o", str(out / "opc_audio_tap.so")],
-                cc + flags + compile_libc + [str(here / "reader.c"), *executable, "-o", str(out / "opc-audio-stream")]]
+                # -lm: glibc keeps ceil() out of libc (macOS and musl don't)
+                cc + flags + compile_libc + [str(here / "reader.c"), *executable, "-o", str(out / "opc-audio-stream"), "-lm"]]
     for cmd in commands:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode:
+            raise subprocess.CalledProcessError(r.returncode, cmd, r.stdout, r.stderr[-2000:] or r.stdout[-2000:])
     paths = [here / n for n in ("tap.c", "reader.c", "imp_abi.h", "build.py", "decode.py")]
     artifacts = [out / "opc_audio_tap.so", out / "opc-audio-stream"]
     manifest = {"target": target, "commands": commands,
