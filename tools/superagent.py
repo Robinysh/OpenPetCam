@@ -100,14 +100,46 @@ def read(path, limit=6000):
 
 # ------------------------------------------------------------------ collect (fast path: code only)
 
+STALL_RETRIES = 2
+
+
+def stall_retries(rid, set_to=None):
+    """How many times a stalled report was retried (eval/superagent/stall_retries.json); set_to writes it."""
+    path = os.path.join(RUN, "stall_retries.json")
+    try:
+        with open(path) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        d = {}
+    if set_to is None:
+        return int(d.get(rid, 0))
+    d[rid] = set_to
+    with open(path + ".tmp", "w") as f:
+        json.dump(d, f)
+    os.replace(path + ".tmp", path)
+    return set_to
+
+
 def collect():
     """Environment events -> triggers. Deterministic and cheap; dedupe keys make it idempotent."""
     n = 0
     reports = ra.report_inventory(heartbeat=True)
     for row in ra.report_backlog(reports):
+        rid = row['id']
+        if row['state'] == 'stalled':
+            # A run that died (laptop asleep, killed, timed out) is retried, not parked for a person: 2026-11-05 two
+            # reports sat 2.5 days at "looking" in the review queue. At most STALL_RETRIES, then review as before.
+            k = stall_retries(rid)
+            if k < STALL_RETRIES:
+                r = adb("add_trigger", {"source": "report", "kind": "report", "thread": f"report:{rid}",
+                                        "dedupe": f"report-retry:{rid}:{k + 1}", "summary": f"owner report {rid} (retry {k + 1}: the last run died)",
+                                        "payload": {"rid": rid, "retry": k + 1}, "title": f"Report {rid}"})
+                if r["new"]:
+                    stall_retries(rid, k + 1)
+                n += r["new"]
+            continue
         if row['state'] != 'new':
             continue
-        rid = row['id']
         r = adb("add_trigger", {"source": "report", "kind": "report", "thread": f"report:{rid}", "dedupe": f"report:{rid}",
                                 "summary": f"owner report {rid}", "payload": {"rid": rid}, "title": f"Report {rid}"})
         n += r["new"]
@@ -142,6 +174,8 @@ def reconcile_reports(records=None):
     for row in rows:
         if row['state'] in ('new', 'working', 'reported_live', 'resolved'):
             continue
+        if row['state'] == 'stalled' and stall_retries(row['id']) < STALL_RETRIES:
+            continue                                   # collect() retries it first
         if row['state'] == 'queued':
             path = os.path.join(RUN, f"queued_report_{row['id']}.json")
             try:
