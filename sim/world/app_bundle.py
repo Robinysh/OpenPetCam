@@ -1,6 +1,6 @@
 """Your room model, reduced to what the app's Room tab draws: the calibrated camera, the measured shape (the fused
 surface: one range per direction), the floor outline, the walls and furniture boxes (for naming places), the latest mount-drift correction and four textures (day photo, night, where the model is unsure,
-near-IR materials), resized for a phone.
+near-IR response), resized for a phone.
 
 The bundle is the inside of your home. It goes to YOUR server's models/ folder (deploy.sh copies it, install.sh
 installs it, the app serves it to signed-in devices only); it is git-ignored and never belongs in the repository.
@@ -22,17 +22,25 @@ def legends_for(model, surf, radio_info):
     if not rng:                                          # models built before texture_ranges: the ranges fuse.py uses
         z = np.load(os.path.join(model, "surfels.npz"))
         ec = z["echo_coverage"]; dw = z["dwell_min"]
-        rng = {"uncertainty": [-2, 0], "nir_reflectance": [-1.5, 1.5], "nir_excess": [-1, 1], "echo_support": [0, 3],
+        rng = {"uncertainty": [-2, 0], "echo_support": [0, 3],
                "echo_coverage": [0, max(2.0, float(np.nanmax(ec)) if np.isfinite(ec).any() else 2.0)],
                "dwell": [0, max(1.0, float(np.nanmax(np.log1p(dw))) if np.isfinite(dw).any() else 1.0)],
                "floor_residual": [-0.15, 0.15], "light_range": [0, 120]}
+    # Optional infrared products may be absent when acquisition is unverified.
+    for key, value in {"nir_excess": [-1, 1], "nir_led_difference": [-16, 16], "nir_led_signal": [-0.1, 0.1],
+                       "nir_response": [-1.5, 1.5], "nir_reflectance": [-1.5, 1.5]}.items():
+        rng.setdefault(key, value)
     lg = {
         "uncertainty": gradient(seq, f"{10 ** rng['uncertainty'][0]:.0%} error", f"{10 ** rng['uncertainty'][1]:.0%}", "relative range error"),
         "class": swatches([(classes(np.array([0.0]))[0], "floor"), (classes(np.array([0.5]))[0], "wall, other"), (classes(np.array([1.0]))[0], "object")], "surface class"),
         "normals": swatches([((1.0, 0.5, 0.5), "faces right"), ((0.5, 1.0, 0.5), "faces up"), ((0.5, 0.5, 1.0), "faces forward")], "surface direction (colour = x, y, z)"),
         "floor_residual": gradient(div, f"{rng['floor_residual'][0] * 100:+.0f} cm", f"{rng['floor_residual'][1] * 100:+.0f} cm", "learned depth vs sound floor"),
-        "nir_excess": gradient(div, "less near-IR", "more near-IR", "near-infrared minus visible"),
-        "nir_reflectance": gradient(div, f"x{np.exp(rng['nir_reflectance'][0]):.2f}", f"x{np.exp(rng['nir_reflectance'][1]):.1f}", "IR reflectance vs typical"),
+        "nir_excess": gradient(div, "lower response", "higher response", "filter response (qualitative)"),
+        "nir_led_difference": gradient(div, f"{rng['nir_led_difference'][0]:+.0f} DN", f"{rng['nir_led_difference'][1]:+.0f} DN",
+                                       "LED brightness change; encoded JPEG levels, qualitative"),
+        "nir_led_signal": gradient(div, f"{rng['nir_led_signal'][0]:+.2f}", f"{rng['nir_led_signal'][1]:+.2f}", "LED-added linear response (relative units)"),
+        "nir_response": gradient(div, f"x{np.exp(rng['nir_response'][0]):.2f}", f"x{np.exp(rng['nir_response'][1]):.1f}", "IR response vs typical; approximate geometry correction"),
+        "nir_reflectance": gradient(div, f"x{np.exp(rng['nir_reflectance'][0]):.2f}", f"x{np.exp(rng['nir_reflectance'][1]):.1f}", "relative IR reflectivity vs typical; geometry uncertainty remains"),
         "light_range": gradient(seq, "steady", f"{rng['light_range'][1]:.0f} levels", "daylight change over the day"),
         "echo_support": gradient(seq, "0", f"{rng['echo_support'][1]:.0f}", "echoes agreeing with the shape"),
         "echo_coverage": gradient(seq, "0", f"{rng['echo_coverage'][1]:.0f} directions", "head directions that heard it"),
@@ -57,8 +65,23 @@ def build(world, out):
     os.makedirs(out, exist_ok=True)
     tex = {}
     sf = ((L.get("fused.surfels") or {}).get("data") or {}).get("textures") or {}
+    infrared = dict(((L.get("fused.surfels") or {}).get("data") or {}).get("infrared") or {})
+    # Legacy bundles derived a reflectance texture from a colourized JPEG.
+    # Its presence on disk is not evidence of a calibrated reflectivity estimate.
+    infrared["reflectivity_valid"] = infrared.get("reflectivity_valid") is True
+    infrared["response_valid"] = infrared.get("response_valid") is True
+    qualitative = infrared.get("qualitative_observations", infrared.get("legacy_observations", 0))
+    infrared["qualitative_observations"] = qualitative if type(qualitative) is int and qualitative > 0 else 0
     views = [("photo", "pano_visible_sweep.jpg"), ("night", "pano_infrared.jpg")] + sorted(sf.items())
     for key, name in views:                          # every colour view the room model has, for the app's Room sheet
+        if key == "nir_reflectance" and not infrared["reflectivity_valid"]:
+            continue
+        if key == "nir_response" and not infrared["response_valid"]:
+            continue
+        if key == "nir_led_signal" and not infrared.get("quantitative_observations", 0):
+            continue
+        if key == "nir_led_difference" and not infrared["qualitative_observations"]:
+            continue
         src = os.path.join(model, name)
         if not os.path.exists(src):
             continue
@@ -107,7 +130,7 @@ def build(world, out):
                         "kind": o.get("kind", "solid")} for o in fused.get("objects", [])],
            "mount_offset_deg": off, "mount_offsets": offsets, "textures": tex, "range_shape": shape, "blind_fill": meta.get("blind_fill"),
            "radio": ((L.get("radio.rssi") or {}).get("data") or {}).get("by_direction"),
-           "legends": legends}
+           "legends": legends, "infrared": infrared}
     json.dump(doc, open(os.path.join(out, "room.json"), "w"))
     return doc
 
