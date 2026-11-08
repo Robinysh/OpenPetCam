@@ -41,7 +41,8 @@ class Camera:
         """Unit world direction of the point (u, v) of the frame, both 0..1 (any stream size, same field of view)."""
         xd, yd = (u * W - W / 2) / self.f, -(v * H - H / 2) / self.f
         xu, yu = xd, yd
-        for _ in range(10):
+        # Match the simulator; ten iterations left visible corner ray error.
+        for _ in range(30):
             r2 = xu * xu + yu * yu
             k = 1 + self.k1 * r2 + self.k2 * r2 * r2
             xu, yu = xd / k, yd / k

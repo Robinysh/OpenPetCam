@@ -14,6 +14,24 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const DAY = 86400;
 const store = (k, v) => { try { v === undefined ? (v = localStorage.getItem(k)) : localStorage.setItem(k, v); } catch { v = null; } return v; };
 
+export function roomLegend(info, key) {
+  const value = (info.legends || {})[key] || null;
+  if (key !== "nir_excess" || !value) return value;
+  // An older bundle may still promise material/near-IR measurements in its
+  // legend. Preserve its colours while correcting that interpretation.
+  if (value.kind !== "gradient" || !Array.isArray(value.stops)) return null;
+  return { ...value, lo: "lower response", hi: "higher response", title: "filter response (qualitative)" };
+}
+
+export function roomTextureAllowed(info, key) {
+  const quality = info.infrared || {};
+  if (key === "nir_reflectance") return quality.reflectivity_valid === true;
+  if (key === "nir_response") return quality.response_valid === true;
+  if (key === "nir_led_signal") return quality.quantitative_observations > 0;
+  if (key === "nir_led_difference") return (quality.qualitative_observations ?? quality.legacy_observations ?? 0) > 0;
+  return true;
+}
+
 export async function mountRoom(root, pet) {
   const name = (pet && pet.name) || "your pet";
   const info = await (await fetch("/api/room", { credentials: "same-origin" })).json().catch(() => ({ available: false }));
@@ -56,14 +74,18 @@ export async function mountRoom(root, pet) {
                ["class", "Floor, walls, objects", "what each surface was classified as"],
                ["normals", "Surface direction", "which way each surface faces"],
                ["floor_residual", "Floor check", "learned depth against the floor set by sound (bright = disagrees)"]]],
-    ["Light", [["nir_excess", "Materials", "near-infrared minus visible: plants, fabrics and fur glow"],
-               ["nir_reflectance", "Infrared reflectance", "the camera's own IR light, corrected for distance"],
+    ["Light", [["nir_excess", "Filter response", "qualitative change between filter states; not a material measurement"],
+               ["nir_led_difference", "LED brightness change", "LEDs on minus off in encoded JPEG levels; qualitative, not reflectivity"],
+               ["nir_led_signal", "IR light added", "LEDs on minus off, with verified camera controls and response"],
+               ["nir_response", "IR response", "approximate distance and angle correction; the lamp's beam still matters"],
+               ["nir_reflectance", "Relative IR reflectivity", "relative estimate with calibrated illumination; geometry uncertainty remains"],
                ["light_range", "Daylight change", "how much each surface's light changes over the day"]]],
     ["Sound", [["echo_support", "Echo support", "where the camera's own sound echoes agree with the shape"],
                ["echo_coverage", "Sound coverage", "how many head directions heard each surface"],
                ["source", "Where each part comes from", "grey: seen by the camera; green: the surface above it, measured by sound; violet: floor under the camera, assumed at the height sound measured"]]],
     ["Radio", [["radio", "WiFi signal by direction", "how strong the camera's WiFi link is when its antenna (on the back of the camera) points each way: warm = strong; the dashed line points toward the router"]]]];
-  const tx = (k) => info.textures?.[k] ? `/api/room/tex?f=${encodeURIComponent(info.textures[k])}` : null;
+  const tx = (k) => !roomTextureAllowed(info, k) ? null
+    : info.textures?.[k] ? `/api/room/tex?f=${encodeURIComponent(info.textures[k])}` : null;
   sheet.innerHTML = `<div class="room-panel-in" role="region" aria-label="Views of the room"><div class="room-panel-head"><h3>Views</h3>
     <button class="iconbtn room-close" type="button" aria-label="Hide the views"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
     <div class="room-sec">Look</div><div class="room-tiles">${LOOKS.filter(([k]) => tx(k)).map(([k, t, d]) =>
@@ -77,6 +99,8 @@ export async function mountRoom(root, pet) {
   // ---------------------------------------------------------------- state
   const S = { span: store("room.span") || "day", week: [], look: store("room.look") || "photo", over: (store("room.over") === "dwell" ? "heat" : store("room.over")) || "heat", view: store("room.view") || "3d",
               day0: startOfDay(Date.now() / 1000), T: null, rows: [], live: true };
+  // A remembered view can outlive the bundle's acquisition-quality evidence.
+  if (!["heat", "none"].includes(S.over) && !tx(S.over)) S.over = "none";
   let raf = 0, visible = false;           // render on demand; declared before any texture can finish loading
   // ---------------------------------------------------------------- 3D
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -314,7 +338,7 @@ export async function mountRoom(root, pet) {
     if (S.over === "heat") {
       L = { kind: "gradient", stops: ["#5c2614", "#cd522c", "#ff9262", "#ffecdc"], lo: "less", hi: heatMaxLabel || "more",
             title: `time spent, ${S.span === "week" ? "last 7 days" : "that day"}` };
-    } else if (S.over && S.over !== "none") L = (info.legends || {})[S.over] || null;
+    } else if (S.over && S.over !== "none") L = roomLegend(info, S.over);
     legend.classList.toggle("hidden", !L);
     if (!L) return;
     legend.innerHTML = `<div class="room-legend-t">${L.title}</div>` + (L.kind === "gradient"

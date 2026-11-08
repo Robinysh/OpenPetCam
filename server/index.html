@@ -915,7 +915,7 @@ function ago(ts) {
 let roomView = null, roomLoading = null;
 function openRoom() {
   if (roomView) return roomView.show();
-  if (!roomLoading) roomLoading = import("/room.js").then((m) => m.mountRoom($("tab-room"), PET)).then((v) => { roomView = window.__room = v; if (curTab === "room") v.show(); })
+  if (!roomLoading) roomLoading = import("/room.js?v={{BUILD}}").then((m) => m.mountRoom($("tab-room"), PET)).then((v) => { roomView = window.__room = v; if (curTab === "room") v.show(); })
     .catch((e) => { roomLoading = null; $("tab-room").innerHTML = `<div class="room-empty"><h2>The room did not load</h2><p>${String(e).replace(/</g, "&lt;")}</p></div>`; });
 }
 function showTab(tab) {
