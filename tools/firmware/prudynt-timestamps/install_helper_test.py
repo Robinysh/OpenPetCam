@@ -46,7 +46,7 @@ class InstallerTest(unittest.TestCase):
         self.env = dict(os.environ, OPC_CLOCKFIX_TEST_ROOT=str(self.root), PATH=str(self.root / 'bin') + os.pathsep + os.environ['PATH'])
         self.wrapper('df', '''echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'
 free=700; [ ! -f "$OPC_CLOCKFIX_TEST_ROOT/tmp/low-space" ] || free=1
-case "$*" in *"/tmp"*) free=17000;; esac
+case "$*" in *"$OPC_CLOCKFIX_TEST_ROOT/tmp"|*"$OPC_CLOCKFIX_TEST_ROOT/tmp/"*) free=17000;; esac
 echo "mockfs 20000 1000 $free 5% /"''')
         self.wrapper('mount', '''cp "$3" "$4"
 printf 'mock %s none rw,bind 0 0\\n' "$4" > "$OPC_CLOCKFIX_TEST_ROOT/proc/mounts"

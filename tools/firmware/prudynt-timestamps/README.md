@@ -17,6 +17,10 @@ the first NAL opens picture time, and only the final NAL sets the RTP marker.
 Config-only events remain clock-neutral. The shared header is compiled by both
 the actual worker and the actual RTSP writer; the host tests use that same header.
 
+Upstream: the same fix, rebased onto prudynt-t `stable`, is proposed in
+[themactep/prudynt-t#53](https://github.com/themactep/prudynt-t/pull/53). prudynt-t publishes no
+license; this patch modifies its source and is offered back for inclusion there.
+
 ## Apply to the pinned source
 
 From the OpenPetCam checkout:
