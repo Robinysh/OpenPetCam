@@ -1504,6 +1504,7 @@ class Watch:
                 pause()
         self.prev_small, self.prev_box, self.last_found = None, None, []
         self.last_detect, self.last_detect_capture = 0.0, None
+        self.still_ref, self.held_since = None, None      # a pause ends the still hold: nothing is watched meanwhile
         self.dog_sound_pending, self.activity_sound_pending = False, 0.0
         self.minute, self.acc = None, None
         events = getattr(self, "events", None)
@@ -1545,6 +1546,7 @@ class Watch:
         self.sharp_samples, self.view_blocked = [], False
         self.present, self.last_seen = False, 0.0
         self.present_since, self.rest_since, self.moving_since = None, None, None
+        self.still_ref, self.held_since = None, None      # she may have moved while paused: a new sighting is needed
         self.gone_since, self.last_find_req = t, t
         self.last_bark, self.find_result = None, None
         self.source = None
@@ -2294,10 +2296,13 @@ class Watch:
         has not gone anywhere: returns her box to keep her present (resting). Anything that changes the patch (getting
         up, someone passing, the light switching to infrared) ends the hold. At most STILL_HOLD_MAX s per sighting."""
         try:
-            if img is None:
+            self.held_since = None               # set again below only while this cycle's answer is the hold
+            if img is None or not self.setting("still_hold", True):
+                self.still_ref = None            # settings.json "still_hold": false turns it off at once
                 return None
             pose = tuple(self.pose) if getattr(self, "pose", None) else None
             if seen is not None:
+                # A fresh sighting (here, or wherever a search or Follow found her) replaces the reference.
                 if moving:
                     self.still_ref = None
                 else:
@@ -2314,10 +2319,11 @@ class Watch:
             if diff is None or diff > STILL_HOLD_DIFF:
                 self.still_ref = None
                 return None
+            self.held_since = ref["t"]           # the app says "last seen by the detector" from this, never "just now"
             return ref["box"]
         except Exception as e:  # noqa: BLE001 - presence must never stop for this
             log("still hold:", e)
-            self.still_ref = None
+            self.still_ref, self.held_since = None, None
             return None
 
     def look_after_privacy(self, con, t, jpg, score):
@@ -2628,7 +2634,8 @@ class Watch:
                 "rest_since": self.rest_since if self.present else None,
                 "moving_since": self.moving_since, "imaging": self.imaging,
                 "audio_ok": now() - self.audio.last_ok < 30, "view_blocked": self.view_blocked,
-                "find": self.find_result, "last_bark": self.last_bark, **kw}
+                "find": self.find_result, "last_bark": self.last_bark,
+                "held_since": getattr(self, "held_since", None) if self.present and status == "ok" else None, **kw}
         live["det_age"] = round(live["t"] - live["det_t"], 2) if live.get("det_t") else None
         if "frame_t" in live:
             live["frame_age"] = None if live["frame_t"] is None else round(

@@ -977,6 +977,10 @@ function petText(l) {
     return [`${PET.name} · ${barkAge < 15 ? word + " now" : "heard " + word + " " + Math.round(barkAge) + " s ago"}`, "active"];
   }
   if (l.present) {
+    // Kept present by the still hold: the picture where she lay is unchanged, but the detector has not recognised
+    // her since held_since. Say exactly that, never a fresh sighting (watch.Watch.still_hold).
+    if (Number.isFinite(l.held_since) && l.held_since > 0)
+      return [`${PET.name} · resting here, last seen by the detector ${ago(l.held_since)}`, "here"];
     const unseen = l.last_seen ? Date.now() / 1000 - l.last_seen : 0;
     // > 20 s: the last detector run (every 12 s even when still) did not see her, so don't still claim "resting"
     // (report 2026-11-04 17:23: "resting 2m" with her gone from the picture)

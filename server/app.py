@@ -1328,8 +1328,8 @@ def cancel_find():
 
 # ---------- small settings shared with the watcher ----------
 
-SETTING_KEYS = {"follow": bool, "talk_volume": int}
-SETTING_DEFAULTS = {"follow": False, "talk_volume": 75}
+SETTING_KEYS = {"follow": bool, "talk_volume": int, "still_hold": bool}
+SETTING_DEFAULTS = {"follow": False, "talk_volume": 75, "still_hold": True}   # still_hold: watch.Watch.still_hold
 
 
 def get_settings():
