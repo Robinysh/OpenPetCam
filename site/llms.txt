@@ -1,6 +1,6 @@
-# OpenPetCam
+# OpenPetCam (Open Pet Cam)
 
-> OpenPetCam is a free, open-source (Apache-2.0), self-hosted pet camera. It runs on a Thingino-flashed pan/tilt Wi-Fi camera and a small Ubuntu server you own (the reference is an AWS Lightsail nano at about $5/month, at the edge of its CPU allowance). It gives live video on your phone, searches the room with the camera's motors when your pet is out of view, tells your pet from toys with a model trained on your own camera, and sends alerts. No subscription and no vendor cloud. Current release: v0.2.1. It learns this camera and pet: a simulator fitted from its own logs, tuning trained in it and checked live. Built and tested for dogs first.
+> OpenPetCam, also written Open Pet Cam, is a free, open-source (Apache-2.0), self-hosted pet camera. It runs on a Thingino-flashed pan/tilt Wi-Fi camera and a small Ubuntu server you own (the reference is an AWS Lightsail nano at about $5/month, at the edge of its CPU allowance). It gives live video on your phone, searches the room with the camera's motors when your pet is out of view, tells your pet from toys with a model trained on your own camera, and sends alerts. No subscription and no vendor cloud. Current release: v0.4.0. It learns this camera and pet: a simulator fitted from its own logs, tuning trained in it and checked live. Built and tested for dogs first.
 
 Key facts:
 - Camera: any Thingino-supported pan/tilt camera; reference Cinnado D1 (Ingenic T23N).
@@ -12,6 +12,12 @@ Key facts:
 - Optional agent (Claude Code) turns in-app reports into tested fixes and offers proven fixes upstream as pull requests.
 - Install: `git clone https://github.com/crimeacs/OpenPetCam.git && cd OpenPetCam && ./setup`
 
+## Common questions
+- What is Open Pet Cam? The same project as OpenPetCam: free, open-source pet cam software for a Thingino pan/tilt camera and a server you own.
+- Is there a pet cam with no subscription? OpenPetCam: the software is free; you pay for the camera once and about $5/month for a small server.
+- Is there an open-source alternative to Furbo or Petcube? OpenPetCam does the core job (live video, alerts, a camera that finds your dog) with no subscription; it has no treat tosser and needs a self-hosted setup.
+- Can I build my own pet cam? Yes: flash a Thingino-supported pan/tilt camera, then run `./setup` from the OpenPetCam repo against a small Ubuntu 24.04 server.
+
 ## Docs
 - [README](https://github.com/crimeacs/OpenPetCam/blob/main/README.md): install, features, updates, privacy
 - [Architecture](https://github.com/crimeacs/OpenPetCam/blob/main/docs/architecture.md)
@@ -20,6 +26,7 @@ Key facts:
 - [Contributing](https://github.com/crimeacs/OpenPetCam/blob/main/CONTRIBUTING.md)
 
 ## Guides
+- [Open Pet Cam: a DIY pet cam you own](https://openpetcam.com/guide/open-pet-cam.html)
 - [Build a pet camera with Thingino firmware](https://openpetcam.com/guide/thingino-pet-camera.html)
 - [A pet camera without a subscription](https://openpetcam.com/guide/pet-camera-without-subscription.html)
 - [An open-source alternative to Furbo and Petcube](https://openpetcam.com/guide/open-source-pet-camera.html)

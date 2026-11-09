@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open Pet Cam: a DIY open-source pet cam you own | OpenPetCam</title><meta name="description" content="Open Pet Cam (OpenPetCam) is a free, open-source pet cam you build yourself: a cheap pan/tilt Wi-Fi camera, a $5 server you own, live video, a camera that finds your dog, and no subscription.">
+<link rel="canonical" href="https://openpetcam.com/guide/open-pet-cam.html">
+<meta property="og:type" content="article"><meta property="og:site_name" content="OpenPetCam">
+<meta property="og:title" content="Open Pet Cam: a DIY open-source pet cam you own"><meta property="og:description" content="A free, open-source pet cam you build yourself: a cheap pan/tilt camera, a $5 server you own, a camera that finds your dog, no subscription.">
+<meta property="og:url" content="https://openpetcam.com/guide/open-pet-cam.html">
+<meta property="og:image" content="https://openpetcam.com/media/share.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="theme-color" content="#355BEB">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../site.css?v=type-2">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Open Pet Cam: a DIY open-source pet cam you own", "description": "Open Pet Cam (OpenPetCam) is a free, open-source pet cam you build yourself: a cheap pan/tilt Wi-Fi camera, a $5 server you own, live video, a camera that finds your dog, and no subscription.", "datePublished": "2026-11-09", "dateModified": "2026-11-09", "author": {"@type": "Organization", "name": "OpenPetCam contributors", "url": "https://github.com/crimeacs/OpenPetCam"}, "about": {"@type": "SoftwareApplication", "name": "OpenPetCam", "alternateName": "Open Pet Cam", "url": "https://openpetcam.com/"}, "mainEntityOfPage": "https://openpetcam.com/guide/open-pet-cam.html", "image": "https://openpetcam.com/media/share.png"}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "OpenPetCam", "item": "https://openpetcam.com/"}, {"@type": "ListItem", "position": 2, "name": "Guides", "item": "https://openpetcam.com/guide/"}, {"@type": "ListItem", "position": 3, "name": "Open Pet Cam: a DIY pet cam"}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
+{"@type": "Question", "name": "What is Open Pet Cam?", "acceptedAnswer": {"@type": "Answer", "text": "Open Pet Cam (written OpenPetCam) is free, open-source (Apache-2.0) pet cam software. It runs on a pan/tilt Wi-Fi camera flashed with Thingino firmware and a small Ubuntu server you own. It gives live video on your phone, turns the camera to find your dog when she leaves the picture, tells her from her toys, and sends alerts, with no subscription."}},
+{"@type": "Question", "name": "Can I build my own pet cam?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. With OpenPetCam you need a Thingino-supported pan/tilt Wi-Fi camera (the reference is a Cinnado D1), a small Linux server with a public IP (an AWS Lightsail nano at about $5 a month is the reference), and a Mac or Linux computer once for a roughly 15-minute guided setup."}},
+{"@type": "Question", "name": "Is there a pet cam with no monthly subscription?", "acceptedAnswer": {"@type": "Answer", "text": "OpenPetCam has no subscription. The software is free; you pay only for the camera once and for a small server you control, about $5 a month. Recordings, detection and alerts run on that server, not in a vendor cloud."}},
+{"@type": "Question", "name": "What is the best open-source pet cam?", "acceptedAnswer": {"@type": "Answer", "text": "OpenPetCam is an open-source pet cam built specifically for pets rather than general security: it moves a pan/tilt camera to search for your dog, uses a verifier trained on your own camera to ignore toys, and keeps a daily timeline of naps, activity and barks."}}
+]}</script>
+<script src="../analytics.js" defer></script></head>
+<body><nav class="nav"><a class="word" href="../" aria-label="OpenPetCam home"><img src="../media/openpetcam-mark-color.svg" width="34" height="34" alt="">OpenPetCam</a>
+<div class="links"><a href="../#search">The search</a><a href="./">Guides</a><a href="../blog/">Blog</a><a class="star" href="https://github.com/crimeacs/OpenPetCam" data-track="nav">★ GitHub</a></div></nav>
+<main class="doc" data-section="guide">
+<p class="crumbs"><a href="../">OpenPetCam</a> / <a href="./">Guides</a></p>
+<h1>Open Pet Cam: a DIY pet cam you own</h1>
+<p><strong>Short answer:</strong> Open Pet Cam (written OpenPetCam) is a free, open-source pet cam you put together yourself. A cheap pan/tilt Wi-Fi camera runs open Thingino firmware, a small server you own runs the software, and your phone gets live video, a camera that goes looking for your dog, and alerts. There's no subscription and no vendor cloud.</p>
+
+<h2>What a pet cam should do</h2>
+<p>Most pet cams are home security cameras with a pet label: they record a fixed view and send motion alerts. A dog doesn't stay in one view. Open Pet Cam is built around the pet instead:</p>
+<ul>
+<li><strong>Live video with sound</strong> on your phone, plus what she's doing: resting, active or out of view</li>
+<li><strong>It finds her.</strong> When she leaves the picture, the camera pans and tilts to search the room until it sees her again, or you tap Find</li>
+<li><strong>It knows her from her toys.</strong> A small model trained on your own camera's pictures checks every sighting</li>
+<li><strong>It keeps her day:</strong> naps, activity, barks and short clips on a timeline, a nightly highlight reel and a timelapse</li>
+<li><strong>It tells you when it matters:</strong> barking, distress sounds, camera offline, view blocked</li>
+</ul>
+
+<h2>What you need to build one</h2>
+<table><tr><th>Part</th><th>What</th><th>Cost</th></tr>
+<tr><td>Camera</td><td>A pan/tilt Wi-Fi camera supported by <a href="https://thingino.com">Thingino</a>; the reference is a Cinnado D1</td><td>one-time</td></tr>
+<tr><td>Server</td><td>Any small Ubuntu 24.04 VM with a public IP; the reference is an AWS Lightsail nano</td><td>about $5/month</td></tr>
+<tr><td>Software</td><td>OpenPetCam, Apache-2.0</td><td>free</td></tr>
+<tr><td>Computer</td><td>A Mac or Linux machine, once, for setup</td><td>you have one</td></tr></table>
+
+<h2>How it works</h2>
+<p>The camera dials out to your server over an encrypted WireGuard tunnel, so nothing is opened on your home network. The server keeps a rolling recording, runs pet detection, steers the camera, sends push notifications and serves the app, which you add to your phone's Home Screen. Video goes from your camera to your server and nowhere else. One tap turns the picture and microphone off.</p>
+
+<h2>Setting it up</h2>
+<ol>
+<li>Flash the camera with Thingino and join it to your Wi-Fi.</li>
+<li>On your computer: <code>git clone https://github.com/crimeacs/OpenPetCam.git &amp;&amp; cd OpenPetCam &amp;&amp; ./setup</code>. It asks for your server's address, installs everything and tells you what to type into the camera's WireGuard page.</li>
+<li>Open the printed address on your phone, sign in, and add it to the Home Screen.</li>
+</ol>
+<p>The <a href="thingino-pet-camera.html">Thingino pet camera guide</a> covers each step in detail.</p>
+
+<h2>Trade-offs</h2>
+<p>You do the setup yourself, and you should be comfortable in a terminal. You flash open firmware onto the camera. Open Pet Cam is built and tested for dogs first. There's no treat tosser. For a side-by-side with commercial pet cams, see <a href="open-source-pet-camera.html">the Furbo and Petcube comparison</a>.</p>
+
+<h2>Questions</h2>
+<h3>Is Open Pet Cam the same as OpenPetCam?</h3>
+<p>Yes. It's one project; the name is usually written as one word.</p>
+<h3>Does it work with cats?</h3>
+<p>Dogs come first: the sound model and the default verifier are tuned for dogs. Other pets haven't been tested yet.</p>
+<h3>Can I use a camera I already have?</h3>
+<p>If it's a pan/tilt model that Thingino supports, yes. Check the camera list on the Thingino site before you buy.</p>
+
+<p style="margin-top:48px"><a class="btn primary" style="background:var(--blue);color:#fff;font-family:var(--snout-t)" href="https://github.com/crimeacs/OpenPetCam" data-track="guide-star">Get OpenPetCam on GitHub</a></p>
+</main>
+<footer><p>OpenPetCam is Apache-2.0 open source. <a href="https://github.com/crimeacs/OpenPetCam">GitHub</a> · <a href="../">Home</a> · <a href="../llms.txt">llms.txt</a></p></footer>
+</body></html>
