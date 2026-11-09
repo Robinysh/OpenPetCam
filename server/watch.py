@@ -120,7 +120,9 @@ PUSH_FPS = 5
 # motion between frames wakes the loop as before. Decoded at 1/2 size for motion (JPEG DCT scaling, cheap); the full
 # frame is decoded only when the watcher asks for it. ~0.3 Mbit/s of home upload.
 IDLE_FPS = 2
-STATUS_EVERY = 0.5              # while frames arrive, the status file is rewritten at most this often, or on a change
+STATUS_EVERY = 0.4              # while frames arrive, the status file is rewritten at most this often, or on a change.
+                                # Just under the idle frame interval (1/IDLE_FPS): at 0.5 a frame arriving a little early
+                                # was skipped and the status waited a whole second (1.33 of 2 idle frames published)
 PUSH_QUALITY = 60
 PUSH_MAX_S = 900               # the camera-side loop ends by itself after this; the watcher simply starts a new one
 PUSH_RETRY_S = 600             # after a failed push, use the substream this long
@@ -2599,18 +2601,22 @@ class Watch:
         if self.privacy_on():
             return
         last = getattr(self, "live_last", None)
-        if last is None:
-            return
+        if last is None or frame_t == getattr(self, "tick_frame_t", None):
+            return                              # never refresh the timestamp without a new frame
         moved = motion is not None and motion > MOTION_DETECT
         t = now()
         if moved == getattr(self, "tick_moved", False) and t - getattr(self, "live_written", 0.0) < STATUS_EVERY:
             return
         self.tick_moved = moved
         live = dict(last, t=t, frame_t=frame_t, frame_motion=round(motion, 2) if motion is not None else None)
+        # How old the evidence behind this status is: the camera picture (arrival plus the stream's own lag) and the
+        # detector result. 't' only says when it was written.
+        live["frame_age"] = round(t - frame_t + getattr(getattr(self, "frames", None), "lag", 0.0), 2)
+        live["det_age"] = round(t - last["det_t"], 2) if last.get("det_t") else None
         with self.pub_lock:
             try:
                 write_json(LIVE, live)
-                self.live_written = t
+                self.live_written, self.tick_frame_t = t, frame_t
             except OSError as e:
                 log("publish:", e)
 
@@ -2623,6 +2629,10 @@ class Watch:
                 "moving_since": self.moving_since, "imaging": self.imaging,
                 "audio_ok": now() - self.audio.last_ok < 30, "view_blocked": self.view_blocked,
                 "find": self.find_result, "last_bark": self.last_bark, **kw}
+        live["det_age"] = round(live["t"] - live["det_t"], 2) if live.get("det_t") else None
+        if "frame_t" in live:
+            live["frame_age"] = None if live["frame_t"] is None else round(
+                live["t"] - live["frame_t"] + getattr(getattr(self, "frames", None), "lag", 0.0), 2)
         with self.pub_lock:
             try:
                 write_json(LIVE, live)
