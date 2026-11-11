@@ -20,3 +20,6 @@ agent/lessons.md
 
 # browser-automation logs
 .playwright-mcp/
+
+# Phone photos dropped into the repo folder for testing (personal; keep them in eval/ when you can)
+PXL_*.jpg

@@ -25,8 +25,18 @@ fi
 echo "ok    yamnet.tflite"
 # The same detector with a free input size, so the watcher runs it on the 16:9 frame without square padding
 # (37% less detector time). Needs the onnx package here; without it the watcher uses the square model as before.
-if [ ! -f yolox_nano_dyn.onnx ] && python3 -c "import onnx" 2>/dev/null; then
-  python3 ../tools/make_dyn_detector.py yolox_nano.onnx yolox_nano_dyn.onnx
+if [ ! -f yolox_nano_dyn.onnx ]; then
+  if python3 -c "import onnx" 2>/dev/null; then
+    python3 ../tools/make_dyn_detector.py yolox_nano.onnx yolox_nano_dyn.onnx
+  else
+    # No onnx package here: build the file in a throwaway virtualenv (it is derived from the pinned weights above).
+    tmpenv=$(mktemp -d)
+    if python3 -m venv "$tmpenv" >/dev/null 2>&1 && "$tmpenv/bin/pip" install -q onnx >/dev/null 2>&1; then
+      "$tmpenv/bin/python" ../tools/make_dyn_detector.py yolox_nano.onnx yolox_nano_dyn.onnx
+    fi
+    rm -rf "$tmpenv"
+  fi
+  [ -f yolox_nano_dyn.onnx ] || echo "WARNING: no yolox_nano_dyn.onnx (needs the onnx package): the watcher uses the plain square detector and skips its native-size second look, which is less sensitive to small pets."
 fi
 # The verifier config: zero-shot "any dog breed" (PET_KIND=cat: "any domestic cat") until tools/bootstrap_pet.py trains
 # one for your pet. An untrained verifier follows PET_KIND (so changing it takes effect); a trained one is never replaced.
