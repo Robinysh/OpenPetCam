@@ -36,6 +36,10 @@ WORK = os.path.join(ROOT, "eval", "bootstrap")
 MODELS = os.path.join(ROOT, "models")
 from siteconf import HOST, KEY, PET, SITE, SSH  # noqa: E402
 
+# The zero-shot baseline and the verifier's classes: ImageNet dog breeds, or domestic cats (PET_KIND in site.env).
+KIND_CLASSES = {"dog": (151, 268), "cat": (281, 285)}
+CLS = KIND_CLASSES.get(SITE.get("PET_KIND", "dog").strip().lower(), KIND_CLASSES["dog"])
+
 LABELS = ("pet", "toy", "other_animal", "person", "nothing")
 SHEET_N = 40
 # Optional: accept a crop the zero-shot "any dog breed" score is this sure about even if the trained model
@@ -291,7 +295,7 @@ def train():
     # Free alternative (no training): ImageNet probability of any dog breed (classes 151-268).
     sm = np.exp(X - X.max(1, keepdims=True))
     sm /= sm.sum(1, keepdims=True)
-    zs = sm[:, 151:269].sum(1)
+    zs = sm[:, CLS[0]:CLS[1] + 1].sum(1)
     ths = np.round(np.arange(0.05, 0.96, 0.01), 2)
     th = max(ths, key=lambda t: (prf(y[dev], (prob[dev] >= t).astype(int))["f1"], -abs(t - 0.5)))
     base_th = max(ths, key=lambda t: prf(y[dev], (yolo[dev] >= t).astype(int))["f1"])
@@ -349,13 +353,13 @@ def train():
         mu, sd = X.mean(0), X.std(0) + 1e-6
         w, b = fit_logreg((X - mu) / sd, y)
         out = {"mode": "logreg", "mean": mu.tolist(), "std": sd.tolist(), "w": w.tolist(), "b": float(b),
-               "zeroshot_backup": ZEROSHOT_BACKUP, "classes": [151, 268],
+               "zeroshot_backup": ZEROSHOT_BACKUP, "classes": list(CLS),
                "threshold": float(cv_th), "feature_model": "mobilenetv2-12.onnx", "report": report}
     else:
         # midpoint of the gap between the classes when they separate, else the dev-fitted threshold
         zt = round((neg_max + pos_min) / 2, 2) if pos_min > neg_max else float(zs_th)
         report["zeroshot_threshold_used"] = zt
-        out = {"mode": "zeroshot", "classes": [151, 268], "threshold": zt, "feature_model": "mobilenetv2-12.onnx",
+        out = {"mode": "zeroshot", "classes": list(CLS), "threshold": zt, "feature_model": "mobilenetv2-12.onnx",
                "report": report}
     with open(os.path.join(WORK, "verifier.json"), "w") as f:
         json.dump(out, f)

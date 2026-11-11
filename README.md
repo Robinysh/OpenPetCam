@@ -131,7 +131,10 @@ microphone together. Passwords and keys stay on the server; family joins with an
 **Which cameras work?** Any pan/tilt camera Thingino supports should, but only the Cinnado D1 (Ingenic T23N) is tested.
 Tell us if you try another.
 
-**Cats?** Not yet: the sound classes and the default verifier are for dogs (`verifier.json`, `watch.py`).
+**Cats?** Set `PET_KIND=cat` in `config/site.env`. Seeing and following a cat works the same way (the detector already
+knows cats; the verifier then accepts "domestic cat" instead of "dog breed"), but the starting threshold is not fitted
+to any cat data, so train the verifier on your cat ([how](docs/teach-your-pet.md)). The sound classes are still for
+dogs (no meows yet).
 
 **More than one camera?** One camera per server for now.
 

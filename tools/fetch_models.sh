@@ -28,5 +28,13 @@ echo "ok    yamnet.tflite"
 if [ ! -f yolox_nano_dyn.onnx ] && python3 -c "import onnx" 2>/dev/null; then
   python3 ../tools/make_dyn_detector.py yolox_nano.onnx yolox_nano_dyn.onnx
 fi
-# The verifier config: zero-shot "any dog breed" until tools/bootstrap_pet.py trains one for your pet.
-[ -f verifier.json ] || cp ../server/verifier.default.json verifier.json
+# The verifier config: zero-shot "any dog breed" (PET_KIND=cat: "any domestic cat") until tools/bootstrap_pet.py trains
+# one for your pet. An untrained verifier follows PET_KIND (so changing it takes effect); a trained one is never replaced.
+DEFAULT=../server/verifier.default.json
+[ "${PET_KIND:-dog}" = cat ] && DEFAULT=../server/verifier.cat.json
+if [ ! -f verifier.json ] || python3 - "$DEFAULT" <<'PY'
+import json, sys
+cur, want = json.load(open("verifier.json")), json.load(open(sys.argv[1]))
+sys.exit(0 if cur.get("mode") == "zeroshot" and cur.get("classes") != want["classes"] else 1)
+PY
+then cp "$DEFAULT" verifier.json; fi

@@ -85,6 +85,12 @@ CAM_HOST = SITE.get("CAMERA_WG_IP", "10.77.0.2")      # camera's address inside 
 SERVER_WG_IP = SITE.get("SERVER_WG_IP", "10.77.0.1")  # this server's address inside the tunnel
 PUBLIC_HOST = SITE.get("PUBLIC_HOST", "localhost")
 
+# What the pet is: dog or cat. Picks the verifier's ImageNet classes (dog breeds 151-268, domestic cats 281-285) in
+# models/verifier.json (tools/fetch_models.sh sets it up from verifier.default.json / verifier.cat.json).
+PET_KIND = SITE.get("PET_KIND", "dog").strip().lower()
+if PET_KIND not in ("dog", "cat"):
+    PET_KIND = "dog"
+
 # Which camera this install has, and which of its features exist. Default: the reference Thingino pan/tilt camera.
 #   CAMERA=thingino|rpi   rpi = a Raspberry Pi camera on this machine, read by MediaMTX (no tunnel, no camera CGIs)
 #   PTZ=1|0               motors. Off by default for rpi: every move, Find and Follow is refused and hidden.

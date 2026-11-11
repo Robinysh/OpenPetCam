@@ -1,0 +1,2 @@
+{"mode": "zeroshot", "classes": [281, 285], "threshold": 0.34, "feature_model": "mobilenetv2-12.onnx",
+ "note": "Default for cats: P(any ImageNet domestic-cat class: tabby, tiger cat, Persian, Siamese, Egyptian cat) >= 0.34 on the crop. The starting point is the dog default's threshold and is NOT fitted to any cat data: a 4-photo smoke test scored cats 0.36-0.96 and dogs 0.00. Retrain for your pet with tools/bootstrap_pet.py."}

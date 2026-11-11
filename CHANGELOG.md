@@ -4,6 +4,11 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+### Cats
+- `PET_KIND=cat` (default `dog`): the verifier accepts ImageNet domestic-cat classes (281-285) instead of dog breeds,
+  `tools/fetch_models.sh` keeps an untrained `verifier.json` in step with it, and `tools/bootstrap_pet.py` uses the same
+  classes for its baseline. No cat sound classes yet. The starting threshold (0.34) is not fitted to cat data.
+
 ### Raspberry Pi camera
 - `CAMERA=rpi` runs everything on one Raspberry Pi with a Pi camera module: MediaMTX reads it directly (`rpiCamera`),
   with no WireGuard tunnel and no cloud VM. `deploy.sh` and the tools accept `SSH_HOST=local`.
