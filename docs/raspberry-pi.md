@@ -37,6 +37,9 @@ The Pi 5 has no hardware H.264 encoder, so MediaMTX encodes in software; keep th
 2. In the Tailscale admin console, under DNS, turn on **HTTPS Certificates**.
 3. Put the Pi's `*.ts.net` name in `PUBLIC_HOST` and its `100.x` address in `PUBLIC_IP`.
 
+Name the machine something short (`sudo tailscale set --hostname=petcam`). Inside the tailnet, `http://petcam` then
+redirects to the full HTTPS address (`install.sh` adds that rule for any `*.ts.net` host).
+
 `install.sh` sets `TS_PERMIT_CERT_UID=caddy` in `/etc/default/tailscaled`, so Caddy can fetch the certificate. Nothing is
 opened on your router. Open `https://<PUBLIC_HOST>` on your phone while Tailscale is on.
 

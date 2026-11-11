@@ -118,6 +118,10 @@ install -m 644 $SRC/petconf.py $SRC/agentdb.py $SRC/goalmonitor.py $SRC/startupm
   $SRC/manifest.webmanifest $SRC/icon.png $SRC/apple-touch-icon.png $SRC/favicon.png $SRC/favicon.svg $SRC/icon-maskable.png $SRC/badge.png $SRC/logo.png $SRC/logo-light.png $SRC/themes.css $SRC/theme-controller.js $SRC/theme-data.js $SRC/theme-app.js $SRC/sw.js /opt/petcam/
 install -d -m 755 /opt/petcam/vendor && install -m 644 $SRC/vendor/three.module.min.js $SRC/vendor/OrbitControls.js /opt/petcam/vendor/
 render $SRC/Caddyfile > /etc/caddy/Caddyfile && chmod 644 /etc/caddy/Caddyfile
+if [[ "$PUBLIC_HOST" == *.ts.net ]]; then
+  # Inside the tailnet MagicDNS resolves the machine's short name: http://<name> lands on the real HTTPS address.
+  printf '\nhttp://%s {\n\tredir https://%s{uri}\n}\n' "${PUBLIC_HOST%%.*}" "$PUBLIC_HOST" >> /etc/caddy/Caddyfile
+fi
 install -m 750 -o root -g root $SRC/set-secrets.sh /opt/petcam/set-secrets.sh
 
 # Camera stream source.

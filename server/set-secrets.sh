@@ -12,7 +12,7 @@ CAM=/etc/petcam/camera.env
 read -rsp "New web app password: " P1; echo
 read -rsp "Repeat it: " P2; echo
 [ "$P1" = "$P2" ] || { echo "Passwords differ, nothing changed."; exit 1; }
-[ ${#P1} -ge 10 ] || { echo "Use at least 10 characters, nothing changed."; exit 1; }
+[ ${#P1} -ge 8 ] || { echo "Use at least 8 characters, nothing changed."; exit 1; }
 HASH=$(P="$P1" python3 -c 'import os,hashlib;s=os.urandom(16);i=600000;print("pbkdf2_sha256$%d$%s$%s"%(i,s.hex(),hashlib.pbkdf2_hmac("sha256",os.environ["P"].encode(),s,i).hex()))')
 
 CP=
