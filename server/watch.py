@@ -68,7 +68,16 @@ DETECT_RECT = True    # run the detector at 256x416 (the 16:9 frame without squa
 # with 0 of 12 empty frames accepted; on 134 frames labelled with no pet the false accepts were 19 vs 18.
 # The cost falls only on misses while she is around (the verifier still decides every box).
 NATIVE_RECHECK = True
-NATIVE_SHAPE = (384, 640)
+
+
+def _c32(x):
+    return -(-int(x) // 32) * 32     # round up to the multiple of 32 the detector needs
+
+
+# Detector input for the usual pass and for the second look. Defaults (640x360 frame, DETECT_WIDTH 416): (256, 416) and
+# (384, 640). A bigger FRAME_WIDTH / DETECT_WIDTH in site.env scales both (petconf.FRAME_W, DETECT_W).
+DETECT_SHAPE = (_c32(petconf.DETECT_W * petconf.FRAME_H / petconf.FRAME_W), _c32(petconf.DETECT_W))
+NATIVE_SHAPE = (_c32(petconf.FRAME_H), _c32(petconf.FRAME_W))
 NATIVE_RECENT = 120.0
 YAMNET_MODEL = "/opt/petcam/models/yamnet.tflite"
 VERIFIER = "/opt/petcam/models/verifier.json"        # from tools/bootstrap_pet.py
@@ -268,7 +277,7 @@ class FrameSource:
     Motion is checked on every frame: real motion wakes the main loop at once instead of it sleeping
     out its PERIOD. If the stream stalls, latest() returns None and the loop falls back to snapshots,
     so the freeze / self-heal watchdogs work as before."""
-    W, H = 640, 360
+    W, H = petconf.FRAME_W, petconf.FRAME_H        # 640x360 unless site.env raises FRAME_WIDTH
 
     def __init__(self, url=SUB_URL):
         self.url = url
@@ -478,7 +487,8 @@ class FrameSource:
                     if mode == "idle":
                         small = arr                                             # already 160x90 grey (read_frame)
                     else:
-                        s4 = arr[::4, ::4]                                      # 160x90 gray: integer sum, not float mean
+                        step = self.W // 160                                    # 4 at 640x360, 8 at 1280x720
+                        s4 = arr[::step, ::step]                                # 160x90 gray: integer sum, not float mean
                         small = (s4[..., 0].astype(np.int16) + s4[..., 1] + s4[..., 2]) // 3   # bit-identical, 18x less CPU
                     with self.lock:
                         previous = self.prev_small
@@ -1260,7 +1270,7 @@ def pet_moving(prev_box, box, diff):
 class Watch:
     def __init__(self):
         self.det_dynamic = DETECT_RECT and os.path.exists(MODEL_DYN)
-        self.det = Detector(MODEL_DYN, shape=(256, 416)) if self.det_dynamic else Detector(MODEL)
+        self.det = Detector(MODEL_DYN, shape=DETECT_SHAPE) if self.det_dynamic else Detector(MODEL)
         try:
             self.verifier = Verifier()
             log(f"verifier: {self.verifier.cfg['mode']} threshold {self.verifier.threshold}")

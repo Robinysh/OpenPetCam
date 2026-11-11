@@ -85,6 +85,22 @@ CAM_HOST = SITE.get("CAMERA_WG_IP", "10.77.0.2")      # camera's address inside 
 SERVER_WG_IP = SITE.get("SERVER_WG_IP", "10.77.0.1")  # this server's address inside the tunnel
 PUBLIC_HOST = SITE.get("PUBLIC_HOST", "localhost")
 
+# Picture size the watcher works at (16:9). The defaults are the reference camera's 640x360 substream and a detector
+# input 416 wide (256x416 once padded to 16:9). A bigger frame lets it see a small or distant pet: the detector is
+# blind to anything under roughly 30 px at its input size. FRAME_WIDTH must be a multiple of 160 (the motion check
+# samples every FRAME_WIDTH/160 th pixel to a fixed 160x90); DETECT_WIDTH a multiple of 32.
+def _size(name, default, multiple):
+    try:
+        v = int(SITE.get(name, "") or default)
+    except ValueError:
+        return default
+    return v if v >= multiple and v % multiple == 0 else default
+
+
+FRAME_W = _size("FRAME_WIDTH", 640, 160)
+FRAME_H = FRAME_W * 9 // 16
+DETECT_W = _size("DETECT_WIDTH", 416, 32)
+
 # What the pet is: dog or cat. Picks the verifier's ImageNet classes (dog breeds 151-268, domestic cats 281-285) in
 # models/verifier.json (tools/fetch_models.sh sets it up from verifier.default.json / verifier.cat.json).
 PET_KIND = SITE.get("PET_KIND", "dog").strip().lower()

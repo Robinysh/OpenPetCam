@@ -143,8 +143,8 @@ if [ "$CAMERA" = rpi ]; then
     [ -z "${RPI_CAM_MODE-1640:1232:10:P}" ] || echo "MTX_PATHS_CAM_RPICAMERAMODE=${RPI_CAM_MODE-1640:1232:10:P}"
     echo "MTX_PATHS_SUB_SOURCE=rpiCamera"
     echo "MTX_PATHS_SUB_RPICAMERASECONDARY=yes"
-    echo "MTX_PATHS_SUB_RPICAMERAWIDTH=640"
-    echo "MTX_PATHS_SUB_RPICAMERAHEIGHT=360"
+    echo "MTX_PATHS_SUB_RPICAMERAWIDTH=${FRAME_WIDTH:-640}"         # the watcher's picture (FRAME_WIDTH, a multiple of 160)
+    echo "MTX_PATHS_SUB_RPICAMERAHEIGHT=$(( ${FRAME_WIDTH:-640} * 9 / 16 ))"
     echo "MTX_PATHS_SUB_RPICAMERAFPS=5"
     echo "MTX_PATHS_SUB_SOURCEONDEMAND=no"                  # a secondary stream lives and dies with the main one
     echo "MTX_API=yes"                                      # localhost only: the app's privacy pause releases the camera through it
@@ -178,6 +178,8 @@ fi
 chown root:petcam /etc/petcam/vapid_private.pem /etc/petcam/vapid_public.txt
 chmod 640 /etc/petcam/vapid_private.pem; chmod 644 /etc/petcam/vapid_public.txt
 
+WATCH_CPU=60%; WATCH_MEM=300M    # sized for a 512 MB cloud VM
+[ "$CAMERA" != rpi ] || { WATCH_CPU=200%; WATCH_MEM=1500M; }   # a Pi 5 has 4 cores and 8 GB: room for a bigger picture
 MTX_GROUPS=""
 [ "$CAMERA" != rpi ] || MTX_GROUPS="SupplementaryGroups=video render"   # the camera and its buffers: /dev/video*, /dev/media*, /dev/dma_heap
 cat > /etc/systemd/system/mediamtx.service <<UNIT
@@ -241,8 +243,8 @@ ExecStart=/opt/petcam/venv/bin/python /opt/petcam/watch.py
 Restart=always
 RestartSec=5
 Nice=5
-CPUQuota=60%
-MemoryMax=300M
+CPUQuota=$WATCH_CPU
+MemoryMax=$WATCH_MEM
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
