@@ -36,6 +36,7 @@ Everything runs on hardware you control. Video goes from your camera to your ser
 | | What | Notes |
 |---|---|---|
 | 📷 | A pan/tilt Wi-Fi camera that runs [Thingino](https://thingino.com) | The reference is a Cinnado D1. Thingino is free, open firmware you flash onto it. |
+| 🍓 | *Or:* a Raspberry Pi 5 with a Pi camera module | Runs everything on one machine, no motors needed: [Raspberry Pi guide](docs/raspberry-pi.md). |
 | 🖥️ | A small Linux server with a public IP (Ubuntu 24.04) | Any cloud VM works. The reference is an AWS Lightsail nano at $5/month, which is at the edge of its CPU allowance; a plan with a little more sustained CPU is comfortable ([Server size](docs/performance.md#server-size)). |
 | 💻 | A Mac or Linux computer, once | For the 15-minute setup. Needs `git`, `ssh` and `rsync`. |
 | 🐕 | A pet | Dogs first: the sound model and the default verifier are tuned for dogs. |

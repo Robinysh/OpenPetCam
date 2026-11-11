@@ -15,9 +15,13 @@ read -rsp "Repeat it: " P2; echo
 [ ${#P1} -ge 10 ] || { echo "Use at least 10 characters, nothing changed."; exit 1; }
 HASH=$(P="$P1" python3 -c 'import os,hashlib;s=os.urandom(16);i=600000;print("pbkdf2_sha256$%d$%s$%s"%(i,s.hex(),hashlib.pbkdf2_hmac("sha256",os.environ["P"].encode(),s,i).hex()))')
 
-read -rsp "Camera root password (the one you set in Thingino setup): " CP; echo
-
-read -rp "Changed the camera's RTSP login from thingino/thingino? [y/N] " YN
+CP=
+if [ "${CAMERA:-thingino}" != rpi ]; then
+  read -rsp "Camera root password (the one you set in Thingino setup): " CP; echo
+  read -rp "Changed the camera's RTSP login from thingino/thingino? [y/N] " YN
+else
+  YN=n   # a Pi camera on this machine has no password and no RTSP login
+fi
 if [ "${YN:-n}" = y ] || [ "${YN:-n}" = Y ]; then
   read -rp "  RTSP username: " RU
   read -rsp "  RTSP password: " RP; echo
@@ -29,7 +33,8 @@ fi
 
 TMP=$(mktemp)
 grep -vE '^(APP_PASSWORD_HASH|CAM_WEB_PASS)=' "$ENV" > "$TMP" || true
-printf 'APP_PASSWORD_HASH=%s\nCAM_WEB_PASS=%s\n' "$HASH" "$CP" >> "$TMP"
+printf 'APP_PASSWORD_HASH=%s\n' "$HASH" >> "$TMP"
+[ -z "$CP" ] || printf 'CAM_WEB_PASS=%s\n' "$CP" >> "$TMP"
 install -m 640 -o root -g petcam "$TMP" "$ENV"; rm -f "$TMP"
 
 systemctl restart petcam-app mediamtx

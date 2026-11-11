@@ -503,11 +503,15 @@ TILT_MARGIN = 40
 
 
 def limits():
+    if not petconf.PTZ:
+        return 1, 1
     p = motor_params() or {}
     return int(num(p, "steps_pan", "x_max", default=3700)), int(num(p, "steps_tilt", "y_max", default=1000))
 
 
 def start_pose():
+    if not petconf.PTZ:
+        return 0, 0
     p = motor_params() or {}
     xm, ym = limits()
     return int(num(p, "pos_0_x", default=xm / 2)), int(num(p, "pos_0_y", default=ym / 2))
@@ -592,6 +596,10 @@ QUIET_SPEED = 250   # steps/s for automatic moves (follow, search). Measured wit
 
 def motor_cmd(d, x=0, y=0, speed=None):
     """A `motors` move: over the fast channel, or the CGI if that is down (the CGI can't set a speed)."""
+    if not petconf.PTZ:
+        if d == "s":
+            return          # a stop with nothing to stop is not an error
+        require_ptz()
     if d != "s":
         require_camera_active()
     try:
@@ -602,6 +610,8 @@ def motor_cmd(d, x=0, y=0, speed=None):
 
 
 def motor_status():
+    if not petconf.PTZ:
+        return "0", 0, 0    # one fixed view, settled: zones, poses and the watcher's tables keep working
     try:
         m = json.loads(_camsh.run("motors -j"))
     except Exception:  # noqa: BLE001
@@ -622,6 +632,15 @@ class Busy(Exception):
     pass
 
 
+class NoMotors(Busy):
+    """This install's camera has no pan/tilt motors (PTZ=0). A Busy, so every route answers 409 with the message."""
+
+
+def require_ptz():
+    if not petconf.PTZ:
+        raise NoMotors("This camera has no motors")
+
+
 def wait_idle(timeout=20.0):   # slow (quiet) automatic moves take up to ~15 s
     """Relative moves must start from where the motors actually stopped; a position read
     mid-move (or during homing) sends the next move to the wrong place."""
@@ -640,6 +659,7 @@ def wait_idle(timeout=20.0):   # slow (quiet) automatic moves take up to ~15 s
 def goto(x, y, speed=None):
     """Move to reported position (x, y), clamped inside the motor range so no axis can run past
     its end stop. Sent as a relative step from the settled position (see the note above)."""
+    require_ptz()
     require_camera_active()
     if _joystick is not None:
         _joystick.forget()
@@ -680,6 +700,7 @@ def _goto_locked(x, y, current, speed=None):
 def aim(fx, fy, speed=None):
     """Bring the point at (fx, fy) of the frame to the centre. fx/fy are offsets from the
     centre as a fraction of the frame: +fx is right of centre, +fy is below centre."""
+    require_ptz()
     require_camera_active()
     fx, fy = max(-0.75, min(0.75, float(fx))), max(-0.75, min(0.75, float(fy)))
     if _joystick is not None:
@@ -693,6 +714,7 @@ def aim(fx, fy, speed=None):
 def recalibrate():
     """Homing sweeps both axes to their end stops and back to the start pose. The CGI answers
     only when it is done; moves are refused until then so they can't overlap the sweep."""
+    require_ptz()
     require_camera_active()
     if time.time() < _homing["until"]:
         return
@@ -743,6 +765,7 @@ def save_presets(items):
 
 
 def add_preset(name):
+    require_ptz()
     name = " ".join(str(name).split())[:24]
     if not name:
         raise ValueError("name required")
@@ -864,8 +887,8 @@ def view_insights(days=7):
 def state():
     xm, ym = limits()
     x, y = position()
-    return {"x": x, "y": y, "x_max": xm, "y_max": ym, "start": start_pose(),
-            "frame": [PAN_STEPS_PER_FRAME, TILT_STEPS_PER_FRAME], "presets": load_presets()}
+    return {"x": x, "y": y, "x_max": xm, "y_max": ym, "start": start_pose(), "ptz": petconf.PTZ,
+            "frame": [PAN_STEPS_PER_FRAME, TILT_STEPS_PER_FRAME], "presets": load_presets() if petconf.PTZ else []}
 
 
 class Joystick:
@@ -950,6 +973,7 @@ _joystick = None
 def nudge(vx, vy):
     """Joystick tick (~6/s while held). vx/vy in [-1, 1]; +vx = view right, +vy = view up."""
     global _joystick
+    require_ptz()
     require_camera_active()
     vx, vy = max(-1.0, min(1.0, float(vx))), max(-1.0, min(1.0, float(vy)))
     # Squared deflection: gentle near the centre, faster at the edge.
@@ -978,6 +1002,8 @@ IMAGING = {
 
 
 def set_imaging(action):
+    if not petconf.THINGINO:
+        raise Busy("This camera has no day/night controls")
     require_camera_active()
     if action not in IMAGING:
         raise ValueError("unknown mode")
@@ -1218,7 +1244,76 @@ def _privacy_wait_active():
             time.sleep(min(1, max(0, deadline - time.monotonic())))
 
 
+MTX_API = "http://127.0.0.1:9997"
+MTX_PATHS = ("cam", "sub")      # primary first. MediaMTX refuses a config in which the secondary ("sub") has no rpiCamera
+                                # primary, so pause goes sub then cam, and resume cam then sub.
+
+
+def _mtx(method, path, body=None):
+    """MediaMTX control API (localhost only; enabled for CAMERA=rpi through camera.env)."""
+    data = json.dumps(body, separators=(",", ":")).encode() if body is not None else None
+    req = urllib.request.Request(MTX_API + path, data=data, method=method, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return json.loads(r.read(65536) or b"{}")
+
+
+def _mtx_capture_running():
+    """True while the camera is open. A path switched to 'publisher' has released it and has no source."""
+    return any(_mtx("GET", f"/v3/paths/get/{n}").get("source") for n in MTX_PATHS)
+
+
+def _privacy_transition_rpi(on, refresh=False):
+    """Privacy for a camera on this machine: pause releases the camera in MediaMTX, so there is no picture,
+    no recording and no live view. A MediaMTX restart would reopen it, so the watcher re-confirms every cycle
+    (ensure_privacy_paused, refresh=True)."""
+    try:
+        if on:
+            if not (refresh and not _mtx_capture_running()):
+                for n in reversed(MTX_PATHS):
+                    _mtx("PATCH", f"/v3/config/paths/patch/{n}", {"source": "publisher"})
+                deadline = time.monotonic() + 10
+                while _mtx_capture_running():
+                    if time.monotonic() >= deadline:
+                        raise PrivacyError("The camera has not confirmed that capture stopped.")
+                    time.sleep(0.2)
+            state = _privacy_save(True, True, "capture_stopped", "paused",
+                                  "Camera capture is stopped.", False)
+        else:
+            for n in MTX_PATHS:
+                _mtx("PATCH", f"/v3/config/paths/patch/{n}", {"source": "rpiCamera"})
+            deadline = time.monotonic() + PRIVACY_RESUME_WAIT
+            while not all(_mtx("GET", f"/v3/paths/get/{n}").get("ready") for n in MTX_PATHS):
+                if time.monotonic() >= deadline:
+                    raise PrivacyError("The camera has not confirmed that capture is running.")
+                time.sleep(0.5)
+            _privacy_atomic("privacy", "0\n")
+            state = _privacy_save(False, True, "capture_running", "active",
+                                  "Camera capture is enabled. Reconnecting to the stream.", False)
+        return {"privacy": on, "mic": False, "privacy_status": state}
+    except Exception:  # noqa: BLE001 - every failure retains the local acquisition gate
+        if not privacy_requested():
+            _privacy_atomic("privacy", "1\n")
+        restored = False
+        if not on:
+            try:
+                for n in reversed(MTX_PATHS):
+                    _mtx("PATCH", f"/v3/config/paths/patch/{n}", {"source": "publisher"})
+                restored = not _mtx_capture_running()
+            except Exception:  # noqa: BLE001
+                pass
+        message = "The camera did not resume. Privacy is confirmed again." if restored else \
+                  "Privacy is requested, but the camera has not confirmed that capture is paused."
+        _privacy_save(on, restored, "capture_stopped" if restored else "unknown", "error", message, False)
+        raise PrivacyError(message) from None
+
+
 def _privacy_transition(on, refresh=False):
+    if not petconf.THINGINO:
+        if not refresh:
+            _privacy_atomic("privacy", "1\n")
+            _privacy_save(on, False, "unknown", "pausing" if on else "resuming",
+                          "Stopping camera capture." if on else "Starting camera capture; privacy remains requested.")
+        return _privacy_transition_rpi(on, refresh)
     if not refresh:
         # Suspend server acquisition before any camera I/O. Resume keeps the latch until verified.
         _privacy_atomic("privacy", "1\n")
@@ -1311,6 +1406,7 @@ def ensure_privacy_paused():
 def request_find():
     """'Find <pet>': ask the watcher to run its room search now (owner, 2026-11-02). The watcher answers in
     live.json ('find': {t, result, found}) and as a 'search' event."""
+    require_ptz()
     require_camera_active()
     t = time.time()
     with open(f"{STATE_DIR}/find_request", "w") as f:
@@ -1400,6 +1496,8 @@ def talk(device_id, device_name, raw, content_type):
     import secrets
     import subprocess
 
+    if not petconf.caps()["talk"]:
+        raise Busy("This camera has no speaker")
     talk_intent = _privacy_intent()
     if talk_intent[0]:
         raise Busy("The camera is paused. Resume it first.")
@@ -1709,8 +1807,26 @@ def delete_zone(zone_id):
     return zones
 
 
+RTSP_SUB = "rtsp://127.0.0.1:8554/sub"     # MediaMTX's 640x360 path (an MJPEG secondary stream for CAMERA=rpi)
+
+
+def _mediamtx_frame(url=RTSP_SUB):
+    """One JPEG from MediaMTX. MJPEG comes out as is (-c:v copy); anything else is encoded once."""
+    import subprocess
+    codec = "copy" if url == RTSP_SUB else "mjpeg"
+    r = subprocess.run(["ffmpeg", "-v", "error", "-rtsp_transport", "tcp", "-i", url, "-frames:v", "1",
+                        "-c:v", codec, "-f", "image2pipe", "-"], capture_output=True, timeout=10)
+    if r.returncode != 0 or not r.stdout:
+        raise OSError("no picture from the camera stream")
+    return r.stdout
+
+
 def live_frame():
     require_camera_active()
+    if not petconf.THINGINO:
+        picture = _mediamtx_frame()
+        require_camera_active()
+        return picture
     def call():
         req = urllib.request.Request(f"http://{CAM_HOST}/x/ch1.jpg", headers={"Cookie": _cam["cookie"] or ""})
         with urllib.request.urlopen(req, timeout=8) as r:
@@ -2489,6 +2605,7 @@ if __name__ == "__main__":
     if not SECRET or not ENV.get("APP_PASSWORD_HASH"):
         print("WARNING: APP_SECRET or APP_PASSWORD_HASH missing; nobody can log in yet", flush=True)
     init_auth_db()
-    threading.Thread(target=serve_talk_files, daemon=True).start()
-    threading.Thread(target=ensure_cam_ssh, daemon=True).start()
+    if petconf.THINGINO:          # the Thingino camera's SSH channel and its talk-back WAV server
+        threading.Thread(target=serve_talk_files, daemon=True).start()
+        threading.Thread(target=ensure_cam_ssh, daemon=True).start()
     AppServer(("127.0.0.1", 8080), Handler).serve_forever()

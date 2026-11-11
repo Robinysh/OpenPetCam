@@ -7,6 +7,7 @@ SRC=$(cd "$(dirname "$0")" && pwd)
 [ -f "$SRC/site.env" ] || { echo "missing $SRC/site.env (copy config/site.env.example to config/site.env and fill it in)"; exit 1; }
 set -a; . "$SRC/site.env"; set +a
 : "${PET_NAME:?set PET_NAME in config/site.env}" "${PUBLIC_HOST:?set PUBLIC_HOST}" "${PUBLIC_IP:?set PUBLIC_IP}"
+CAMERA=${CAMERA:-thingino}   # thingino: a Thingino camera dialling in over WireGuard (the reference). rpi: a Pi camera on this machine.
 CAMERA_WG_IP=${CAMERA_WG_IP:-10.77.0.2}; SERVER_WG_IP=${SERVER_WG_IP:-10.77.0.1}; TZ=${TZ:-UTC}
 MEDIAMTX_VERSION=v1.21.3
 declare -A MEDIAMTX_SHA256=(
@@ -20,7 +21,9 @@ render() {  # fill @PLACEHOLDERS@ from site.env
 
 # Packages (skipped when present). Ubuntu's own caddy package is new enough (forward_auth).
 need=()
-for p in caddy wireguard-tools ffmpeg python3-venv python3-numpy python3-pil curl; do
+pkgs="caddy ffmpeg python3-venv python3-numpy python3-pil curl"
+[ "$CAMERA" = rpi ] || pkgs="$pkgs wireguard-tools"
+for p in $pkgs; do
   dpkg -s "$p" >/dev/null 2>&1 || need+=("$p")
 done
 if [ ${#need[@]} -gt 0 ]; then
@@ -41,6 +44,7 @@ id mediamtx >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sb
 id petcam   >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin petcam
 usermod -aG mediamtx petcam   # lets the alert checker see recording freshness (read-only)
 
+if [ "$CAMERA" != rpi ]; then
 # WireGuard: the camera dials out to this server, so no port is opened at home.
 if [ ! -f /etc/wireguard/wg0.conf ]; then
   ( umask 077
@@ -58,7 +62,9 @@ elif [ -n "${CAMERA_WG_PUBKEY:-}" ] && ! grep -qF "$CAMERA_WG_PUBKEY" /etc/wireg
   systemctl restart wg-quick@wg0
 fi
 echo "WireGuard server public key (for the camera): $(wg pubkey < /etc/wireguard/server.key 2>/dev/null || echo '?')"
+fi
 
+if [ "$CAMERA" != rpi ]; then   # cloud-VM housekeeping; a Pi keeps its own services
 # Slim the box: a 512 MB / 5%-CPU-baseline VM can't carry desktop/firmware services. fwupd alone
 # took 80 MB and pushed the box into swap + CPU throttling (2026-11-01). Security updates
 # (unattended-upgrades) stay on. SSH uses our own key, so snapd / the SSM agent are not needed.
@@ -69,6 +75,7 @@ for unit in fwupd.service fwupd-refresh.timer multipathd.service multipathd.sock
   systemctl disable --now "$unit" >/dev/null 2>&1 || true
 done
 systemctl mask fwupd.service fwupd-refresh.service >/dev/null 2>&1 || true
+fi
 
 install -d -m 755 /etc/mediamtx /opt/petcam
 install -d -m 750 -o root -g petcam /etc/petcam
@@ -113,12 +120,38 @@ install -d -m 755 /opt/petcam/vendor && install -m 644 $SRC/vendor/three.module.
 render $SRC/Caddyfile > /etc/caddy/Caddyfile && chmod 644 /etc/caddy/Caddyfile
 install -m 750 -o root -g root $SRC/set-secrets.sh /opt/petcam/set-secrets.sh
 
-# Camera stream source. Default Thingino RTSP login until it is changed on the camera.
-if [ ! -f /etc/petcam/camera.env ]; then
+# Camera stream source.
+if [ "$CAMERA" = rpi ]; then
+  # A Pi camera on this machine: MediaMTX reads it itself (rpiCamera). Same path names as the Thingino setup
+  # (cam = recorded main stream, sub = 640x360 MJPEG for the watcher), so everything downstream is unchanged.
+  # No secrets in this file; it is rewritten on every install from config/site.env.
+  RPI_W=${RPI_CAM_WIDTH:-1280}; RPI_H=${RPI_CAM_HEIGHT:-720}; RPI_FPS=${RPI_CAM_FPS:-20}
+  {
+    echo "MTX_PATHS_CAM_SOURCE=rpiCamera"
+    echo "MTX_PATHS_CAM_RPICAMERAWIDTH=$RPI_W"
+    echo "MTX_PATHS_CAM_RPICAMERAHEIGHT=$RPI_H"
+    echo "MTX_PATHS_CAM_RPICAMERAFPS=$RPI_FPS"
+    echo "MTX_PATHS_CAM_RPICAMERABITRATE=${RPI_CAM_BITRATE:-1500000}"
+    echo "MTX_PATHS_CAM_RPICAMERAIDRPERIOD=$((RPI_FPS * 2))"
+    echo "MTX_PATHS_CAM_RPICAMERATEXTOVERLAYENABLE=yes"     # a ticking clock in the picture: the freeze watchdog's signal
+    echo "MTX_PATHS_CAM_RPICAMERAHFLIP=${RPI_CAM_HFLIP:-no}"
+    echo "MTX_PATHS_CAM_RPICAMERAVFLIP=${RPI_CAM_VFLIP:-no}"
+    [ -z "${RPI_CAM_MODE-1640:1232:10:P}" ] || echo "MTX_PATHS_CAM_RPICAMERAMODE=${RPI_CAM_MODE-1640:1232:10:P}"
+    echo "MTX_PATHS_SUB_SOURCE=rpiCamera"
+    echo "MTX_PATHS_SUB_RPICAMERASECONDARY=yes"
+    echo "MTX_PATHS_SUB_RPICAMERAWIDTH=640"
+    echo "MTX_PATHS_SUB_RPICAMERAHEIGHT=360"
+    echo "MTX_PATHS_SUB_RPICAMERAFPS=5"
+    echo "MTX_PATHS_SUB_SOURCEONDEMAND=no"                  # a secondary stream lives and dies with the main one
+    echo "MTX_API=yes"                                      # localhost only: the app's privacy pause releases the camera through it
+    echo "MTX_APIADDRESS=127.0.0.1:9997"
+  } > /etc/petcam/camera.env
+# Default Thingino RTSP login until it is changed on the camera.
+elif [ ! -f /etc/petcam/camera.env ]; then
   echo "MTX_PATHS_CAM_SOURCE=rtsp://thingino:thingino@$CAMERA_WG_IP:554/ch0" > /etc/petcam/camera.env
 fi
 # The substream path for petcam-watch: same login, /ch1 (added to installs made before it existed).
-if ! grep -q '^MTX_PATHS_SUB_SOURCE=' /etc/petcam/camera.env; then
+if [ "$CAMERA" != rpi ] && ! grep -q '^MTX_PATHS_SUB_SOURCE=' /etc/petcam/camera.env; then
   sed -n 's#^MTX_PATHS_CAM_SOURCE=\(.*\)/ch0$#MTX_PATHS_SUB_SOURCE=\1/ch1#p' /etc/petcam/camera.env >> /etc/petcam/camera.env
 fi
 chown root:mediamtx /etc/petcam/camera.env && chmod 640 /etc/petcam/camera.env
@@ -131,14 +164,18 @@ fi
 chown root:petcam /etc/petcam/app.env && chmod 640 /etc/petcam/app.env
 
 # SSH key for the fast camera channel (app.py CamShell); the app authorises it on the camera itself.
-install -d -m 700 -o petcam -g petcam /var/lib/petcam/ssh   # only this folder: Caddy serves media from /var/lib/petcam
-[ -f /var/lib/petcam/ssh/id_ed25519 ] || sudo -u petcam ssh-keygen -q -t ed25519 -N '' -C petcam-server -f /var/lib/petcam/ssh/id_ed25519
+if [ "$CAMERA" != rpi ]; then
+  install -d -m 700 -o petcam -g petcam /var/lib/petcam/ssh   # only this folder: Caddy serves media from /var/lib/petcam
+  [ -f /var/lib/petcam/ssh/id_ed25519 ] || sudo -u petcam ssh-keygen -q -t ed25519 -N '' -C petcam-server -f /var/lib/petcam/ssh/id_ed25519
+fi
 
 # Web push (VAPID) keys, generated once on the server.
 /opt/petcam/venv/bin/python $SRC/gen_vapid.py /etc/petcam
 chown root:petcam /etc/petcam/vapid_private.pem /etc/petcam/vapid_public.txt
 chmod 640 /etc/petcam/vapid_private.pem; chmod 644 /etc/petcam/vapid_public.txt
 
+MTX_GROUPS=""
+[ "$CAMERA" != rpi ] || MTX_GROUPS="SupplementaryGroups=video render"   # the camera and its buffers: /dev/video*, /dev/media*, /dev/dma_heap
 cat > /etc/systemd/system/mediamtx.service <<UNIT
 [Unit]
 Description=MediaMTX (petcam video)
@@ -155,6 +192,7 @@ RestartSec=5
 TimeoutStopSec=10
 NoNewPrivileges=yes
 ProtectSystem=strict
+$MTX_GROUPS
 ReadWritePaths=/var/lib/mediamtx
 ProtectHome=yes
 PrivateTmp=yes
@@ -291,7 +329,42 @@ if [ "$SRC" != /opt/petcam/source ]; then
   rm -rf /opt/petcam/source && mv /opt/petcam/source.new /opt/petcam/source && chmod -R go-w /opt/petcam/source
 fi
 
+if [ "$CAMERA" = rpi ]; then
+  # The services can't restart MediaMTX themselves (NoNewPrivileges, not root): the watcher touches this file and a
+  # root path unit does it. This is what the freeze watchdog and the self-heal use instead of a camera CGI.
+  install -d -m 755 -o petcam -g petcam /var/lib/petcam
+  touch /var/lib/petcam/restart_camera && chown petcam:petcam /var/lib/petcam/restart_camera
+  cat > /etc/systemd/system/petcam-camrestart.path <<UNIT
+[Unit]
+Description=Restart the camera stream when petcam-watch asks
+
+[Path]
+PathChanged=/var/lib/petcam/restart_camera
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  cat > /etc/systemd/system/petcam-camrestart.service <<UNIT
+[Unit]
+Description=Restart MediaMTX (camera stream)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart mediamtx
+UNIT
+  # HTTPS over Tailscale: Caddy fetches the *.ts.net certificate from tailscaled, which must allow the caddy user.
+  if [[ "$PUBLIC_HOST" == *.ts.net ]] && command -v tailscale >/dev/null 2>&1; then
+    if ! grep -qs '^TS_PERMIT_CERT_UID=caddy' /etc/default/tailscaled; then
+      sed -i '/^TS_PERMIT_CERT_UID=/d' /etc/default/tailscaled 2>/dev/null || true
+      echo 'TS_PERMIT_CERT_UID=caddy' >> /etc/default/tailscaled
+      systemctl restart tailscaled
+      sleep 3
+    fi
+  fi
+fi
+
 systemctl daemon-reload
+[ "$CAMERA" != rpi ] || systemctl enable --now petcam-camrestart.path >/dev/null 2>&1
 systemctl enable --now petcam-alert.timer >/dev/null 2>&1
 systemctl enable --now petcam-update.timer >/dev/null 2>&1
 systemctl enable --now mediamtx petcam-app petcam-watch >/dev/null 2>&1
@@ -302,5 +375,7 @@ sleep 3
 systemctl is-active mediamtx petcam-app caddy
 
 # Ubuntu's firmware updater has nothing to update on a cloud VM; its timer fails and shows as a failed unit in QA.
-systemctl disable --now fwupd-refresh.timer >/dev/null 2>&1 || true
-systemctl reset-failed fwupd-refresh.service >/dev/null 2>&1 || true
+if [ "$CAMERA" != rpi ]; then
+  systemctl disable --now fwupd-refresh.timer >/dev/null 2>&1 || true
+  systemctl reset-failed fwupd-refresh.service >/dev/null 2>&1 || true
+fi

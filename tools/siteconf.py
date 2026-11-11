@@ -18,3 +18,5 @@ KEY = os.path.expanduser(SITE.get("SSH_KEY", "~/.ssh/id_ed25519"))
 _CM = os.path.join(os.path.expanduser("~/.ssh"), "cm-petcam-%C")
 SSH = ["ssh", "-i", KEY, "-o", "BatchMode=yes", "-o", "ControlMaster=auto", "-o", f"ControlPath={_CM}",
        "-o", "ControlPersist=30m", "-o", "ServerAliveInterval=30", HOST]
+if HOST == "local":     # this machine is the server: run the same commands in a local shell instead of over SSH
+    SSH = ["bash", "-c", 'exec bash -c "$0"']   # callers append the command; "$0" is that last argument

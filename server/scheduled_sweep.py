@@ -157,6 +157,9 @@ def check(now=None):
 
 if __name__ == "__main__":
     sys.path.insert(0, "/opt/petcam")
+    import petconf
+    if not petconf.PTZ:
+        sys.exit("This camera has no motors, so there is nothing to sweep.")
     a = sys.argv[1:]
     if a and a[0] == "schedule":
         schedule(a[1], a[2], a[3])

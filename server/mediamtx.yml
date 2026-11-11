@@ -35,6 +35,7 @@ authInternalUsers:
     permissions:
       - action: read
       - action: playback
+      - action: api        # still off ("api: no") unless camera.env sets MTX_API=yes (CAMERA=rpi)
 
 pathDefaults:
   record: no

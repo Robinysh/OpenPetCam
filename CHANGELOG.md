@@ -4,6 +4,14 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
 
 ## [Unreleased]
 
+### Raspberry Pi camera
+- `CAMERA=rpi` runs everything on one Raspberry Pi with a Pi camera module: MediaMTX reads it directly (`rpiCamera`),
+  with no WireGuard tunnel and no cloud VM. `deploy.sh` and the tools accept `SSH_HOST=local`.
+- `PTZ=0` (the default for `rpi`) makes motors optional: Find, Follow, joystick, tap-to-aim, places and recalibrate are
+  refused by the app and watcher and hidden in the web app. `AUDIO=0` does the same for sound and talk-back.
+- Privacy pause on a Pi releases the camera through MediaMTX's control API; a root path unit restarts MediaMTX when
+  the freeze watchdog asks. `docs/raspberry-pi.md` has the setup.
+
 ## [0.4.0] - 2026-11-08
 
 ### Camera firmware

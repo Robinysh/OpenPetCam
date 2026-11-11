@@ -255,6 +255,8 @@ def snapshot(channel="ch1"):
     """The camera's own JPEG. ch1 (640x360) through the app's camera session; ch0 (1080p) for tools."""
     if channel == "ch1":
         return camapi.live_frame()
+    if not petconf.THINGINO:
+        return camapi._mediamtx_frame(MAIN_URL)
     camapi.cam_login() if not camapi._cam["cookie"] else None
     req = urllib.request.Request(f"http://{camapi.CAM_HOST}/x/{channel}.jpg", headers={"Cookie": camapi._cam["cookie"] or ""})
     return camapi.with_deadline(lambda: urllib.request.urlopen(req, timeout=6).read(2_000_000), 8)
@@ -313,7 +315,10 @@ class FrameSource:
         """main / push / sub while live frames are wanted; idle (slow push) or None (no frames) otherwise."""
         if privacy_flag():
             return None
-        push_ok = PUSH_ENABLED and now() >= self.push_down_until
+        # The JPEG push is a Thingino-only SSH trick; a Pi camera has just the MediaMTX substream (640x360 MJPEG).
+        push_ok = PUSH_ENABLED and petconf.THINGINO and now() >= self.push_down_until
+        if not petconf.THINGINO:
+            return "sub" if self.wanted() else None
         if not self.wanted():
             return "idle" if push_ok and IDLE_FPS else None
         if self.fast():
@@ -602,7 +607,7 @@ def automatic_camera_action(fn, *args):
 class CamAdapter:
     """What the tracker needs from the camera, backed by the app's camera code."""
     position = staticmethod(lambda: camapi.position())
-    goto = staticmethod(lambda x, y: automatic_camera_action(camapi.goto, x, y, camapi.QUIET_SPEED))
+    goto = staticmethod(lambda x, y: automatic_camera_action(camapi.goto, x, y, camapi.QUIET_SPEED))   # NoMotors when PTZ=0
     wait_idle = staticmethod(lambda: camapi.wait_idle(timeout=30.0))            # a quiet full pan takes ~15 s
     busy = staticmethod(lambda: camapi.motor_status()[0] != "0")
     home = staticmethod(lambda: camapi.start_pose())
@@ -614,10 +619,25 @@ class CamAdapter:
     moved_at = staticmethod(lambda: os.path.getmtime(MOVED))
 
 
+RESTART_CAMERA = f"{STATE}/restart_camera"   # a root path unit (petcam-camrestart.path) restarts MediaMTX when this changes
+
+
 def cam_action(path):
-    """Fire-and-forget camera CGI (restart encoder, reboot)."""
+    """Fire-and-forget camera CGI (restart encoder, reboot). A Pi camera has no CGIs: restarting the encoder
+    means restarting MediaMTX (this service can't, so it touches a file that a root unit watches); a reboot is not offered."""
     if privacy_flag():
         return False
+    if not petconf.THINGINO:
+        if "restart" not in path:
+            return False
+        try:
+            with open(RESTART_CAMERA, "a"):
+                pass
+            os.utime(RESTART_CAMERA)
+            return True
+        except OSError as e:
+            log("camera restart request failed", e)
+            return False
     try:
         req = urllib.request.Request(f"http://{camapi.CAM_HOST}{path}",
                                      headers={"Cookie": camapi._cam["cookie"] or ""})
@@ -631,6 +651,8 @@ def cam_action(path):
 def imaging_state():
     """First event of the camera's heartbeat stream: day/night, IR, colour."""
     import http.client
+    if not petconf.THINGINO:
+        return {}
 
     def call():
         c = http.client.HTTPConnection(camapi.CAM_HOST, 80, timeout=5)
@@ -1337,7 +1359,8 @@ class Watch:
         init_db()
         for d in (SNAPS, CLIPS, TIMELAPSE, HIGHLIGHTS):
             os.makedirs(d, exist_ok=True)
-        self.audio.start()
+        if petconf.AUDIO:       # a Pi camera module has no microphone: no sound thread, no sound events
+            self.audio.start()
         self.clips.start()
         self.frames.start()
         while True:
@@ -1477,7 +1500,8 @@ class Watch:
         if down < 120 or t - self.last_fix < 300:
             return
         try:
-            camapi.with_deadline(lambda: urllib.request.urlopen(f"http://{camapi.CAM_HOST}/", timeout=5).read(100), 8)
+            if petconf.THINGINO:   # a Pi camera is on this machine: it is always "reachable", restarting MediaMTX is the fix
+                camapi.with_deadline(lambda: urllib.request.urlopen(f"http://{camapi.CAM_HOST}/", timeout=5).read(100), 8)
         except Exception:  # noqa: BLE001 - camera itself unreachable: nothing we can restart
             return
         self.last_fix = t
@@ -1485,9 +1509,10 @@ class Watch:
         con = db()
         if self.heal_tries <= 2:
             add_event(con, "camera_frozen", {"action": "restart streamer (not responding)", "down_s": round(down)})
-            camapi.cam_login() if not camapi._cam["cookie"] else None
+            if petconf.THINGINO and not camapi._cam["cookie"]:
+                camapi.cam_login()
             cam_action("/x/restart-prudynt.cgi")
-        elif t - getattr(self, "last_reboot", 0) > 3600:
+        elif petconf.THINGINO and t - getattr(self, "last_reboot", 0) > 3600:
             self.last_reboot = t
             self.heal_tries = 0
             add_event(con, "camera_frozen", {"action": "reboot camera", "down_s": round(down)})
@@ -1767,7 +1792,7 @@ class Watch:
                      round(motion, 2), int(self.present), int(moving and self.present)))
         self.accumulate(con, t, jpg, motion, moving, person >= 0.5, visible=score >= ABSENT_SCORE)
 
-        if t - self.last_imaging > IMAGING_EVERY:
+        if t - self.last_imaging > IMAGING_EVERY and petconf.THINGINO:   # the day/night and mic checks read the Thingino heartbeat
             try:
                 self.imaging = imaging_state()
                 self.check_flapping(con, t)
@@ -1969,6 +1994,8 @@ class Watch:
                 st["since"], st["event"] = None, None
 
     def setting(self, key, default=None):
+        if key == "follow" and not petconf.PTZ:
+            return False        # nothing to turn: Follow needs motors, whatever settings.json says
         try:
             mt = os.path.getmtime(SETTINGS)
             if mt != getattr(self, "_settings_mt", None):
@@ -2401,7 +2428,7 @@ class Watch:
 
     def sound_search_label(self, act):
         """A search that found her soon after an unseen sound labels that sound with where she was."""
-        if SOUNDFIND is None:
+        if SOUNDFIND is None or not (petconf.PTZ and petconf.AUDIO):
             return
         try:
             hint = self.tracker.sound_hint
@@ -2522,6 +2549,8 @@ class Watch:
 
     def find_requested(self, t):
         """A 'Find <pet>' tap from the app (find_request holds its time); each request is served once."""
+        if not petconf.PTZ:
+            return False        # the app refuses the tap already; this covers a stale file
         try:
             req = float(open(f"{STATE}/find_request").read().strip() or 0)
         except (OSError, ValueError):
@@ -2633,7 +2662,7 @@ class Watch:
                 "last_seen": self.last_seen or None, "gone_since": self.gone_since,
                 "rest_since": self.rest_since if self.present else None,
                 "moving_since": self.moving_since, "imaging": self.imaging,
-                "audio_ok": now() - self.audio.last_ok < 30, "view_blocked": self.view_blocked,
+                "audio_ok": (now() - self.audio.last_ok < 30) if petconf.AUDIO else None, "view_blocked": self.view_blocked,
                 "find": self.find_result, "last_bark": self.last_bark,
                 "held_since": getattr(self, "held_since", None) if self.present and status == "ok" else None, **kw}
         live["det_age"] = round(live["t"] - live["det_t"], 2) if live.get("det_t") else None

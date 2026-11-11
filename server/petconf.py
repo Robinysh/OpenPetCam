@@ -85,6 +85,27 @@ CAM_HOST = SITE.get("CAMERA_WG_IP", "10.77.0.2")      # camera's address inside 
 SERVER_WG_IP = SITE.get("SERVER_WG_IP", "10.77.0.1")  # this server's address inside the tunnel
 PUBLIC_HOST = SITE.get("PUBLIC_HOST", "localhost")
 
+# Which camera this install has, and which of its features exist. Default: the reference Thingino pan/tilt camera.
+#   CAMERA=thingino|rpi   rpi = a Raspberry Pi camera on this machine, read by MediaMTX (no tunnel, no camera CGIs)
+#   PTZ=1|0               motors. Off by default for rpi: every move, Find and Follow is refused and hidden.
+#   AUDIO=1|0             microphone in the stream. Off by default for rpi (the camera module has none).
+CAMERA = SITE.get("CAMERA", "thingino").strip().lower()
+THINGINO = CAMERA != "rpi"
+
+
+def _flag(name, default):
+    v = SITE.get(name, "").strip().lower()
+    return default if v == "" else v in ("1", "yes", "true", "on")
+
+
+PTZ = _flag("PTZ", THINGINO)
+AUDIO = _flag("AUDIO", THINGINO)
+
+
+def caps():
+    """What this install's camera can do; the web app hides what it can't."""
+    return {"ptz": PTZ, "audio": AUDIO, "imaging": THINGINO, "talk": THINGINO and AUDIO}
+
 
 def html_escape(s):
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
@@ -100,6 +121,6 @@ def template_vars():
         "PET_POSS_CAP": html_escape(POSS.capitalize()),
         "PET_POSS": html_escape(POSS),
         "PET_JS": json.dumps({"name": PET, "subj": SUBJ, "obj": OBJ, "poss": POSS, "app": APP_NAME,
-                              "pronoun": PRONOUN, "named": NAMED})
+                              "pronoun": PRONOUN, "named": NAMED, "caps": caps()})
         .replace("<", "\\u003c"),
     }

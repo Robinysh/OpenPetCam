@@ -4,8 +4,9 @@ set -u
 set -a; . "$(dirname "$0")/../config/site.env"; set +a
 KEY=${SSH_KEY/#\~/$HOME}; HOST=$SSH_HOST
 echo "== $(date '+%H:%M:%S') local"
-ssh -i $KEY -o BatchMode=yes -o ConnectTimeout=20 $HOST 'bash -s' <<'R'
-systemctl is-active caddy mediamtx petcam-app petcam-watch wg-quick@wg0 petcam-alert.timer | paste -s | sed "s/^/services: /"
+if [ "$HOST" = local ]; then RUN=(bash -s); else RUN=(ssh -i $KEY -o BatchMode=yes -o ConnectTimeout=20 $HOST 'bash -s'); fi
+"${RUN[@]}" <<'R'
+systemctl is-active caddy mediamtx petcam-app petcam-watch petcam-alert.timer $(systemctl cat wg-quick@wg0 >/dev/null 2>&1 && echo wg-quick@wg0) | paste -s | sed "s/^/services: /"
 sudo python3 - <<PY
 import json, time, sqlite3
 d = json.load(open("/var/lib/petcam/live.json"))
@@ -16,7 +17,7 @@ print("events last 2 h:", con.execute("select kind, count(*) from events where t
 PY
 free -m | awk "/Mem/{print \"mem: used \" \$3 \" MB, available \" \$7 \" MB\"} /Swap/{print \"swap used: \" \$3 \" MB\"}"
 top -b -d 20 -n 2 | awk "/^top/{n++} n==2" | sed -n 3p
-sudo wg show wg0 latest-handshakes | awk "{print \"wireguard handshake age: \" systime()-\$2 \"s\"}"
+if systemctl cat wg-quick@wg0 >/dev/null 2>&1; then sudo wg show wg0 latest-handshakes | awk "{print \"wireguard handshake age: \" systime()-\$2 \"s\"}"; fi
 df -h / | awk "NR==2{print \"disk: \" \$3 \" used, \" \$4 \" free\"}"
 R
 if [ -n "${LIGHTSAIL_INSTANCE:-}" ]; then   # optional: AWS Lightsail CPU burst credits

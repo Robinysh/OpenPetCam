@@ -426,6 +426,13 @@
     body.tab-live .tabbar { display:none; }
     body.tab-live .controls, body.tab-live .side { --text:#fff; color:#fff; }   /* glass over the video: light marks in every theme */
   }
+  /* What this install's camera can't do is hidden (PET.caps, from CAMERA / PTZ / AUDIO in site.env). */
+  html.no-ptz #find-btn, html.no-ptz #panbar, html.no-ptz #stick, html.no-ptz #follow-toggle, html.no-ptz #follow-note,
+  html.no-ptz #spots, html.no-ptz #view-insights, html.no-ptz #namebox, html.no-ptz #recal, html.no-ptz #aim-hint,
+  html.no-ptz #cam-note, html.no-ptz #move-note { display:none !important; }
+  html.no-talk #talk-btn, html.no-talk #talk-rail, html.no-talk #talk-vol-val, html.no-talk #talk-vol { display:none !important; }
+  html.no-audio #sound-btn { display:none !important; }
+  html.no-imaging #light-btn { display:none !important; }
 </style>
 </head>
 <body class="tab-live">
@@ -510,7 +517,7 @@
     <div class="chips strip" id="zones" style="margin-top:8px"></div>
     <div class="note">Zones count {{PET_POSS}} water, food and bed visits when the camera is at the view they were drawn on.</div>
   </div>
-  <p class="hint">Tap the picture to look there · hold the stick to move · <button class="linkbtn" id="mark-open" type="button">Mark {{PET}}</button> · <button class="linkbtn" id="report-open" type="button">Something wrong?</button> · <button class="linkbtn" id="monitoring-open" type="button">Monitoring</button></p>
+  <p class="hint"><span id="aim-hint">Tap the picture to look there · hold the stick to move · </span><button class="linkbtn" id="mark-open" type="button">Mark {{PET}}</button> · <button class="linkbtn" id="report-open" type="button">Something wrong?</button> · <button class="linkbtn" id="monitoring-open" type="button">Monitoring</button></p>
 </main>
 
 <!-- ======================= TODAY ======================= -->
@@ -772,6 +779,9 @@
 <script>
 "use strict";
 const PET = {{PET_JS}};
+PET.caps = PET.caps || { ptz: true, audio: true, imaging: true, talk: true };
+for (const [cap, cls] of [["ptz", "no-ptz"], ["talk", "no-talk"], ["audio", "no-audio"], ["imaging", "no-imaging"]])
+  if (!PET.caps[cap]) document.documentElement.classList.add(cls);
 // Uncaught errors go to the server (capped there), so phone-only bugs are visible to whoever debugs.
 const clientErrors = [];
 function reportError(where, msg, src, line, col, stack) {
@@ -1310,6 +1320,7 @@ $("touch").addEventListener("click", async (e) => {
   r.style.left = `${e.clientX - s.left}px`; r.style.top = `${e.clientY - s.top}px`;
   r.classList.remove("go"); void r.offsetWidth; r.classList.add("go");
   if (marking) return sendMark({ fx, fy });
+  if (!PET.caps.ptz) return;         // no motors: a tap can only mark the pet
   try { await api("/api/aim", { fx, fy }); $("move-note").textContent = ""; } catch (err) { $("move-note").textContent = err.message; }
 });
 
@@ -1372,7 +1383,7 @@ document.addEventListener("keydown", (e) => {
   if (privacyBlocksLive) return;
   if (curTab !== "live" || document.querySelector(".sheet-bg:not(.hidden)") || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
   const map = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
-  if (map[e.key]) { e.preventDefault(); api("/api/nudge", { vx: map[e.key][0] * 0.8, vy: map[e.key][1] * 0.8 }).catch(() => {}); }
+  if (map[e.key] && PET.caps.ptz) { e.preventDefault(); api("/api/nudge", { vx: map[e.key][0] * 0.8, vy: map[e.key][1] * 0.8 }).catch(() => {}); }
 });
 
 // ======================= push-to-talk =======================
@@ -1474,7 +1485,7 @@ function renderZones() {
     const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; b.appendChild(x);
     b.onclick = async () => {
       if ($("tab-live").classList.contains("editing")) { zones = await api("/api/zones/delete", { id: z.id }).catch(() => zones); renderZones(); }
-      else api("/api/goto", { x: z.pose[0], y: z.pose[1] }).catch((e) => { $("move-note").textContent = e.message; });
+      else if (PET.caps.ptz) api("/api/goto", { x: z.pose[0], y: z.pose[1] }).catch((e) => { $("move-note").textContent = e.message; });
     };
     box.appendChild(b);
   }
