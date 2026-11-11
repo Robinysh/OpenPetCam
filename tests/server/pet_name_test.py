@@ -50,6 +50,7 @@ try:
     check("refuses unknown pronoun", False)
 except ValueError:
     check("refuses unknown pronoun", True)
+check("accepts digits", petconf.valid_name("Rex99") == "Rex99" and petconf.valid_name("Rex 2") == "Rex 2")
 check("accepts names in any language", petconf.valid_name("Мурка") == "Мурка" and petconf.valid_name("  O'Malley-Jr  ") == "O'Malley-Jr")
 check("escaped in HTML", "&lt;" in (petconf.html_escape("<b>")))
 print("\nall passed" if not fails else f"\n{fails} failed")

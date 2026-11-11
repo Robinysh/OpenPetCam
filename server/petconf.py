@@ -61,15 +61,15 @@ def refresh():
 
 
 def valid_name(name):
-    """1-24 characters of letters (any language), spaces, apostrophes, hyphens and dots."""
+    """1-24 characters of letters (any language) or digits, spaces, apostrophes, hyphens and dots."""
     name = " ".join(str(name or "").split())
-    return name if 0 < len(name) <= 24 and all(c.isalpha() or c in " '-.’" for c in name) else None
+    return name if 0 < len(name) <= 24 and all(c.isalnum() or c in " '-.’" for c in name) else None
 
 
 def save_pet(name, pronoun):
     name = valid_name(name)
     if not name or pronoun not in _PRONOUNS:
-        raise ValueError("A name of up to 24 letters, and she, he or they.")
+        raise ValueError("A name of up to 24 letters or digits, and she, he or they.")
     tmp = PET_FILE + ".tmp"
     with open(tmp, "w") as f:
         json.dump({"name": name, "pronoun": pronoun}, f)
