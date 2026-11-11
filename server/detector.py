@@ -77,6 +77,60 @@ class Detector:
         return nms(found)
 
 
+class Yolo26Detector(Detector):
+    """YOLO26 (Ultralytics, AGPL-3.0) via onnxruntime, exported with a free input size (tools/make_yolo26.py).
+    Same interface and one thread, as Detector. The head is (1, 84, N): cx, cy, w, h in input pixels, then 80 class
+    probabilities (no separate objectness). Input is RGB 0..1, letterboxed and centred like the Ultralytics preprocessing.
+    `session` is for tests: a stand-in for the onnxruntime session."""
+
+    def __init__(self, model_path, shape=(576, 1024), session=None):
+        if session is None:
+            import onnxruntime as ort
+
+            opts = ort.SessionOptions()
+            opts.intra_op_num_threads = 1
+            opts.inter_op_num_threads = 1
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            opts.log_severity_level = 3
+            session = ort.InferenceSession(model_path, opts, providers=["CPUExecutionProvider"])
+        self.sess = session
+        self.input = self.sess.get_inputs()[0].name
+        self.shape = tuple(shape)
+        self.size = self.shape[1]
+
+    def _prep(self, img, shape=None):
+        img = img.convert("RGB")
+        sh, sw = shape or self.shape
+        w, h = img.size
+        r = min(sw / w, sh / h)
+        nw, nh = int(round(w * r)), int(round(h * r))
+        px, py = (sw - nw) // 2, (sh - nh) // 2
+        canvas = np.full((sh, sw, 3), 114, dtype=np.uint8)
+        canvas[py:py + nh, px:px + nw] = np.asarray(img.resize((nw, nh), Image.BILINEAR))
+        blob = np.ascontiguousarray(canvas.transpose(2, 0, 1))[None].astype(np.float32) / 255.0
+        return blob, r, px, py
+
+    def detect(self, img, min_score=0.15, shape=None):
+        shape = tuple(shape) if shape else self.shape
+        blob, r, px, py = self._prep(img, shape)
+        out = self.sess.run(None, {self.input: blob})[0][0].T          # (N, 84)
+        scores = out[:, 4:]
+        cls = scores.argmax(1)
+        best = scores[np.arange(len(scores)), cls]
+        keep = best >= min_score
+        w, h = img.size
+        found = []
+        for (cx, cy, bw, bh), c, s in zip(out[keep, :4], cls[keep], best[keep]):
+            label = COCO_ANIMALS.get(int(c)) or ("person" if int(c) == PERSON else None)
+            if not label:
+                continue
+            x0, y0 = (cx - bw / 2 - px) / r / w, (cy - bh / 2 - py) / r / h
+            x1, y1 = (cx + bw / 2 - px) / r / w, (cy + bh / 2 - py) / r / h
+            found.append({"label": label, "score": float(s),
+                          "box": [max(0.0, float(x0)), max(0.0, float(y0)), min(1.0, float(x1)), min(1.0, float(y1))]})
+        return nms(found)
+
+
 def detect_crop(det, img, box, side=256, min_score=0.10):
     """Detect inside a square window of the frame: box = (x0, y0, x1, y1) in 0..1, run at `side` pixels; boxes are
     returned in the whole frame's 0..1 coordinates."""

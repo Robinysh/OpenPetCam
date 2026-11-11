@@ -101,6 +101,12 @@ FRAME_W = _size("FRAME_WIDTH", 640, 160)
 FRAME_H = FRAME_W * 9 // 16
 DETECT_W = _size("DETECT_WIDTH", 416, 32)
 
+# The object detector that proposes boxes: yolox (YOLOX-nano, Apache-2.0, the default) or yolo26 (YOLO26-small via
+# tools/make_yolo26.py, AGPL-3.0: check that licence suits you). Without its model file the watcher uses YOLOX.
+DETECTOR = SITE.get("DETECTOR", "yolox").strip().lower()
+if DETECTOR not in ("yolox", "yolo26"):
+    DETECTOR = "yolox"
+
 # What the pet is: dog or cat. Picks the verifier's ImageNet classes (dog breeds 151-268, domestic cats 281-285) in
 # models/verifier.json (tools/fetch_models.sh sets it up from verifier.default.json / verifier.cat.json).
 PET_KIND = SITE.get("PET_KIND", "dog").strip().lower()

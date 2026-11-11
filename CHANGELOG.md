@@ -9,6 +9,12 @@ Releases are published from version tags; servers on `UPDATE_CHANNEL=release` in
   `tools/fetch_models.sh` keeps an untrained `verifier.json` in step with it, and `tools/bootstrap_pet.py` uses the same
   classes for its baseline. No cat sound classes yet. The starting threshold (0.34) is not fitted to cat data.
 
+### Detector
+- `DETECTOR=yolo26` (default `yolox`) swaps YOLOX-nano for YOLO26-small (`server/detector.py` `Yolo26Detector`, one
+  thread, input size from `DETECT_WIDTH`). `tools/fetch_models.sh` builds its ONNX once from pinned weights with
+  `tools/make_yolo26.py`; the watcher falls back to YOLOX if the file is missing. YOLO26 is AGPL-3.0. The native-size
+  second look is skipped with it. Thresholds still come from the verifier, not from the detector score.
+
 ### Raspberry Pi camera
 - `CAMERA=rpi` runs everything on one Raspberry Pi with a Pi camera module: MediaMTX reads it directly (`rpiCamera`),
   with no WireGuard tunnel and no cloud VM. `deploy.sh` and the tools accept `SSH_HOST=local`.

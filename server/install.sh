@@ -90,7 +90,7 @@ install -d -m 750 -o mediamtx -g mediamtx /var/lib/mediamtx /var/lib/mediamtx/re
   /opt/petcam/venv/bin/pip install -q onnxruntime ai-edge-litert
 /opt/petcam/venv/bin/python -c "import pywebpush" 2>/dev/null || /opt/petcam/venv/bin/pip install -q pywebpush
 install -d -m 755 /opt/petcam/models
-for m in yolox_nano.onnx yolox_nano_dyn.onnx yamnet.tflite yamnet_class_map.csv mobilenetv2-12.onnx petnet.onnx verifier.json follow_policy.json follow_ppo.onnx room_map.json; do
+for m in yolox_nano.onnx yolox_nano_dyn.onnx yolo26s.onnx yamnet.tflite yamnet_class_map.csv mobilenetv2-12.onnx petnet.onnx verifier.json follow_policy.json follow_ppo.onnx room_map.json; do
   [ -f "$SRC/models/$m" ] && install -m 644 "$SRC/models/$m" /opt/petcam/models/
 done
 # A learned Follow policy that is no longer shipped must stop running: set it aside (not deleted, for the record).

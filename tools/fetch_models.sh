@@ -3,6 +3,7 @@
 #   YOLOX-nano (Apache-2.0, Megvii)      pet/person detector
 #   MobileNetV2 (Apache-2.0, ONNX zoo)   "is this really the pet?" verifier features
 #   YAMNet (Apache-2.0, Google)          dog-sound classifier, + its class map
+#   YOLO26-small (AGPL-3.0, Ultralytics) optional detector, only with DETECTOR=yolo26 in site.env
 set -euo pipefail
 cd "$(dirname "$0")/../models" 2>/dev/null || { mkdir -p "$(dirname "$0")/../models"; cd "$(dirname "$0")/../models"; }
 get() {  # name url sha256
@@ -37,6 +38,24 @@ if [ ! -f yolox_nano_dyn.onnx ]; then
     rm -rf "$tmpenv"
   fi
   [ -f yolox_nano_dyn.onnx ] || echo "WARNING: no yolox_nano_dyn.onnx (needs the onnx package): the watcher uses the plain square detector and skips its native-size second look, which is less sensitive to small pets."
+fi
+# DETECTOR=yolo26 (site.env): YOLO26-small instead of YOLOX-nano. Ultralytics ships PyTorch weights only, so the free-shape
+# ONNX is exported here from the pinned weights in a cached build virtualenv (ultralytics + CPU torch, ~1.5 GB, built once
+# under ~/.cache/petcam-build, not /tmp). YOLO26 is AGPL-3.0: check that licence suits you.
+if [ "${DETECTOR:-yolox}" = yolo26 ] && [ ! -f yolo26s.onnx ]; then
+  here=$(pwd); tools="$here/../tools"
+  build="${XDG_CACHE_HOME:-$HOME/.cache}/petcam-build"; mkdir -p "$build"
+  pt="$build/yolo26s.pt"
+  if ! { [ -f "$pt" ] && echo "646f8bc3fe0a656803d95c294f7852321748cb29d13466a1af8862e2db384a1b  $pt" | shasum -a 256 -c --quiet - 2>/dev/null; }; then
+    curl -fsSL -m 300 -o "$pt.part" https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s.pt
+    echo "646f8bc3fe0a656803d95c294f7852321748cb29d13466a1af8862e2db384a1b  $pt.part" | shasum -a 256 -c --quiet - && mv "$pt.part" "$pt"
+  fi
+  if [ ! -x "$build/venv/bin/python" ] || ! "$build/venv/bin/python" -c "import ultralytics, onnx, onnxruntime" 2>/dev/null; then
+    python3 -m venv "$build/venv" && "$build/venv/bin/python" -m pip install -q ultralytics onnx onnxruntime \
+      --extra-index-url https://download.pytorch.org/whl/cpu
+  fi
+  (cd "$build" && "$build/venv/bin/python" "$tools/make_yolo26.py" "$pt" "$here/yolo26s.onnx") \
+    || echo "WARNING: could not build yolo26s.onnx: the watcher falls back to YOLOX."
 fi
 # The verifier config: zero-shot "any dog breed" (PET_KIND=cat: "any domestic cat") until tools/bootstrap_pet.py trains
 # one for your pet. An untrained verifier follows PET_KIND (so changing it takes effect); a trained one is never replaced.

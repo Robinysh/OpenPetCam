@@ -35,7 +35,7 @@ from PIL import Image
 sys.path.insert(0, "/opt/petcam")
 import app as camapi  # noqa: E402  - camera session login + motor/status helpers
 import petconf  # noqa: E402
-from detector import Detector  # noqa: E402
+from detector import Detector, Yolo26Detector  # noqa: E402
 from fasttrack import FastTrack  # noqa: E402
 from tracker import Tracker  # noqa: E402
 import tracker as T  # noqa: E402
@@ -58,6 +58,7 @@ HOUSE_FILE = f"{STATE}/housekeeping_day"            # date of the last nightly h
 SEARCH_MEMORY_FILE = f"{STATE}/search_memory.json"  # empty-search budget and cooldown across watcher restarts
 MODEL = "/opt/petcam/models/yolox_nano.onnx"
 MODEL_DYN = "/opt/petcam/models/yolox_nano_dyn.onnx"   # the same weights with a free input size (tools/make_dyn_detector.py)
+MODEL_Y26 = "/opt/petcam/models/yolo26s.onnx"          # DETECTOR=yolo26 (tools/make_yolo26.py): free input size too
 DETECT_RECT = True    # run the detector at 256x416 (the 16:9 frame without square padding): same answers on 389 recorded
                       # frames with her and 242 without, 37% less detector time (sim/world/detcost.py).
                       # Without that model file (a GitHub release ships no models) the square input runs, as before.
@@ -1269,8 +1270,16 @@ def pet_moving(prev_box, box, diff):
 
 class Watch:
     def __init__(self):
-        self.det_dynamic = DETECT_RECT and os.path.exists(MODEL_DYN)
-        self.det = Detector(MODEL_DYN, shape=DETECT_SHAPE) if self.det_dynamic else Detector(MODEL)
+        self.use_y26 = petconf.DETECTOR == "yolo26" and os.path.exists(MODEL_Y26)
+        if petconf.DETECTOR == "yolo26" and not self.use_y26:
+            log(f"DETECTOR=yolo26 but {MODEL_Y26} is missing (tools/make_yolo26.py): using YOLOX")
+        # The native-size second look is a YOLOX remedy (its usual pass runs small); YOLO26 already runs at DETECT_WIDTH.
+        self.det_dynamic = not self.use_y26 and DETECT_RECT and os.path.exists(MODEL_DYN)
+        if self.use_y26:
+            self.det = Yolo26Detector(MODEL_Y26, shape=DETECT_SHAPE)
+        else:
+            self.det = Detector(MODEL_DYN, shape=DETECT_SHAPE) if self.det_dynamic else Detector(MODEL)
+        log(f"detector: {'yolo26' if self.use_y26 else 'yolox'} at {self.det.shape[1]}x{self.det.shape[0]}")
         try:
             self.verifier = Verifier()
             log(f"verifier: {self.verifier.cfg['mode']} threshold {self.verifier.threshold}")
@@ -1279,7 +1288,7 @@ class Watch:
             log("verifier unavailable, using detector score only:", e)
         # Read weights once at startup, never during a frame cycle. A fingerprint identifies
         # the pipeline that produced the passive evidence; it is not an accuracy claim.
-        paths = [MODEL_DYN if DETECT_RECT and os.path.exists(MODEL_DYN) else MODEL]
+        paths = [MODEL_Y26 if self.use_y26 else MODEL_DYN if DETECT_RECT and os.path.exists(MODEL_DYN) else MODEL]
         if self.verifier:
             cfg = self.verifier.cfg
             paths += [VERIFIER, os.path.join(os.path.dirname(VERIFIER), cfg.get("model") if cfg.get("mode") == "finetuned"
